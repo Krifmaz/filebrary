@@ -608,3 +608,92 @@ async fn activity_is_scoped_and_paged() {
         .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
 }
+
+/// A symlink inside bob's folder that points elsewhere in the source must not
+/// let him trash, restore into or tag files outside his scope.
+#[cfg(unix)]
+#[tokio::test]
+async fn symlinks_cannot_escape_the_scope() {
+    let e = env().await;
+    std::fs::create_dir_all(e.root.join("private")).unwrap();
+    std::fs::write(e.root.join("private/p.txt"), b"private").unwrap();
+    std::os::unix::fs::symlink(e.root.join("private"), e.root.join("home/bob/link")).unwrap();
+
+    let (s, _) = e
+        .call(
+            &e.bob,
+            Method::POST,
+            "/api/trash",
+            Some(json!({"source": "files", "paths": ["link/p.txt"]})),
+        )
+        .await;
+    assert!(
+        s == StatusCode::FORBIDDEN || s == StatusCode::NOT_FOUND,
+        "{s}"
+    );
+    assert!(e.root.join("private/p.txt").exists());
+
+    let (s, _) = e
+        .call(
+            &e.bob,
+            Method::PUT,
+            "/api/tags/file",
+            Some(json!({"source": "files", "path": "link/p.txt", "tags": ["x"]})),
+        )
+        .await;
+    assert!(
+        s == StatusCode::FORBIDDEN || s == StatusCode::NOT_FOUND,
+        "{s}"
+    );
+    let (s, _) = e
+        .call(
+            &e.bob,
+            Method::PUT,
+            "/api/stars",
+            Some(json!({"source": "files", "path": "link/p.txt"})),
+        )
+        .await;
+    assert!(
+        s == StatusCode::FORBIDDEN || s == StatusCode::NOT_FOUND,
+        "{s}"
+    );
+
+    // Restoring through the link is refused and the item stays in the trash.
+    let (_, v) = e
+        .call(
+            &e.bob,
+            Method::POST,
+            "/api/trash",
+            Some(json!({"source": "files", "paths": ["b.txt"]})),
+        )
+        .await;
+    let id = v["trashed"][0]["id"].as_str().unwrap().to_owned();
+    let (s, _) = e
+        .call(
+            &e.bob,
+            Method::POST,
+            &format!("/api/trash/{id}/restore"),
+            Some(json!({"to": "link/b.txt"})),
+        )
+        .await;
+    assert!(
+        s == StatusCode::FORBIDDEN || s == StatusCode::NOT_FOUND,
+        "{s}"
+    );
+    assert!(!e.root.join("private/b.txt").exists());
+    let (_, list) = e.call(&e.bob, Method::GET, "/api/trash", None).await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+
+    // Trashing the link itself moves the link, never its target.
+    let (s, v) = e
+        .call(
+            &e.bob,
+            Method::POST,
+            "/api/trash",
+            Some(json!({"source": "files", "paths": ["link"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert!(e.root.join("private/p.txt").exists());
+    assert!(!e.root.join("home/bob/link").exists());
+}

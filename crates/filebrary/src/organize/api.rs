@@ -42,6 +42,7 @@ use super::{
 };
 use crate::{
     activity::{Activity, ClientIp, action},
+    api::files,
     auth::{AuthUser, Perms, User},
     db,
     error::{AppError, AppResult},
@@ -89,10 +90,13 @@ fn require_real(user: &User, source: &str, perm: Perms, real: &VPath) -> AppResu
     Ok(vis)
 }
 
-/// Fails with `NotFound` unless the real path exists.
-async fn must_exist(state: &AppState, source: &str, real: &VPath) -> AppResult<()> {
-    let src = state.source(source).ok_or(AppError::NotFound)?;
-    src.storage.stat(real).await?;
+/// Fails with `NotFound` unless the real path exists *as seen through the
+/// user's confined backend*, so a symlink in the user's folder that points
+/// elsewhere in the source is refused rather than followed.
+async fn must_exist(state: &AppState, user: &User, source: &str, real: &VPath) -> AppResult<()> {
+    let vis = user.visible_path(source, real).ok_or(AppError::NotFound)?;
+    let backend = files::scoped(state, user, source, Perms::VIEW, &vis).await?;
+    backend.stat(&vis).await?;
     Ok(())
 }
 
@@ -144,12 +148,13 @@ async fn trash_add(
     if req.paths.is_empty() || req.paths.len() > 1000 {
         return Err(AppError::bad_request("send between 1 and 1000 paths"));
     }
-    // Check every path before touching any of them.
-    let reals = req
-        .paths
-        .iter()
-        .map(|p| resolve(&auth.user, &req.source, Perms::DELETE, p))
-        .collect::<AppResult<Vec<_>>>()?;
+    // Check every path before touching any of them. `confine` resolves
+    // symlinks inside the user's folder so the move cannot reach outside it.
+    let mut reals = Vec::with_capacity(req.paths.len());
+    for p in &req.paths {
+        let vis = VPath::parse(p)?;
+        reals.push(super::confine(&state, &auth.user, &req.source, Perms::DELETE, &vis).await?);
+    }
     let mut out = TrashResponse {
         trashed: Vec::new(),
         deleted: Vec::new(),
@@ -208,16 +213,23 @@ async fn trash_restore(
     let req = body.map(|Json(b)| b).unwrap_or_default();
     let item = trash::get(&state, &id).await?;
     let original = item.original()?;
-    require_real(&auth.user, &item.source, Perms::DELETE, &original)?;
-    let to = match &req.to {
-        Some(p) => Some(resolve(&auth.user, &item.source, Perms::UPLOAD, p)?),
-        None => None,
+    let original_vis = require_real(&auth.user, &item.source, Perms::DELETE, &original)?;
+    let (dest_vis, perm) = match &req.to {
+        Some(p) => (VPath::parse(p)?, Perms::UPLOAD),
+        None => (original_vis, Perms::DELETE),
     };
-    if req.on_conflict == OnConflict::Overwrite {
-        let target = to.clone().unwrap_or_else(|| original.clone());
-        require_real(&auth.user, &item.source, Perms::EDIT, &target)?;
+    if dest_vis.is_root() {
+        return Err(AppError::bad_request("invalid restore target"));
     }
-    let dest = trash::restore(&state, &item, to, req.on_conflict).await?;
+    if req.on_conflict == OnConflict::Overwrite {
+        auth.user.require(&item.source, Perms::EDIT, &dest_vis)?;
+    }
+    // Create missing parents through the confined backend, then resolve the
+    // target symlink-free: the folders may have changed since the delete.
+    let backend = files::scoped(&state, &auth.user, &item.source, perm, &dest_vis).await?;
+    backend.mkdir(&dest_vis.parent().expect("not root")).await?;
+    let to = super::confine(&state, &auth.user, &item.source, perm, &dest_vis).await?;
+    let dest = trash::restore(&state, &item, Some(to), req.on_conflict).await?;
     Activity::new(action::RESTORE)
         .user(&auth.user)
         .at(&item.source, &original)
@@ -508,7 +520,7 @@ async fn tag_files_change(
         .collect::<AppResult<Vec<_>>>()?;
     if add {
         for real in &reals {
-            must_exist(state, &body.source, real).await?;
+            must_exist(state, user, &body.source, real).await?;
         }
     }
     let now = db::now();
@@ -587,7 +599,7 @@ async fn file_tags_set(
     if real.is_root() {
         return Err(AppError::bad_request("the source root cannot be tagged"));
     }
-    must_exist(&state, &body.source, &real).await?;
+    must_exist(&state, &auth.user, &body.source, &real).await?;
     let mut wanted = BTreeMap::new(); // lowercase name -> cleaned name
     for t in &body.tags {
         let n = clean_tag_name(t)?;
@@ -709,7 +721,7 @@ async fn star_add(
     Json(body): Json<StarBody>,
 ) -> AppResult<StatusCode> {
     let real = resolve(&auth.user, &body.source, Perms::VIEW, &body.path)?;
-    must_exist(&state, &body.source, &real).await?;
+    must_exist(&state, &auth.user, &body.source, &real).await?;
     sqlx::query(
         "INSERT OR IGNORE INTO stars (user_id, source, path, created_at) VALUES (?, ?, ?, ?)",
     )

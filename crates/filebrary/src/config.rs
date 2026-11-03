@@ -193,7 +193,8 @@ impl Config {
         if let Some(v) = get("FILEBRARY_ACTIVITY_RETENTION_DAYS") {
             self.activity_retention_days = parse("FILEBRARY_ACTIVITY_RETENTION_DAYS", &v)?;
         }
-        if let Some(v) = get("FILEBRARY_SOURCES") {
+        // An empty value counts as unset, so a mounted config file's [[sources]] can win.
+        if let Some(v) = get("FILEBRARY_SOURCES").filter(|v| !v.trim().is_empty()) {
             self.sources = parse_sources(&v)?;
         }
         Ok(())

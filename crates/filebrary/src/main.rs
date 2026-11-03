@@ -46,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
     let secret = crypto::load_or_create_secret(&config.data_dir)?;
     let listen = config.listen;
     let state = AppState::new(config, pool, secret)?;
-    filebrary::organize::spawn_maintenance(state.clone());
+    filebrary::spawn_maintenance(state.clone());
 
     let listener = tokio::net::TcpListener::bind(listen)
         .await

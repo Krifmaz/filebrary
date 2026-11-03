@@ -26,6 +26,8 @@ pub struct Inner {
     pub secret: [u8; 32],
     /// Directory where resumable uploads are staged.
     pub upload_dir: PathBuf,
+    /// Upload ids with a chunk currently being written (one writer at a time).
+    pub uploads_in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 impl Deref for AppState {
@@ -72,6 +74,7 @@ impl AppState {
             sources,
             secret,
             upload_dir,
+            uploads_in_flight: Default::default(),
         })))
     }
 
