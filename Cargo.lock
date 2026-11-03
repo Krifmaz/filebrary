@@ -671,7 +671,7 @@ dependencies = [
  "serde",
  "sevenz-rust2",
  "tar",
- "thiserror",
+ "thiserror 2.0.21",
  "zip",
 ]
 

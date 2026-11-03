@@ -72,3 +72,40 @@ path = "/srv/files"
 [[sources]]
 name = "media"
 path = "/mnt/pool/media"   # a mergerfs or other FUSE mount works too
+
+# --- Jobs, conversions and archives ----------------------------------------
+
+[jobs]
+# Jobs that run at the same time (1-64). Conversions are CPU heavy.
+workers = 2
+# Days finished jobs stay in the job list.
+retain_days = 7
+# Conversion tools: a name looked up on PATH, or a full path. The -full
+# Docker image includes all three.
+ffmpeg = "ffmpeg"
+ffprobe = "ffprobe"
+soffice = "soffice"
+# Longest one external program may run, in seconds.
+timeout_secs = 21600
+# Most files one "create archive" job may pack.
+max_archive_files = 200000
+# Most entries listed when browsing inside an archive.
+max_archive_entries = 100000
+# Largest single file that can be read out of an archive, in MiB.
+max_archive_entry_mib = 4096
+
+# Custom jobs: defined here only, never from the web UI. The program runs
+# directly (no shell) on a private copy of the file.
+# [[jobs.custom]]
+# name = "optimise-png"            # a-z, 0-9, '-', '_'; kind "custom.<name>"
+# title = "Optimise PNG"
+# description = "Losslessly shrink PNG files"
+# program = "optipng"
+# args = ["-quiet", "-o2", "{input}"]   # placeholders: {input} {output_dir} {ext}
+# extensions = ["png"]             # empty: any file
+# output = "replace"               # none | replace | files
+# permission = "download"          # download | upload | edit
+# admin_only = false
+# timeout_secs = 600               # default: jobs.timeout_secs
+# env = { OPTIPNG_LEVEL = "2" }
+# workdir = "/var/tmp"             # default: the job's private folder

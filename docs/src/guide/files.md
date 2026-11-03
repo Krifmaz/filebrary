@@ -57,8 +57,20 @@ highlighting. Saving needs the **edit** permission.
 
 ## Archives
 
-> **Planned for Phase 3.** See [Feature status](../status.md).
+Create a zip or tar.gz from a selection with **Create archive**; it runs as
+a [job](jobs.md#archives) and the archive is saved in the folder you choose.
 
-Create a zip or tar.gz from a selection, stored next to it. Open zip, tar
-and 7z files to browse and download single entries without extracting the
-whole archive.
+Open a zip (also `.jar`, `.cbz`), tar, tar.gz or 7z file to browse its
+folders and download single files without extracting the whole archive.
+Only the archive's index and the file you open are read, even on remote
+sources. Browsing needs the **download** permission. Entries with unsafe
+names (such as `../`) are hidden, and limits on entry count and size
+([`jobs.max_archive_entries`](../configuration/reference.md#jobsmax_archive_entries),
+[`jobs.max_archive_entry_mib`](../configuration/reference.md#jobsmax_archive_entry_mib))
+protect the server from hostile archives. Files from inside an archive are
+always downloaded, never displayed in the page.
+
+API: `GET /api/sources/{id}/archive?path=/a.zip&dir=docs` lists a folder
+inside the archive (leave out `dir` for every entry);
+`GET /api/sources/{id}/archive/entry?path=/a.zip&entry=docs/readme.txt`
+downloads one file.
