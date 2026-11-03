@@ -129,7 +129,8 @@ impl Harness {
     }
 }
 
-/// The ETag the server computes for `content`.
+/// The ETag the server computes for `content` (used by the Unix symlink checks).
+#[cfg(unix)]
 fn etag_of(content: &str) -> String {
     filebrary::api::text::etag_for(content.as_bytes())
 }
