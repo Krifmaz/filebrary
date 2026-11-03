@@ -100,8 +100,8 @@ jobs:
           TAG: ${{ steps.plan.outputs.tag }}
           SHA: ${{ steps.check.outputs.sha }}
         run: |
-          existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha' 2>/dev/null || true)"
-          if [[ -n "$existing" ]]; then
+          # Decide on the exit status: on a 404, gh still prints the error body.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null 2>&1; then
             # An annotated tag points at a tag object; resolve it to its commit.
             commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq '.sha')"
             if [[ "$commit" == "$SHA" ]]; then
