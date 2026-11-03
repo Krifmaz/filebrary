@@ -149,6 +149,14 @@ pub fn source_for<'a>(state: &'a AppState, user: &User, id: &str) -> AppResult<&
     }
 }
 
+/// Tells the search index that `visible` (a path as `user` sees it) changed.
+pub fn index_changed(state: &AppState, user: &crate::auth::User, source: &str, visible: &VPath) {
+    if user.grant(source).is_some() {
+        let real = user.scope(source).join_path(visible);
+        state.search.changed(state, source, &real);
+    }
+}
+
 /// Checks `perm` on `path` and returns the source's backend confined to the
 /// user's scope. Paths given to the returned backend are user-visible paths.
 ///
@@ -395,6 +403,7 @@ async fn mkdir(
         return Err(AppError::conflict("the target already exists"));
     }
     st.mkdir(&body.path).await?;
+    index_changed(&state, &auth.user, &id, &body.path);
     let e = st.stat(&body.path).await?;
     Activity::new(action::MKDIR)
         .user(&auth.user)
@@ -430,6 +439,7 @@ async fn move_entry(
     }
     st.rename(&body.from, &body.to, body.overwrite).await?;
     meta::on_move(&state.db, &id, &from, &id, &to).await?;
+    state.search.renamed(&state, &id, &from, &to);
     Activity::new(action::MOVE)
         .user(&auth.user)
         .at(&id, &from)
@@ -467,6 +477,7 @@ async fn copy_entry(
         meta::on_delete(&state.db, &id, &to).await?;
     }
     meta::on_copy(&state.db, &id, &from, &id, &to).await?;
+    state.search.changed(&state, &id, &to);
     Activity::new(action::COPY)
         .user(&auth.user)
         .at(&id, &from)
@@ -528,6 +539,7 @@ async fn delete(
         .await;
         match outcome {
             Ok((real, removed)) => {
+                state.search.removed(&state, &id, &real);
                 let ev = match &removed {
                     Removed::Trashed(item) => Activity::new(action::TRASH)
                         .details(serde_json::json!({ "trash_id": item.id })),

@@ -85,58 +85,56 @@ fn options_for(name: &str, size: u64) -> SimpleFileOptions {
 /// into an archive. The flag is `true` for folders.
 pub type ZipFilter = Arc<dyn Fn(&VPath, bool) -> bool + Send + Sync>;
 
-/// Writes `items` (real paths) into the archive, recursing into folders.
-/// Entries rejected by `keep` (by their path or their symlink-resolved
-/// path) are skipped silently.
+/// One top-level entry of an archive: a file or folder in some backend, the
+/// name it gets inside the archive, and the filter for what lies below it.
+#[derive(Clone)]
+pub struct ZipRoot {
+    /// Backend holding the item.
+    pub storage: Arc<dyn Storage>,
+    /// Path of the item inside `storage`.
+    pub path: VPath,
+    /// Name of the item inside the archive.
+    pub name: String,
+    /// Which entries may go in (see [`ZipFilter`]).
+    pub keep: ZipFilter,
+}
+
+/// Writes `roots` into the archive, recursing into folders. Entries rejected
+/// by their root's `keep` (by their path or their symlink-resolved path) are
+/// skipped silently.
 fn write_archive(
     rt: &tokio::runtime::Handle,
-    storage: &dyn Storage,
-    items: &[VPath],
-    keep: &ZipFilter,
+    roots: &[ZipRoot],
     out: ChannelWriter,
 ) -> anyhow::Result<()> {
     let mut zip = zip::ZipWriter::new_stream(out);
-    // The root has no name; archive its children instead.
-    let expanded;
-    let items = if items.len() == 1 && items[0].is_root() {
-        expanded = rt
-            .block_on(storage.list(&VPath::root()))?
-            .into_iter()
-            // Never pack the trash folder when zipping a whole source.
-            .filter(|e| e.name != crate::organize::trash::TRASH_DIR)
-            .map(|e| e.path)
-            .collect::<Vec<_>>();
-        &expanded[..]
-    } else {
-        items
-    };
-    // (real path, name inside the archive)
-    let mut stack: Vec<(VPath, String)> = items
-        .iter()
-        .rev()
-        .filter_map(|p| p.name().map(|n| (p.clone(), n.to_owned())))
-        .collect();
-    while let Some((path, name)) = stack.pop() {
-        let entry = rt.block_on(storage.stat(&path))?;
-        let is_dir = entry.kind == EntryKind::Dir;
-        let resolved = rt.block_on(storage.resolve(&path))?;
-        if !keep(&path, is_dir) || (resolved != path && !keep(&resolved, is_dir)) {
-            continue;
-        }
-        match entry.kind {
-            EntryKind::Dir => {
-                zip.add_directory(format!("{name}/"), SimpleFileOptions::default())?;
-                let mut children = rt.block_on(storage.list(&path))?;
-                children.sort_by(|a, b| b.name.cmp(&a.name));
-                for c in children {
-                    stack.push((c.path.clone(), format!("{name}/{}", c.name)));
-                }
+    for root in roots {
+        let storage = root.storage.as_ref();
+        let keep = &root.keep;
+        // (real path, name inside the archive)
+        let mut stack: Vec<(VPath, String)> = vec![(root.path.clone(), root.name.clone())];
+        while let Some((path, name)) = stack.pop() {
+            let entry = rt.block_on(storage.stat(&path))?;
+            let is_dir = entry.kind == EntryKind::Dir;
+            let resolved = rt.block_on(storage.resolve(&path))?;
+            if !keep(&path, is_dir) || (resolved != path && !keep(&resolved, is_dir)) {
+                continue;
             }
-            EntryKind::File => {
-                zip.start_file(name.as_str(), options_for(&name, entry.size))?;
-                let mut stream = rt.block_on(storage.read(&path, None))?;
-                while let Some(chunk) = rt.block_on(stream.next()) {
-                    zip.write_all(&chunk?)?;
+            match entry.kind {
+                EntryKind::Dir => {
+                    zip.add_directory(format!("{name}/"), SimpleFileOptions::default())?;
+                    let mut children = rt.block_on(storage.list(&path))?;
+                    children.sort_by(|a, b| b.name.cmp(&a.name));
+                    for c in children {
+                        stack.push((c.path.clone(), format!("{name}/{}", c.name)));
+                    }
+                }
+                EntryKind::File => {
+                    zip.start_file(name.as_str(), options_for(&name, entry.size))?;
+                    let mut stream = rt.block_on(storage.read(&path, None))?;
+                    while let Some(chunk) = rt.block_on(stream.next()) {
+                        zip.write_all(&chunk?)?;
+                    }
                 }
             }
         }
@@ -169,8 +167,46 @@ pub async fn zip_response(
             "select at least one item (and not the root with others)",
         ));
     }
-    for item in &items {
-        storage.stat(item).await?;
+    // The root has no name; archive its children instead.
+    let items = if items.len() == 1 && items[0].is_root() {
+        storage
+            .list(&VPath::root())
+            .await?
+            .into_iter()
+            // Never pack the trash folder when zipping a whole source.
+            .filter(|e| e.name != crate::organize::trash::TRASH_DIR)
+            .map(|e| e.path)
+            .collect()
+    } else {
+        items
+    };
+    let roots = items
+        .into_iter()
+        .filter_map(|p| {
+            let name = p.name()?.to_owned();
+            Some(ZipRoot {
+                storage: storage.clone(),
+                path: p,
+                name,
+                keep: keep.clone(),
+            })
+        })
+        .collect();
+    zip_roots_response(roots, file_name).await
+}
+
+/// Returns a streaming zip of entries that may come from different backends
+/// (for example a shared collection spanning several sources). Names should
+/// be unique.
+///
+/// Every entry is checked before streaming starts.
+///
+/// # Errors
+///
+/// Fails if an entry cannot be accessed.
+pub async fn zip_roots_response(roots: Vec<ZipRoot>, file_name: &str) -> AppResult<Response> {
+    for r in &roots {
+        r.storage.stat(&r.path).await?;
     }
     let (tx, rx) = mpsc::channel::<std::io::Result<Bytes>>(8);
     let rt = tokio::runtime::Handle::current();
@@ -180,7 +216,7 @@ pub async fn zip_response(
             tx,
             buf: Vec::with_capacity(CHUNK),
         };
-        if let Err(e) = write_archive(&rt, storage.as_ref(), &items, &keep, out) {
+        if let Err(e) = write_archive(&rt, &roots, out) {
             tracing::warn!(error = %e, "zip stream aborted");
             // Make the client see a failed transfer instead of a truncated "success".
             let _ = err_tx.blocking_send(Err(std::io::Error::other("archive failed")));

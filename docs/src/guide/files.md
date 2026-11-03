@@ -50,10 +50,27 @@ attached when files are renamed, moved or trashed. API: `/api/comments`.
 
 ## Text editor
 
-> **Planned for Phase 2.** See [Feature status](../status.md).
+Text and code files open in a built-in editor (CodeMirror) when you click
+them. It has syntax highlighting for about 100 languages, search and replace
+(Ctrl/Cmd+F), line wrapping and Ctrl/Cmd+S to save.
 
-Text and code files open in a built-in editor (CodeMirror) with syntax
-highlighting. Saving needs the **edit** permission.
+* Opening a file needs **download**; saving changes needs **edit**. Without
+  **edit** the file opens read-only.
+* Files up to 5 MiB that are UTF-8 text open in the editor. Larger or binary
+  files are offered as a download instead.
+* Saving never silently overwrites someone else's change. If the file was
+  changed since you opened it (in another tab, by another user, through
+  WebDAV or directly on disk), the editor says so and lets you load their
+  version, overwrite it with yours, or keep editing.
+* The editor warns you before you close it, or leave the page, with unsaved
+  changes.
+* Every save is recorded in the [activity log](../organize.md) as `edit`.
+
+API: `GET /api/sources/{id}/text?path=...` returns
+`{path, content, etag, size, modified}`. `PUT` on the same URL saves the raw
+body and needs `If-Match: <etag>` from the load (or `If-None-Match: *` to
+create a new file). A stale ETag gets `412 precondition_failed` with the
+current `etag`; a save without either header gets `428`.
 
 ## Archives
 
