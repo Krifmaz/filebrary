@@ -75,6 +75,9 @@ async fn create(
 ) -> ShareResult<(StatusCode, Json<ShareResponse>)> {
     let user = &auth.user;
     let now = now();
+    if req.source.is_empty() {
+        return Err(ShareError::bad_request("source is required"));
+    }
     if req.paths.is_empty() {
         return Err(ShareError::bad_request("paths must not be empty"));
     }

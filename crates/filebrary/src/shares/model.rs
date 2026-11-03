@@ -15,8 +15,10 @@ pub const MAX_PATHS: usize = 100;
 #[serde(deny_unknown_fields)]
 pub struct CreateShareRequest {
     /// Source id the paths belong to.
+    #[serde(default)]
     pub source: String,
-    /// One or more source-relative paths to share.
+    /// One or more paths to share (as the caller sees them).
+    #[serde(default)]
     pub paths: Vec<String>,
     /// Optional password visitors must enter.
     #[serde(default)]

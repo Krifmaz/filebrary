@@ -63,7 +63,28 @@ async fn setup() -> Env {
     }
 }
 
+// Everything that touches the auth schema directly is in `user`, `set_perms`
+// and `disable`, so a schema change only needs those updated.
 impl Env {
+    /// Replaces a non-admin user's permissions on the "files" source.
+    async fn set_perms(&self, id: i64, perms: Perms) {
+        sqlx::query("UPDATE user_sources SET perms = ? WHERE user_id = ?")
+            .bind(perms.bits())
+            .bind(id)
+            .execute(&self.state.db)
+            .await
+            .unwrap();
+    }
+
+    /// Disables a user account.
+    async fn disable(&self, id: i64) {
+        sqlx::query("UPDATE users SET disabled = 1 WHERE id = ?")
+            .bind(id)
+            .execute(&self.state.db)
+            .await
+            .unwrap();
+    }
+
     /// Adds a user. Non-admins get `perms` on the whole source, or on `scope`.
     async fn user(&self, name: &str, admin: bool, perms: Perms, scope: &str) -> (i64, Login) {
         let id: i64 = sqlx::query_scalar(
@@ -676,12 +697,8 @@ async fn permissions_and_ownership() {
         .await;
     assert_eq!(s, StatusCode::FORBIDDEN);
 
-    sqlx::query("UPDATE user_sources SET perms = ? WHERE user_id = ?")
-        .bind((Perms::VIEW | Perms::DOWNLOAD | Perms::SHARE).bits())
-        .bind(bob_id)
-        .execute(&env.state.db)
-        .await
-        .unwrap();
+    env.set_perms(bob_id, Perms::VIEW | Perms::DOWNLOAD | Perms::SHARE)
+        .await;
     // Bob's paths are relative to his scope; he cannot reach outside it.
     let share = env
         .create(&bob, json!({"source": "files", "paths": ["a.txt"]}))
@@ -747,26 +764,13 @@ async fn permissions_and_ownership() {
     // Losing the share right kills the link immediately.
     let url = format!("/api/public/shares/{token}/download");
     assert_eq!(env.get(&url).await.0, StatusCode::OK);
-    sqlx::query("UPDATE user_sources SET perms = ? WHERE user_id = ?")
-        .bind((Perms::VIEW | Perms::DOWNLOAD).bits())
-        .bind(bob_id)
-        .execute(&env.state.db)
-        .await
-        .unwrap();
+    env.set_perms(bob_id, Perms::VIEW | Perms::DOWNLOAD).await;
     assert_eq!(env.get(&url).await.0, StatusCode::NOT_FOUND);
-    sqlx::query("UPDATE user_sources SET perms = ? WHERE user_id = ?")
-        .bind((Perms::VIEW | Perms::DOWNLOAD | Perms::SHARE).bits())
-        .bind(bob_id)
-        .execute(&env.state.db)
-        .await
-        .unwrap();
+    env.set_perms(bob_id, Perms::VIEW | Perms::DOWNLOAD | Perms::SHARE)
+        .await;
     assert_eq!(env.get(&url).await.0, StatusCode::OK);
     // So does disabling the user.
-    sqlx::query("UPDATE users SET disabled = 1 WHERE id = ?")
-        .bind(bob_id)
-        .execute(&env.state.db)
-        .await
-        .unwrap();
+    env.disable(bob_id).await;
     assert_eq!(env.get(&url).await.0, StatusCode::NOT_FOUND);
 
     // Admin can revoke anyone's share.
