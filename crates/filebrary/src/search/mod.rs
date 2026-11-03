@@ -419,6 +419,24 @@ struct HookJob {
 }
 
 impl HookJob {
+    /// Reads the index row for `path`; the flag says whether it can be walked.
+    async fn row(&self, path: &VPath) -> anyhow::Result<Option<(IndexRow, bool)>> {
+        Ok(match &self.local_root {
+            Some(root) => {
+                let (root, path) = (root.clone(), path.clone());
+                tokio::task::spawn_blocking(move || {
+                    scan::local_row(&root, &scan::local_path(&root, &path), &path)
+                })
+                .await?
+            }
+            None => match self.source.storage.stat(path).await {
+                Ok(e) => Some((IndexRow::from_entry(&e), e.is_dir())),
+                Err(crate::storage::StorageError::NotFound) => None,
+                Err(e) => return Err(e.into()),
+            },
+        })
+    }
+
     /// Re-reads the path; walks it if it is a folder.
     async fn refresh(&self) -> anyhow::Result<()> {
         self.refresh_shallow(true).await
@@ -427,20 +445,7 @@ impl HookJob {
     /// Re-reads the path; walks it if it is a folder and `walk` is set.
     async fn refresh_shallow(&self, walk: bool) -> anyhow::Result<()> {
         let name = &self.source.name;
-        let row = match &self.local_root {
-            Some(root) => {
-                let (root, path) = (root.clone(), self.path.clone());
-                tokio::task::spawn_blocking(move || {
-                    scan::local_row(&root, &scan::local_path(&root, &path), &path)
-                })
-                .await?
-            }
-            None => match self.source.storage.stat(&self.path).await {
-                Ok(e) => Some((IndexRow::from_entry(&e), e.is_dir())),
-                Err(crate::storage::StorageError::NotFound) => None,
-                Err(e) => return Err(e.into()),
-            },
-        };
+        let row = self.row(&self.path).await?;
         let Some((row, descend)) = row else {
             if self.search.store().remove(name, &self.path).await? > 0 {
                 self.search.publish(IndexEvent::Remove {
@@ -450,11 +455,21 @@ impl HookJob {
             }
             return Ok(());
         };
+        // Parent folders may be new too (an upload into a fresh folder).
+        let mut rows = Vec::new();
+        let mut parent = self.path.parent();
+        while let Some(p) = parent.filter(|p| !p.is_root()) {
+            if let Some((r, _)) = self.row(&p).await? {
+                rows.push(r);
+            }
+            parent = p.parent();
+        }
+        rows.push(row);
         let generation = self.search.generation(name);
         let out = self
             .search
             .store()
-            .upsert_batch(name, std::slice::from_ref(&row), generation)
+            .upsert_batch(name, &rows, generation)
             .await?;
         for r in out.changed {
             self.search.publish(IndexEvent::Upsert {

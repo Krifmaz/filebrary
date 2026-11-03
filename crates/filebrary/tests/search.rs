@@ -52,7 +52,8 @@ async fn user(state: &AppState, name: &str, admin: bool, grant: Option<(Perms, &
         .await
         .unwrap();
     }
-    session::create(state, id, None, None).await.unwrap().token
+    let sess = session::create(state, id, None, None).await.unwrap();
+    format!("{}|{}", sess.token, sess.csrf_token)
 }
 
 async fn env(watch: bool) -> Env {
@@ -90,6 +91,11 @@ async fn env(watch: bool) -> Env {
     }
 }
 
+fn cookie(token: &str) -> String {
+    let t = token.split_once('|').map_or(token, |(t, _)| t);
+    format!("{}={t}", session::SESSION_COOKIE)
+}
+
 impl Env {
     async fn scan(&self) -> scan::ScanStats {
         let src = self.state.source("files").unwrap();
@@ -100,10 +106,7 @@ impl Env {
 
     async fn get(&self, token: &str, uri: &str) -> (StatusCode, Value) {
         let req = Request::get(uri)
-            .header(
-                header::COOKIE,
-                format!("{}={token}", session::SESSION_COOKIE),
-            )
+            .header(header::COOKIE, cookie(token))
             .body(Body::empty())
             .unwrap();
         let resp = filebrary::app(self.state.clone())
@@ -113,6 +116,21 @@ impl Env {
         let status = resp.status();
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         (status, serde_json::from_slice(&body).unwrap_or(Value::Null))
+    }
+
+    async fn post(&self, token: &str, uri: &str, body: Value) -> StatusCode {
+        let csrf = token.split_once('|').map_or("", |(_, c)| c);
+        let req = Request::post(uri)
+            .header(header::COOKIE, cookie(token))
+            .header("x-csrf-token", csrf)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        filebrary::app(self.state.clone())
+            .oneshot(req)
+            .await
+            .unwrap()
+            .status()
     }
 
     async fn paths(&self, token: &str, query: &str) -> Vec<String> {
@@ -480,4 +498,65 @@ async fn file_operation_hooks_update_an_unwatched_source() {
     s.changed(&e.state, "files", &vp(".filebrary-trash/9"));
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(e.paths(&e.admin, "q=invoice").await.is_empty());
+}
+
+#[tokio::test]
+async fn file_api_operations_reach_the_index() {
+    let e = env(false).await;
+    e.scan().await;
+    let a = &e.admin;
+    let ok = |s: StatusCode| assert!(s.is_success(), "{s}");
+
+    ok(e.post(
+        a,
+        "/api/sources/files/mkdir",
+        serde_json::json!({"path": "/projects/alpha"}),
+    )
+    .await);
+    eventually("mkdir indexed with its new parent", async || {
+        e.paths(a, "type=dir&q=projects").await == ["/projects"]
+            && e.paths(a, "q=alpha").await == ["/projects/alpha"]
+    })
+    .await;
+
+    ok(e.post(
+        a,
+        "/api/sources/files/copy",
+        serde_json::json!({"from": "/docs", "to": "/projects/alpha/docs-copy"}),
+    )
+    .await);
+    eventually("copy walked", async || {
+        e.paths(a, "q=report&sort=path").await
+            == [
+                "/docs/report-final.pdf",
+                "/projects/alpha/docs-copy/report-final.pdf",
+            ]
+    })
+    .await;
+
+    ok(e.post(
+        a,
+        "/api/sources/files/move",
+        serde_json::json!({"from": "/projects", "to": "/work"}),
+    )
+    .await);
+    eventually("move followed", async || {
+        e.paths(a, "q=report&sort=path").await
+            == [
+                "/docs/report-final.pdf",
+                "/work/alpha/docs-copy/report-final.pdf",
+            ]
+    })
+    .await;
+
+    ok(e.post(
+        a,
+        "/api/sources/files/delete",
+        serde_json::json!({"paths": ["/work"]}),
+    )
+    .await);
+    eventually("delete followed", async || {
+        e.paths(a, "q=report").await == ["/docs/report-final.pdf"]
+    })
+    .await;
 }

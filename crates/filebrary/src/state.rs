@@ -29,6 +29,8 @@ pub struct Inner {
     pub upload_dir: PathBuf,
     /// Indexed search. Background indexing starts with [`crate::search::Search::start`].
     pub search: Search,
+    /// Upload ids with a chunk currently being written (one writer at a time).
+    pub uploads_in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 impl Deref for AppState {
@@ -78,6 +80,7 @@ impl AppState {
             sources,
             secret,
             upload_dir,
+            uploads_in_flight: Default::default(),
         })))
     }
 

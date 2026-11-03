@@ -73,3 +73,5 @@ uuid = { version = "1.29.0", features = ["v4"] }
 tempfile = { workspace = true }
 tower = { version = "0.5.3", features = ["util"] }
 
+http-body-util = "0.1.5"
+serde_json = { workspace = true }
