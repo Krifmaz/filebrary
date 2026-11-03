@@ -38,7 +38,7 @@
 use std::{
     hash::{Hash, Hasher},
     io::Cursor,
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 
 use axum::{
@@ -56,11 +56,12 @@ use time::OffsetDateTime;
 use tokio::sync::Mutex;
 
 use crate::{
-    auth::{AuthUser, Perms, User},
+    api::files::scoped,
+    auth::{AuthUser, Perms},
     crypto,
     error::{AppError, AppResult},
     state::AppState,
-    storage::{Entry, Source, StorageError, VPath},
+    storage::{Entry, Storage, StorageError, VPath},
 };
 
 /// Largest file the editor will open or save, in bytes (5 MiB).
@@ -143,21 +144,11 @@ fn not_text() -> AppError {
     AppError::bad_request("this file is not a UTF-8 text file")
 }
 
-fn source<'a>(state: &'a AppState, id: &str) -> AppResult<&'a Source> {
-    state.source(id).ok_or(AppError::NotFound)
-}
-
-fn visible(user: &User, source: &str, real: &VPath) -> String {
-    user.visible_path(source, real)
-        .unwrap_or_else(VPath::root)
-        .to_string()
-}
-
 /// Reads a whole file into memory, refusing anything over [`MAX_TEXT_BYTES`].
 ///
 /// Returns `None` if nothing exists at `path`.
-async fn read_current(src: &Source, path: &VPath) -> AppResult<Option<(Entry, Vec<u8>)>> {
-    let entry = match src.storage.stat(path).await {
+async fn read_current(storage: &dyn Storage, path: &VPath) -> AppResult<Option<(Entry, Vec<u8>)>> {
+    let entry = match storage.stat(path).await {
         Ok(e) => e,
         Err(StorageError::NotFound) => return Ok(None),
         Err(e) => return Err(e.into()),
@@ -168,7 +159,7 @@ async fn read_current(src: &Source, path: &VPath) -> AppResult<Option<(Entry, Ve
     if entry.size > MAX_TEXT_BYTES {
         return Err(AppError::PayloadTooLarge);
     }
-    let mut stream = src.storage.read(path, None).await?;
+    let mut stream = storage.read(path, None).await?;
     let mut buf = Vec::with_capacity(usize::try_from(entry.size).unwrap_or(0));
     while let Some(chunk) = stream.try_next().await? {
         buf.extend_from_slice(&chunk);
@@ -187,10 +178,11 @@ pub async fn load(
     Query(q): Query<PathQuery>,
     auth: AuthUser,
 ) -> AppResult<Response> {
-    let src = source(&state, &id)?;
     let vp = VPath::parse(&q.path)?;
-    let real = auth.user.require(&id, Perms::DOWNLOAD, &vp)?;
-    let (entry, bytes) = read_current(src, &real).await?.ok_or(AppError::NotFound)?;
+    let storage = scoped(&state, &auth.user, &id, Perms::DOWNLOAD, &vp).await?;
+    let (entry, bytes) = read_current(storage.as_ref(), &vp)
+        .await?
+        .ok_or(AppError::NotFound)?;
     let etag = etag_for(&bytes);
     let Ok(content) = as_text(bytes) else {
         return Ok(error_response(
@@ -201,7 +193,7 @@ pub async fn load(
         ));
     };
     let body = TextFile {
-        path: visible(&auth.user, &id, &real),
+        path: vp.to_string(),
         content,
         etag: etag.clone(),
         size: entry.size,
@@ -272,7 +264,6 @@ pub async fn save(
     headers: HeaderMap,
     body: Bytes,
 ) -> AppResult<Response> {
-    let src = source(&state, &id)?;
     let vp = VPath::parse(&q.path)?;
     if vp.is_root() {
         return Err(AppError::bad_request("a file path is required"));
@@ -285,7 +276,14 @@ pub async fn save(
         Precondition::Matches(_) => Perms::EDIT,
         Precondition::Absent => Perms::UPLOAD,
     };
-    let real = auth.user.require(&id, perm, &vp)?;
+    let storage: Arc<dyn Storage> = scoped(&state, &auth.user, &id, perm, &vp).await?;
+    // Lock on the real location so two users with different scopes that
+    // reach the same file still take the same lock.
+    let real = auth
+        .user
+        .grant(&id)
+        .map(|g| g.scope.join_path(&vp))
+        .unwrap_or_else(|| vp.clone());
     if body.len() as u64 > MAX_TEXT_BYTES {
         return Err(AppError::PayloadTooLarge);
     }
@@ -295,7 +293,7 @@ pub async fn save(
     let new_tag = etag_for(&body);
 
     let _guard = lock_for(&id, &real).lock().await;
-    let current = match read_current(src, &real).await {
+    let current = match read_current(storage.as_ref(), &vp).await {
         Ok(c) => c,
         // An existing file we would refuse to open counts as "changed".
         Err(AppError::PayloadTooLarge) => return Ok(conflict(Some(String::new()))),
@@ -309,9 +307,8 @@ pub async fn save(
     }
     let overwrite = matches!(pre, Precondition::Matches(_));
     let size = body.len() as u64;
-    match src
-        .storage
-        .write(&real, Box::pin(Cursor::new(body)), overwrite)
+    match storage
+        .write(&vp, Box::pin(Cursor::new(body)), overwrite)
         .await
     {
         Ok(_) => {}
@@ -319,14 +316,14 @@ pub async fn save(
         Err(StorageError::AlreadyExists) => return Ok(conflict(None)),
         Err(e) => return Err(e.into()),
     }
-    let modified = src.storage.stat(&real).await.ok().and_then(|e| e.modified);
+    let modified = storage.stat(&vp).await.ok().and_then(|e| e.modified);
     let status = if overwrite {
         StatusCode::OK
     } else {
         StatusCode::CREATED
     };
     let body = Saved {
-        path: visible(&auth.user, &id, &real),
+        path: vp.to_string(),
         etag: new_tag.clone(),
         size,
         modified,

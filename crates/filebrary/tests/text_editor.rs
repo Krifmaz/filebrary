@@ -129,6 +129,11 @@ impl Harness {
     }
 }
 
+/// The ETag the server computes for `content`.
+fn etag_of(content: &str) -> String {
+    filebrary::api::text::etag_for(content.as_bytes())
+}
+
 #[tokio::test]
 async fn load_edit_and_conflict() {
     let (h, alice, _) = setup().await;
@@ -280,6 +285,26 @@ async fn path_safety_and_scope() {
     }
     #[cfg(unix)]
     {
+        // A symlink inside Alice's folder pointing elsewhere in the same
+        // source (outside her scope) is refused too.
+        std::os::unix::fs::symlink(h.root.join("secret.txt"), h.root.join("home/inner.txt"))
+            .unwrap();
+        let (st, _, body) = h.get(&alice, "/inner.txt").await;
+        assert_ne!(st, StatusCode::OK, "{body}");
+        let (st, _, _) = h
+            .put(
+                &alice,
+                "/inner.txt",
+                Some((header::IF_MATCH, &etag_of("top secret"))),
+                "pwn",
+            )
+            .await;
+        assert_ne!(st, StatusCode::OK);
+        assert_eq!(
+            std::fs::read_to_string(h.root.join("secret.txt")).unwrap(),
+            "top secret"
+        );
+
         // A symlink leading outside the source root is refused.
         let outside = h.root.parent().unwrap().join("outside.txt");
         std::fs::write(&outside, "top secret").unwrap();
