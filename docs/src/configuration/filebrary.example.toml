@@ -66,6 +66,54 @@ activity_retention_days = 365
 # Serve WebDAV at /dav/ (Windows Explorer, macOS Finder, rclone).
 webdav = true
 
+# --- Two-factor login and quotas ------------------------------------------
+
+# Name shown in authenticator apps.
+totp_issuer = "Filebrary"
+
+# Storage limit for users without their own, e.g. "10G". Unset: unlimited.
+# default_quota = "10G"
+
+# Hours between measurements of real usage; 0 turns it off.
+quota_rescan_hours = 6
+
+# --- Single sign-on (OpenID Connect) ----------------------------------------
+# Uncomment [oidc] to turn it on. Needs public_url. Register
+# <public_url>/api/auth/oidc/callback as the redirect URL at the provider.
+
+# [oidc]
+# issuer_url = "https://auth.example.com"
+# client_id = "filebrary"
+# client_secret = "..."                 # or FILEBRARY_OIDC_CLIENT_SECRET
+# client_secret_file = "/run/secrets/oidc_client_secret"
+# scopes = ["profile", "email", "groups"]
+# username_claim = "preferred_username"
+# groups_claim = "groups"
+# admin_group = "filebrary-admins"
+# allowed_groups = []
+# auto_create = true
+# button_label = "Sign in with SSO"
+# disable_password_login = false
+
+# --- LDAP -------------------------------------------------------------------
+# Uncomment [ldap] to let directory users sign in with their password.
+
+# [ldap]
+# url = "ldaps://ldap.example.com"
+# starttls = false
+# bind_dn = "cn=filebrary,ou=services,dc=example,dc=com"
+# bind_password = "..."                 # or FILEBRARY_LDAP_BIND_PASSWORD
+# bind_password_file = "/run/secrets/ldap_password"
+# base_dn = "ou=people,dc=example,dc=com"
+# user_filter = "(&(objectClass=person)(uid={username}))"
+# username_attribute = "uid"
+# email_attribute = "mail"
+# display_name_attribute = "cn"
+# group_attribute = "memberOf"
+# required_group = "cn=filebrary-users,ou=groups,dc=example,dc=com"
+# admin_group = "cn=filebrary-admins,ou=groups,dc=example,dc=com"
+# timeout_secs = 10
+
 # --- Search -----------------------------------------------------------------
 
 [search]

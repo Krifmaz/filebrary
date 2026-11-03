@@ -202,6 +202,18 @@ pub struct Config {
     pub activity_retention_days: u64,
     /// Storage sources.
     pub sources: Vec<SourceConfig>,
+    /// Storage quota for users without their own setting, e.g. `"10G"`
+    /// (binary units). Unset: unlimited.
+    pub default_quota: Option<String>,
+    /// Hours between measurements of quota usage on disk (corrects drift
+    /// from deletes and changes made outside Filebrary). 0 turns it off.
+    pub quota_rescan_hours: u64,
+    /// Name shown in authenticator apps for TOTP 2FA.
+    pub totp_issuer: String,
+    /// OpenID Connect single sign-on (`[oidc]`). Unset: off.
+    pub oidc: Option<filebrary_identity::oidc::OidcConfig>,
+    /// LDAP login (`[ldap]`). Unset: off.
+    pub ldap: Option<filebrary_identity::ldap::LdapConfig>,
     /// The optional FTP/FTPS server (`[ftp]`), off by default.
     pub ftp: filebrary_ftp::FtpConfig,
     /// Event notifications by webhook, ntfy and email (`[notifications]`).
@@ -233,6 +245,11 @@ impl Default for Config {
             trash_retention_days: 30,
             activity_retention_days: 365,
             sources: Vec::new(),
+            default_quota: None,
+            quota_rescan_hours: 6,
+            totp_issuer: "Filebrary".to_owned(),
+            oidc: None,
+            ldap: None,
             ftp: filebrary_ftp::FtpConfig::default(),
             notifications: filebrary_events::NotificationsConfig::default(),
             metrics: MetricsConfig::default(),
@@ -386,6 +403,26 @@ impl Config {
         if let Some(v) = get("FILEBRARY_ACTIVITY_RETENTION_DAYS") {
             self.activity_retention_days = parse("FILEBRARY_ACTIVITY_RETENTION_DAYS", &v)?;
         }
+        if let Some(v) = get("FILEBRARY_DEFAULT_QUOTA") {
+            self.default_quota = (!v.trim().is_empty()).then_some(v);
+        }
+        if let Some(v) = get("FILEBRARY_QUOTA_RESCAN_HOURS") {
+            self.quota_rescan_hours = parse("FILEBRARY_QUOTA_RESCAN_HOURS", &v)?;
+        }
+        if let Some(v) = get("FILEBRARY_OIDC_CLIENT_SECRET").filter(|v| !v.is_empty()) {
+            let Some(o) = self.oidc.as_mut() else {
+                bail!("FILEBRARY_OIDC_CLIENT_SECRET is set but there is no [oidc] section");
+            };
+            o.client_secret = Some(filebrary_identity::SecretString::new(v));
+            o.client_secret_file = None;
+        }
+        if let Some(v) = get("FILEBRARY_LDAP_BIND_PASSWORD").filter(|v| !v.is_empty()) {
+            let Some(l) = self.ldap.as_mut() else {
+                bail!("FILEBRARY_LDAP_BIND_PASSWORD is set but there is no [ldap] section");
+            };
+            l.bind_password = Some(filebrary_identity::SecretString::new(v));
+            l.bind_password_file = None;
+        }
         // An empty value counts as unset, so a mounted config file's [[sources]] can win.
         if let Some(v) = get("FILEBRARY_SOURCES").filter(|v| !v.trim().is_empty()) {
             self.sources = parse_sources(&v)?;
@@ -430,12 +467,33 @@ impl Config {
         {
             bail!("public_url must start with http:// or https://");
         }
+        if let Some(q) = &self.default_quota
+            && filebrary_identity::quota::parse_size(q).is_none()
+        {
+            bail!("default_quota {q:?} is not a size such as 500M or 10G");
+        }
+        if let Some(o) = &self.oidc {
+            o.validate().map_err(|e| anyhow::anyhow!("[oidc]: {e}"))?;
+            if self.public_url.is_none() {
+                bail!("[oidc] needs public_url to build the callback URL");
+            }
+        }
+        if let Some(l) = &self.ldap {
+            l.validate().map_err(|e| anyhow::anyhow!("[ldap]: {e}"))?;
+        }
         self.ftp.validate().map_err(anyhow::Error::msg)?;
         self.notifications.validate().map_err(anyhow::Error::msg)?;
         if self.metrics.token.as_deref().is_some_and(|t| t.len() < 16) {
             bail!("metrics.token must be at least 16 characters");
         }
         Ok(())
+    }
+
+    /// `default_quota` in bytes (`None`: unlimited).
+    pub fn default_quota_bytes(&self) -> Option<i64> {
+        self.default_quota
+            .as_deref()
+            .and_then(filebrary_identity::quota::parse_size)
     }
 
     /// Whether session cookies get the `Secure` flag.
@@ -492,6 +550,37 @@ mod tests {
         assert_eq!(cfg.sources[0].name, "media");
         assert_eq!(cfg.session_ttl_hours, 24 * 7);
         cfg.validate().unwrap();
+    }
+
+    #[test]
+    fn identity_sections() {
+        let mut cfg: Config = toml::from_str(
+            r#"
+            public_url = "https://files.example.com"
+            default_quota = "10G"
+            [oidc]
+            issuer_url = "https://auth.example.com"
+            client_id = "filebrary"
+            [ldap]
+            url = "ldaps://ldap.example.com"
+            base_dn = "dc=example,dc=com"
+            "#,
+        )
+        .unwrap();
+        cfg.validate().unwrap();
+        assert_eq!(cfg.default_quota_bytes(), Some(10 << 30));
+        cfg.apply_env(|k| (k == "FILEBRARY_OIDC_CLIENT_SECRET").then(|| "s3cret".into()))
+            .unwrap();
+        let o = cfg.oidc.as_ref().unwrap();
+        assert_eq!(o.client_secret.as_ref().unwrap().expose(), "s3cret");
+        assert!(!format!("{cfg:?}").contains("s3cret"));
+        assert!(
+            Config::default()
+                .apply_env(|k| (k == "FILEBRARY_LDAP_BIND_PASSWORD").then(|| "x".into()))
+                .is_err()
+        );
+        cfg.public_url = None;
+        assert!(cfg.validate().is_err());
     }
 
     #[test]

@@ -322,3 +322,37 @@ async fn webdav_applies_per_folder_rules() {
         assert_eq!(r.status(), StatusCode::FORBIDDEN);
     }
 }
+
+#[tokio::test]
+async fn webdav_enforces_and_reports_storage_quotas() {
+    let app = TestApp::new().await;
+    assert!(filebrary::identity::install(&app.state));
+    let id = add_user(&app, "q", "quota-password", false, Perms::ALL, "/").await;
+    filebrary_identity::quota::set_limit(&app.state.db, id, Some(10))
+        .await
+        .unwrap();
+    let send = |m: &'static str, p: &'static str, body: &'static str| {
+        app.send(dav(m, p, "q", "quota-password", body))
+    };
+    assert_eq!(
+        send("PUT", "/dav/files/small.txt", "1234").await.status(),
+        StatusCode::CREATED
+    );
+    // 4 of 10 bytes used; 20 more do not fit.
+    let r = send("PUT", "/dav/files/big.txt", "01234567890123456789").await;
+    assert_eq!(r.status(), StatusCode::INSUFFICIENT_STORAGE);
+    assert!(!app.root().join("big.txt").exists());
+    // RFC 4331 properties show the limit.
+    let r = send(
+        "PROPFIND",
+        "/dav/files/",
+        r#"<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:prop><D:quota-available-bytes/><D:quota-used-bytes/></D:prop></D:propfind>"#,
+    )
+    .await;
+    assert_eq!(r.status(), StatusCode::MULTI_STATUS);
+    let body = String::from_utf8(body_bytes(r).await.to_vec()).unwrap();
+    assert!(
+        body.contains("<D:quota-available-bytes>6</D:quota-available-bytes>"),
+        "{body}"
+    );
+}

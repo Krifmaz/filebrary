@@ -9,7 +9,10 @@ use std::{
     io,
     net::SocketAddr,
     ops::Range,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime},
 };
 
@@ -348,6 +351,39 @@ async fn read_xml_body(body: Body) -> Result<Vec<u8>, Resp> {
 fn body_reader(body: Body) -> filebrary_storage::ByteReader {
     let stream = body.into_data_stream().map_err(io::Error::other);
     Box::pin(tokio_util::io::StreamReader::new(stream))
+}
+
+/// A body that fails with [`io::ErrorKind::FileTooLarge`] once it goes
+/// past `left` bytes, so an atomic write is abandoned rather than committed
+/// cut short.
+struct Limited {
+    inner: filebrary_storage::ByteReader,
+    left: u64,
+    /// Set when the limit was hit.
+    tripped: Arc<AtomicBool>,
+}
+
+impl tokio::io::AsyncRead for Limited {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        let before = buf.filled().len();
+        let res = self.inner.as_mut().poll_read(cx, buf);
+        if let std::task::Poll::Ready(Ok(())) = &res {
+            let n = (buf.filled().len() - before) as u64;
+            if n > self.left {
+                self.tripped.store(true, Ordering::Relaxed);
+                return std::task::Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::FileTooLarge,
+                    "over quota",
+                )));
+            }
+            self.left -= n;
+        }
+        res
+    }
 }
 
 enum Depth {
@@ -977,16 +1013,46 @@ impl Inner {
             ctx.check_membership(source, &r.key)?;
         }
         ctx.check_lock(source, &r.key, Scope::Resource)?;
-        if let (Some(q), Some(len)) = (ctx.user.quota(source), content_length(ctx)) {
+        let declared = content_length(ctx);
+        let available = ctx.user.quota(source).and_then(|q| q.available);
+        if let (Some(a), Some(len)) = (available, declared) {
             let old = existing.as_ref().map_or(0, |e| e.size);
-            if q.available.is_some_and(|a| len.saturating_sub(old) > a) {
+            if len.saturating_sub(old) > a {
                 return Err(status(StatusCode::INSUFFICIENT_STORAGE));
             }
         }
-        r.storage
-            .write(&r.path, body_reader(body), true)
-            .await
-            .map_err(storage_error)?;
+        // Without a trustworthy length (chunked, or only the advisory
+        // X-Expected-Entity-Length), never write more than fits: the body
+        // fails once it passes the free space, so the write is abandoned and
+        // an existing file is left as it was.
+        let mut reader = body_reader(body);
+        let tripped = Arc::new(AtomicBool::new(false));
+        if let Some(a) = available {
+            reader = Box::pin(Limited {
+                inner: reader,
+                left: a,
+                tripped: tripped.clone(),
+            });
+        }
+        let written = match r.storage.write(&r.path, reader, true).await {
+            Ok(n) => n,
+            // Backends may wrap the reader's error, so use the flag.
+            Err(_) if tripped.load(Ordering::Relaxed) => {
+                return Err(status(StatusCode::INSUFFICIENT_STORAGE));
+            }
+            Err(e) => return Err(storage_error(e)),
+        };
+        self.charge_excess(
+            ctx,
+            source,
+            path,
+            perm,
+            &r,
+            declared,
+            written,
+            existing.is_none(),
+        )
+        .await?;
         let mut resp = status(if existing.is_some() {
             StatusCode::NO_CONTENT
         } else {
@@ -1004,6 +1070,56 @@ impl Inner {
         })
         .await;
         Ok(resp)
+    }
+
+    /// After a `PUT`, charges bytes the request did not declare up front
+    /// (chunked bodies, or more than `X-Expected-Entity-Length` said) by
+    /// passing them through [`DavAuth::authorize`] as [`Access::Write`]. If
+    /// that is refused, a newly created file is deleted again (507); an
+    /// overwritten file cannot be restored, so it is kept and left for the
+    /// server's usage rescan.
+    #[allow(clippy::too_many_arguments)]
+    async fn charge_excess(
+        &self,
+        ctx: &Ctx<'_>,
+        source: &str,
+        path: &VPath,
+        perm: DavPerm,
+        r: &Resolved,
+        declared: Option<u64>,
+        written: u64,
+        created: bool,
+    ) -> Result<(), Resp> {
+        // A Content-Length is enforced by the HTTP layer, so it was exact.
+        if ctx.headers.contains_key(header::CONTENT_LENGTH) {
+            return Ok(());
+        }
+        let excess = written.saturating_sub(declared.unwrap_or(0));
+        if excess == 0 {
+            return Ok(());
+        }
+        let access = Access::Write {
+            bytes: Some(excess),
+        };
+        if self
+            .auth
+            .authorize(ctx.user.as_ref(), source, perm, path, access)
+            .await
+            .is_ok()
+        {
+            return Ok(());
+        }
+        if !created {
+            tracing::warn!(
+                source,
+                "webdav: an overwrite went over quota after the write"
+            );
+            return Ok(());
+        }
+        if let Err(e) = r.storage.delete(&r.path).await {
+            tracing::warn!(error = %e, "webdav: removing an upload over quota");
+        }
+        Err(status(StatusCode::INSUFFICIENT_STORAGE))
     }
 
     // ----------------------------------------------------------------- DELETE

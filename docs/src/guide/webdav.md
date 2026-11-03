@@ -37,6 +37,10 @@ raised in the registry.
 * Deleting moves items to the [trash](../organize.md) and is recorded in the
   activity log with the client's address. The trash folder itself is not
   shown over WebDAV.
+* Uploads count towards your [storage quota](authentication.md#storage-quotas). Clients see the
+  remaining space as the drive's free space, and an upload that does not fit
+  fails with `507 Insufficient Storage`, also when the client does not say
+  the size in advance.
 * Overwriting a file with `COPY` or `MOVE` replaces it permanently, as in the
   web UI.
 * Locks and custom properties are kept in memory and are cleared when the

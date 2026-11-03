@@ -36,7 +36,7 @@ use async_trait::async_trait;
 use axum::http::HeaderMap;
 use filebrary_webdav::{
     Access, AuthError, BasicCredentials, Change, DavAuth, DavConfig, DavPerm, DavServer, DavUser,
-    Denied,
+    Denied, Quota,
 };
 
 use crate::{
@@ -56,7 +56,7 @@ fn ours(user: &dyn DavUser) -> Option<&FilebraryDavUser> {
 fn denied(e: &AppError) -> Denied {
     match e {
         AppError::NotFound => Denied::NotFound,
-        AppError::PayloadTooLarge => Denied::InsufficientStorage,
+        AppError::PayloadTooLarge | AppError::QuotaExceeded(_) => Denied::InsufficientStorage,
         _ => Denied::Forbidden,
     }
 }
@@ -247,9 +247,11 @@ impl DavAuth for FilebraryDavAuth {
                 if let Some(scopes) = &verified.scopes {
                     user.apply_ceiling(self.state.auth.hooks().bearer_ceiling(scopes));
                 }
+                let quota = user_quota(&self.state, user.id).await;
                 Ok(Arc::new(FilebraryDavUser {
                     user,
                     ip: ip.map(|i| i.to_string()),
+                    quota,
                 }))
             }
             // Disabled or deleted since the credentials were cached.
@@ -398,6 +400,22 @@ pub struct FilebraryDavUser {
     user: User,
     /// The client address, for the activity log.
     ip: Option<String>,
+    /// The storage quota, when the user has a limit.
+    quota: Option<Quota>,
+}
+
+/// Loads the user's storage quota for the RFC 4331 properties. `None` when
+/// the user is unlimited or the lookup fails (the properties are then left
+/// out; writes are still checked by the `before_write` hook).
+async fn user_quota(state: &AppState, user_id: i64) -> Option<Quota> {
+    let q = filebrary_identity::quota::get(&state.db, user_id, state.identity.default_quota())
+        .await
+        .ok()?;
+    q.limit?;
+    Some(Quota {
+        used: u64::try_from(q.used).unwrap_or(0),
+        available: q.free().map(|f| u64::try_from(f).unwrap_or(0)),
+    })
 }
 
 fn perm(p: DavPerm) -> Perms {
@@ -429,6 +447,11 @@ impl DavUser for FilebraryDavUser {
             .grant(source)
             .filter(|g| g.perms.contains(Perms::VIEW))
             .map(|g| g.scope.clone())
+    }
+
+    /// One quota covers all of a user's sources.
+    fn quota(&self, _source: &str) -> Option<Quota> {
+        self.quota
     }
 }
 

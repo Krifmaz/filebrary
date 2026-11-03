@@ -10,6 +10,7 @@
 //! * [`db`]: SQLite pool and migrations (one `migrations/` dir for the workspace).
 //! * [`state`]: [`state::AppState`], shared by all handlers.
 //! * [`auth`]: users, permissions, sessions and extractors.
+//! * [`identity`]: OIDC, LDAP, TOTP 2FA, API keys and quotas (on top of [`auth`]).
 //! * [`api`]: JSON endpoints under `/api`.
 //! * [`dav`]: WebDAV at `/dav`, on the `filebrary-webdav` crate.
 //! * [`shares`]: share links.
@@ -45,6 +46,7 @@ pub mod crypto;
 pub mod dav;
 pub mod db;
 pub mod error;
+pub mod identity;
 pub mod ops;
 pub mod organize;
 pub mod search;

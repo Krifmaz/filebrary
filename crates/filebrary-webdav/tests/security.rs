@@ -278,6 +278,26 @@ async fn quota_properties_and_limits() {
     assert_eq!(r.status, StatusCode::INSUFFICIENT_STORAGE);
     let r = d.req(q, "PUT", "/dav/a/small", &[], "x".repeat(10)).await;
     assert_eq!(r.status, StatusCode::CREATED);
+    // An undeclared (chunked) body is cut off once it passes the free space,
+    // and the existing file is left as it was.
+    let r = d.req(q, "PUT", "/dav/a/small", &[], "y".repeat(11)).await;
+    assert_eq!(r.status, StatusCode::INSUFFICIENT_STORAGE);
+    assert_eq!(
+        std::fs::read_to_string(d.dir_a.path().join("small")).unwrap(),
+        "x".repeat(10)
+    );
+    // So is a body longer than its advisory X-Expected-Entity-Length.
+    let r = d
+        .req(
+            q,
+            "PUT",
+            "/dav/a/liar",
+            &[("x-expected-entity-length", "1")],
+            "z".repeat(11),
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::INSUFFICIENT_STORAGE);
+    assert!(!d.dir_a.path().join("liar").exists());
     // Users without a quota get 404 for these properties.
     let r = d
         .alice(

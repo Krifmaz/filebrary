@@ -130,13 +130,27 @@ async fn login(
     }
 
     let found = users::get_with_hash(&state.db, &body.username).await?;
-    let (rec, hash) = match found {
-        Some((rec, Some(hash))) if rec.auth_source == "local" => (Some(rec), hash),
-        _ => (None, password::dummy_hash().await),
+    let rec = match found {
+        Some((rec, Some(hash))) if rec.auth_source == "local" => {
+            password::verify(body.password, hash).await.then_some(rec)
+        }
+        other => {
+            // Not a local password account: an external directory (LDAP) may
+            // know the user. Without one, spend the same time as a real check.
+            let existing = other.map(|(r, _)| r);
+            let ext = state
+                .auth
+                .hooks()
+                .authenticate_external(&state, &body.username, &body.password, existing.as_ref())
+                .await?;
+            if ext.is_none() {
+                password::verify(body.password, password::dummy_hash().await).await;
+            }
+            ext
+        }
     };
-    let ok = password::verify(body.password, hash).await;
     let rec = match rec {
-        Some(r) if ok && !r.disabled => r,
+        Some(r) if !r.disabled => r,
         _ => {
             limiter.record_failure(&body.username, ip);
             tracing::info!(username = %body.username, ip, "failed login");
