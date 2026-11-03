@@ -12,12 +12,20 @@
 //! * [`auth`]: users, permissions, sessions and extractors.
 //! * [`api`]: JSON endpoints under `/api`.
 //! * [`shares`]: share links.
+//! * [`comments`]: comments on files.
+//! * [`collections`]: multi-item collections that can be shared.
+//! * [`cast`]: cookie-free media URLs for Chromecast/AirPlay.
+//! * [`branding`]: branding, themes and the PWA manifest.
 //! * [`web`]: the embedded React UI.
 
 #![warn(missing_docs)]
 
 pub mod api;
 pub mod auth;
+pub mod branding;
+pub mod cast;
+pub mod collections;
+pub mod comments;
 pub mod config;
 pub mod crypto;
 pub mod db;
@@ -44,6 +52,7 @@ pub fn app(state: AppState) -> Router {
         .nest("/api", api::router())
         .route("/healthz", get(api::health))
         .route("/health", get(api::health))
+        .route("/manifest.webmanifest", get(branding::manifest))
         .fallback(web::serve)
         .with_state(state)
         .layer(SetResponseHeaderLayer::if_not_present(
