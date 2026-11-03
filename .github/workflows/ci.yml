@@ -108,7 +108,7 @@ jobs:
       MINIO_VERSION: v0.0.0-20260212201848-7aac2a2c5b7c
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.97
       - uses: Swatinem/rust-cache@v2
       - id: minio-cache
         uses: actions/cache@v4
