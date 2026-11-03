@@ -8,18 +8,19 @@ use crate::error::{PreviewError, Result};
 use crate::tools::{Tools, run};
 
 /// Render the first page of a PDF to PNG bytes, scaled so its longer side is
-/// `max` pixels.
+/// `max` pixels. Temporary files go under `tmp`.
 pub async fn pdf_first_page(
     tools: &Tools,
     pdf: &Path,
     max: u32,
+    tmp: &Path,
     timeout: Duration,
 ) -> Result<Vec<u8>> {
     let pdftoppm = tools
         .pdftoppm
         .as_deref()
         .ok_or(PreviewError::ToolMissing("pdftoppm"))?;
-    let dir = tempfile::tempdir()?;
+    let dir = tempfile::tempdir_in(tmp)?;
     let prefix = dir.path().join("page");
     let scale = max.to_string();
     run(
@@ -52,12 +53,18 @@ pub async fn pdf_first_page(
 /// Each run gets its own throwaway LibreOffice profile directory, so several
 /// conversions can run at once without fighting over the profile lock, and
 /// nothing a document does can persist into later runs.
-pub async fn office_to_pdf(tools: &Tools, input: &Path, timeout: Duration) -> Result<Vec<u8>> {
+/// The profile and output live in a fresh directory under `tmp`.
+pub async fn office_to_pdf(
+    tools: &Tools,
+    input: &Path,
+    tmp: &Path,
+    timeout: Duration,
+) -> Result<Vec<u8>> {
     let soffice = tools
         .soffice
         .as_deref()
         .ok_or(PreviewError::ToolMissing("soffice"))?;
-    let work = tempfile::tempdir()?;
+    let work = tempfile::tempdir_in(tmp)?;
     let profile = work.path().join("profile");
     let outdir = work.path().join("out");
     std::fs::create_dir(&outdir)?;

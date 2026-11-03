@@ -100,7 +100,11 @@ fn build_previews(config: &Config) -> anyhow::Result<PreviewService> {
     let dir = config.data_dir.join("cache").join("previews");
     let cache = PreviewCache::new(&dir, ps.cache_mib.saturating_mul(1 << 20))
         .with_context(|| format!("creating {}", dir.display()))?;
+    let temp_dir = config.data_dir.join("cache").join("tmp");
+    std::fs::create_dir_all(&temp_dir)
+        .with_context(|| format!("creating {}", temp_dir.display()))?;
     let mut cfg = PreviewConfig {
+        temp_dir,
         thumb_size: ps.thumb_size,
         large_size: ps.large_size,
         ..PreviewConfig::default()

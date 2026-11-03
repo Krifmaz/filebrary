@@ -75,6 +75,10 @@ pub struct PreviewConfig {
     pub max_raw_bytes: u64,
     /// Office files larger than this are not converted.
     pub max_office_bytes: u64,
+    /// Where tools write scratch files and LibreOffice its per-run profile.
+    /// Defaults to the system temp directory; the server points it at
+    /// `<data_dir>/cache/tmp` so it works on a read-only root filesystem.
+    pub temp_dir: PathBuf,
 }
 
 impl Default for PreviewConfig {
@@ -92,6 +96,7 @@ impl Default for PreviewConfig {
             max_image_bytes: 256 << 20,
             max_raw_bytes: 512 << 20,
             max_office_bytes: 100 << 20,
+            temp_dir: std::env::temp_dir(),
         }
     }
 }
@@ -295,7 +300,8 @@ impl PreviewService {
                 return Err(PreviewError::TooLarge);
             }
             let _permit = self.inner.office.acquire().await.expect("semaphore open");
-            let pdf = document::office_to_pdf(tools, local, cfg.office_timeout).await?;
+            let pdf =
+                document::office_to_pdf(tools, local, &cfg.temp_dir, cfg.office_timeout).await?;
             return Ok(("pdf", pdf));
         }
 
@@ -322,7 +328,7 @@ impl PreviewService {
                 .await?
             }
             FileKind::Heif => {
-                let png = media::heif_to_png(tools, local, cfg.tool_timeout).await?;
+                let png = media::heif_to_png(tools, local, &cfg.temp_dir, cfg.tool_timeout).await?;
                 blocking(move || raster::resize_and_encode(&raster::decode(&png)?, max)).await?
             }
             FileKind::Video => {
@@ -345,7 +351,9 @@ impl PreviewService {
             }
             FileKind::Pdf | FileKind::Office => {
                 let pdf = office_pdf.unwrap_or(local);
-                let png = document::pdf_first_page(tools, pdf, max, cfg.tool_timeout).await?;
+                let png =
+                    document::pdf_first_page(tools, pdf, max, &cfg.temp_dir, cfg.tool_timeout)
+                        .await?;
                 blocking(move || raster::encode(&raster::decode(&png)?)).await?
             }
         };

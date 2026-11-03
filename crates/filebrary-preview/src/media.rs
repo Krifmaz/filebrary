@@ -250,9 +250,15 @@ pub async fn cover_art(tools: &Tools, path: &Path, timeout: Duration) -> Result<
 
 /// Decode a HEIC/HEIF/AVIF still to PNG bytes. Uses `heif-dec` when present
 /// (handles grids, HDR and every libheif codec), else `ffmpeg`.
-pub async fn heif_to_png(tools: &Tools, path: &Path, timeout: Duration) -> Result<Vec<u8>> {
+/// Temporary files go under `tmp`.
+pub async fn heif_to_png(
+    tools: &Tools,
+    path: &Path,
+    tmp: &Path,
+    timeout: Duration,
+) -> Result<Vec<u8>> {
     if let Some(heif) = tools.heif_dec.as_deref() {
-        let dir = tempfile::tempdir()?;
+        let dir = tempfile::tempdir_in(tmp)?;
         let out = dir.path().join("out.png");
         run(
             "heif-dec",
