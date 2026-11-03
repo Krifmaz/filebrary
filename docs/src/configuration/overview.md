@@ -1,11 +1,24 @@
 # Configuration overview
 
-Filebrary reads its settings, in order of precedence (highest first), from:
+Filebrary needs no configuration to start: with none, it serves
+`./data/files` on `127.0.0.1:8080`. Settings come from three places, and
+later ones win:
 
-1. Environment variables prefixed with `FILEBRARY_`.
-2. A TOML configuration file, given with `--config <file>` or
-   `FILEBRARY_CONFIG`.
-3. Built-in defaults.
+1. **Built-in defaults.**
+2. **A TOML file**, given with `--config <file>` (or `-c <file>`) or the
+   `FILEBRARY_CONFIG` environment variable. Unknown keys are an error, so a
+   typo stops the server instead of being silently ignored.
+3. **Environment variables** named `FILEBRARY_*`. Only some settings have
+   one; the [settings reference](reference.md) lists them. This is the usual
+   way to configure the Docker image.
+
+```sh
+filebrary --config /etc/filebrary/filebrary.toml
+# or
+FILEBRARY_CONFIG=/etc/filebrary/filebrary.toml filebrary
+```
+
+A short file:
 
 ```toml
 listen = "0.0.0.0:8080"
@@ -17,74 +30,62 @@ name = "files"
 path = "/srv"
 ```
 
-## Core settings
+The configuration is checked at start-up. If anything is wrong (an invalid
+or duplicate source name, a value out of range, an unreadable file),
+Filebrary prints the reason and exits with a non-zero status, so mistakes
+show up immediately in `docker logs` or `journalctl`.
 
-| TOML key | Environment | Default | Description |
-| --- | --- | --- | --- |
-| `listen` | `FILEBRARY_LISTEN` | `127.0.0.1:8080` (`0.0.0.0:8080` in Docker) | Address and port to listen on. |
-| `data_dir` | `FILEBRARY_DATA_DIR` | `./data` (`/data` in Docker) | Database, upload staging area and secret key. |
-| `sources` | `FILEBRARY_SOURCES` | `files=<data_dir>/files` (`files=/srv` in Docker) | Storage sources. The variable takes `name=path` pairs separated by `;`. |
-| `public_url` | `FILEBRARY_PUBLIC_URL` | none | The URL users reach the server at. Used in share links and for cookie security. |
-| `secure_cookies` | `FILEBRARY_SECURE_COOKIES` | on when `public_url` is `https://` | Force the `Secure` cookie flag on or off. |
-| `trust_proxy_headers` | `FILEBRARY_TRUST_PROXY_HEADERS` | `false` | Trust `X-Forwarded-For`. Enable only behind a proxy you control. |
-| `session_ttl_hours` | `FILEBRARY_SESSION_TTL_HOURS` | `168` | How long a login lasts without activity. |
-| `login_max_attempts` | (none) | `5` | Failed logins allowed per username and per client address within `login_window_secs`. |
-| `login_window_secs` | (none) | `300` | Window for login rate limiting, in seconds. |
-| `admin_username` | `FILEBRARY_ADMIN_USERNAME` | `admin` | Name of the administrator created on first start, when there are no users. |
-| `admin_password` | `FILEBRARY_ADMIN_PASSWORD` | generated | Password for that administrator. If unset, a random one is printed once to the log. Prefer the variable over the file. |
-| `log_format` | `FILEBRARY_LOG_FORMAT` | `text` | `text`, or `json` for structured logs. |
-| `trash_retention_days` | `FILEBRARY_TRASH_RETENTION_DAYS` | `30` | Days a deleted item stays in the trash before it is purged. `0` turns the trash off: deletes are permanent. See [Trash, tags, stars and activity](../organize.md). |
-| `activity_retention_days` | `FILEBRARY_ACTIVITY_RETENTION_DAYS` | `365` | Days activity-log events are kept. `0` keeps them forever. |
-| (none) | `FILEBRARY_LOG` | `info` | Log filter, e.g. `debug` or `info,sqlx=warn`. |
+* Every setting, its type, default and environment variable:
+  [Settings reference](reference.md).
+* A complete commented file to copy: [Example configuration](example.md).
 
-## Sign-in, API keys and quotas
+## Docker defaults
 
-| TOML key | Environment | Default | Description |
-| --- | --- | --- | --- |
-| `totp_issuer` | (none) | `Filebrary` | Name shown in authenticator apps for two-factor codes. |
-| `default_quota` | `FILEBRARY_DEFAULT_QUOTA` | unlimited | Storage limit for users without their own, e.g. `10G` (binary units). |
-| `quota_rescan_hours` | `FILEBRARY_QUOTA_RESCAN_HOURS` | `6` | Hours between measurements of each user's real usage. `0` turns it off. |
-| `[oidc]` | | off | OpenID Connect single sign-on (table below). Needs `public_url`. |
-| `[ldap]` | | off | LDAP sign-in (table below). |
+The Docker image sets three variables, so the defaults inside a container
+differ from a bare binary:
 
-`[oidc]` keys:
+| Variable             | Value in the image | Binary default        |
+|----------------------|--------------------|-----------------------|
+| `FILEBRARY_LISTEN`   | `0.0.0.0:8080`     | `127.0.0.1:8080`      |
+| `FILEBRARY_DATA_DIR` | `/data`            | `./data`              |
+| `FILEBRARY_SOURCES`  | `files=/srv`       | `files=<data_dir>/files` |
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `issuer_url` | required | The provider's issuer, e.g. `https://auth.example.com`. Must be `https://` (except for `localhost`). |
-| `client_id` | required | Client id registered at the provider. |
-| `client_secret` / `client_secret_file` | none | Client secret, or a file holding it. `FILEBRARY_OIDC_CLIENT_SECRET` overrides both. |
-| `scopes` | `["profile", "email", "groups"]` | Scopes requested besides `openid`. |
-| `username_claim` | `preferred_username` | Claim used as the local username (then a verified `email`, then `sub`). |
-| `groups_claim` | `groups` | Claim listing the user's groups. |
-| `admin_group` | none | Members are administrators; checked at every login. |
-| `allowed_groups` | `[]` (everyone) | Only members of one of these groups may sign in. |
-| `auto_create` | `true` | Create a local user on first sign-in. |
-| `button_label` | `Sign in with SSO` | Text of the login button. |
-| `disable_password_login` | `false` | Hide and refuse password login for everyone but administrators. |
+Environment variables beat the file, so while the image's
+`FILEBRARY_SOURCES` is in effect, `[[sources]]` in a mounted TOML file is
+ignored. Either list your sources in the variable
+(`-e FILEBRARY_SOURCES="files=/srv;media=/mnt/media"`), or clear it with
+`-e FILEBRARY_SOURCES=` so the file's `[[sources]]` are used. An empty value
+counts as unset.
 
-`[ldap]` keys:
+## Command line
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `url` | required | `ldaps://host:636` or `ldap://host:389`. |
-| `starttls` | `false` | Upgrade an `ldap://` connection with StartTLS. |
-| `bind_dn` | none (anonymous search) | Service account used to find users. |
-| `bind_password` / `bind_password_file` | none | Its password, or a file holding it. `FILEBRARY_LDAP_BIND_PASSWORD` overrides both. |
-| `base_dn` | required | Where users are searched for. |
-| `user_filter` | `(&(objectClass=person)(uid={username}))` | Search filter; `{username}` is replaced by the escaped login name. |
-| `username_attribute` | `uid` | Attribute holding the login name. |
-| `email_attribute` | `mail` | Attribute holding the e-mail address. |
-| `display_name_attribute` | `cn` | Attribute holding the display name. |
-| `group_attribute` | `memberOf` | Attribute listing the user's group DNs. |
-| `required_group` | none | Only members of this group DN may sign in. |
-| `admin_group` | none | Members of this group DN are administrators. |
-| `timeout_secs` | `10` | Network timeout. |
+```text
+filebrary [--config <FILE>] [COMMAND]
+```
 
-See [Single sign-on, 2FA, API keys and quotas](sso.md) for how these fit together.
+| Command       | What it does                                                                                     |
+|---------------|--------------------------------------------------------------------------------------------------|
+| `serve`       | Runs the server. This is the default when no command is given.                                   |
+| `healthcheck` | Requests `/healthz` on the configured [`listen`](reference.md#listen) address and exits `0` if it answers `200`. Used by the Docker `HEALTHCHECK`, because the image has no `curl`. |
 
-## Health check
+`filebrary --help` and `filebrary --version` work as usual. There are no
+flags for individual settings; use the file or environment variables.
 
-`GET /healthz` returns 200 when the server is up. `filebrary healthcheck`
-probes it on the configured `listen` address and exits 0 when healthy, which
-is what the Docker image's `HEALTHCHECK` runs.
+## Environment variables that are not settings
+
+| Variable           | Meaning                                                                                                    |
+|--------------------|------------------------------------------------------------------------------------------------------------|
+| `FILEBRARY_CONFIG` | Path to the TOML file, same as `--config`.                                                                 |
+| `FILEBRARY_LOG`    | Log filter in [`EnvFilter` syntax](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html), for example `debug` or `info,filebrary=trace`. Default: `info,tower_http=info,sqlx=warn`. |
+
+## Value formats
+
+* **Durations** are whole numbers, with the unit in the key name
+  (`_hours`, `_secs`).
+* **Sizes** are whole numbers of MiB (1 MiB = 1,048,576 bytes), again named
+  in the key (`_mib`).
+* **Booleans** are `true` or `false` in TOML. In environment variables,
+  `true`, `yes`, `on`, `1` and `false`, `no`, `off`, `0` are accepted, in
+  any letter case.
+* **Paths** are relative to the working directory of the process unless
+  they are absolute.

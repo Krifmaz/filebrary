@@ -67,6 +67,8 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 uuid = { version = "1.29.0", features = ["v4"] }
 
 [dev-dependencies]
+# Walks the `Config` type so `tests/docs_config.rs` can check every setting is documented.
+serde-reflection = "0.6.0"
 tempfile = { workspace = true }
 axum = { workspace = true, features = ["form"] }
 hmac = { workspace = true }
