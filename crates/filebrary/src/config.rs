@@ -83,6 +83,12 @@ pub struct Config {
     pub login_max_attempts: u32,
     /// Window for login rate limiting, in seconds.
     pub login_window_secs: u64,
+    /// Name of the administrator created on first start (when there are no users).
+    pub admin_username: String,
+    /// Password for that first administrator. Unset: a random one is
+    /// generated and logged once. Prefer `FILEBRARY_ADMIN_PASSWORD` over
+    /// writing it into the file.
+    pub admin_password: Option<String>,
     /// Log format.
     pub log_format: LogFormat,
     /// Storage sources.
@@ -103,6 +109,8 @@ impl Default for Config {
             upload_expiry_hours: 24,
             login_max_attempts: 5,
             login_window_secs: 300,
+            admin_username: "admin".to_owned(),
+            admin_password: None,
             log_format: LogFormat::Text,
             sources: Vec::new(),
         }
@@ -172,6 +180,12 @@ impl Config {
         }
         if let Some(v) = get("FILEBRARY_SESSION_TTL_HOURS") {
             self.session_ttl_hours = parse("FILEBRARY_SESSION_TTL_HOURS", &v)?;
+        }
+        if let Some(v) = get("FILEBRARY_ADMIN_USERNAME") {
+            self.admin_username = v;
+        }
+        if let Some(v) = get("FILEBRARY_ADMIN_PASSWORD") {
+            self.admin_password = (!v.is_empty()).then_some(v);
         }
         if let Some(v) = get("FILEBRARY_LOG_FORMAT") {
             self.log_format = match v.as_str() {

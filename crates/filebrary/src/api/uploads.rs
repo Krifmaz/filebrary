@@ -116,7 +116,9 @@ async fn create(
     } else {
         Perms::UPLOAD
     };
-    let real = auth.user.require(&id, need, &body.path)?;
+    let real =
+        crate::auth::authorize_write(&state, &auth.user, &id, need, &body.path, Some(body.size))
+            .await?;
     let st = scoped(&state, &auth.user, &id, need, &body.path).await?;
     match st.stat(&body.path).await {
         Ok(e) if e.is_dir() => return Err(AppError::conflict("a folder exists at that path")),
@@ -214,8 +216,12 @@ async fn append(
         uid: uid.clone(),
     };
     // Permission may have been revoked since the upload started.
-    auth.user
-        .require(&row.source, Perms::UPLOAD, &VPath::root())?;
+    let target = VPath::parse(&row.path)?;
+    let visible = auth
+        .user
+        .visible_path(&row.source, &target)
+        .ok_or_else(|| AppError::forbidden("the upload target is no longer in your scope"))?;
+    auth.user.require(&row.source, Perms::UPLOAD, &visible)?;
 
     let max_chunk = state.config.max_chunk_mib * 1024 * 1024;
     let staged = state.upload_dir.join(&uid);

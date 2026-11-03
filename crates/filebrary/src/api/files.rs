@@ -132,9 +132,11 @@ impl PathQuery {
 /// Resolves a source the user can view.
 pub fn source_for<'a>(state: &'a AppState, user: &User, id: &str) -> AppResult<&'a Source> {
     let src = state.source(id).ok_or(AppError::NotFound)?;
+    // A grant exists only when some rule gives the user something on the
+    // source (possibly only in a subfolder); paths are checked per request.
     match user.grant(id) {
-        Some(g) if g.perms.contains(Perms::VIEW) => Ok(src),
-        _ => Err(AppError::NotFound),
+        Some(_) => Ok(src),
+        None => Err(AppError::NotFound),
     }
 }
 
@@ -143,7 +145,9 @@ pub fn source_for<'a>(state: &'a AppState, user: &User, id: &str) -> AppResult<&
 ///
 /// Confining through [`crate::storage::Storage::sub`] (instead of prefixing the
 /// scope) makes the backend check symlinks against the scope, so a link inside
-/// a user's folder cannot reach elsewhere in the source.
+/// a user's folder cannot reach elsewhere in the source. The permission check
+/// itself is [`crate::auth::authorize`], which also checks the rules on the
+/// symlink-resolved path.
 ///
 /// # Errors
 ///
@@ -156,7 +160,7 @@ pub async fn scoped(
     path: &VPath,
 ) -> AppResult<Arc<dyn Storage>> {
     let src = source_for(state, user, id)?;
-    user.require(id, perm, path)?;
+    crate::auth::authorize(state, user, id, perm, path).await?;
     let grant = user.grant(id).ok_or(AppError::NotFound)?;
     if grant.scope.is_root() {
         Ok(src.storage.clone())
