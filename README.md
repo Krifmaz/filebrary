@@ -20,6 +20,7 @@ Preview it locally with `mdbook serve docs`.
 | `crates/filebrary-ftp`     | Optional FTP/FTPS server over the storage trait.              |
 | `crates/filebrary-storage` | `Storage` trait, `VPath` path validation; local, S3, SFTP and SMB backends. |
 | `crates/filebrary-identity` | TOTP 2FA, API keys, quotas, LDAP and OIDC logic and storage. |
+| `crates/filebrary-preview` | Thumbnails, previews, media info, transcoding, preview cache. |
 | `migrations/`              | SQLite migrations for the whole workspace (one history).      |
 | `web/`                     | React + TypeScript + Vite PWA, built into `web/dist`.         |
 | `docs/`                    | mdBook documentation.                                         |
@@ -62,7 +63,8 @@ without either header is refused with `428`.
 `FILEBRARY_SECURE_COOKIES`, `FILEBRARY_LOG` (filter, e.g. `debug`),
 `FILEBRARY_LOG_FORMAT` (`text`|`json`), `FILEBRARY_TRASH_RETENTION_DAYS`
 (`30`; `0` makes deletes permanent), `FILEBRARY_ACTIVITY_RETENTION_DAYS`
-(`365`; `0` keeps events forever). `filebrary healthcheck` probes
+(`365`; `0` keeps events forever), `FILEBRARY_PREVIEWS` (`true`|`false`),
+`FILEBRARY_PREVIEW_CACHE_MIB` (default `2048`). `filebrary healthcheck` probes
 `/healthz` for container health checks.
 
 `FILEBRARY_SOURCES` makes local sources only; S3, SFTP and SMB sources are set
@@ -207,3 +209,25 @@ Memory stays flat as the tree grows because the walker streams batches of
 million entries takes about 55 ms. On Linux each watched folder uses one
 inotify watch: raise `fs.inotify.max_user_watches` for very large trees (if
 the watcher cannot start, the source falls back to periodic rescans).
+
+## Previews
+
+| Kind | Thumbnail | Needs |
+|------|-----------|-------|
+| JPEG, PNG, GIF, WebP, TIFF, BMP, ICO | resized in Rust | nothing |
+| Camera RAW (CR2, CR3, NEF, ARW, DNG, RAF, ORF, RW2, ...) | embedded JPEG, in Rust | nothing |
+| HEIC, HEIF, AVIF | decoded and resized | `heif-dec` or `ffmpeg` |
+| Video | poster frame | `ffmpeg`, `ffprobe` |
+| Audio | embedded cover art | `ffmpeg`, `ffprobe` |
+| PDF | first page | `pdftoppm` (poppler-utils) |
+| Word, Excel, PowerPoint, OpenDocument | first page; full PDF via `variant=pdf` | `soffice`, `pdftoppm` |
+
+The slim image links no C libraries for previews, so it covers images and
+RAW; the `-full` image carries the tools for the rest. Tools are found on
+`PATH` at startup and logged. Previews are cached in
+`<data_dir>/cache/previews` (LRU, `[previews] cache_mib`). Video and audio
+the browser cannot play (HEVC, AC-3, WMA, ...) stream through
+`GET /api/sources/{id}/stream?path=&start=` as fragmented MP4; everything else
+plays from the download route with range requests. External tools always run
+with an argument list (no shell), a time limit, and a fresh LibreOffice
+profile per conversion.
