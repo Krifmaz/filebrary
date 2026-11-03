@@ -25,9 +25,10 @@ top linking here.
 | Job queue, conversions (documents, video, photos), custom admin jobs | 3 | Planned |
 | Archives: create zip / tar.gz, browse inside zip / tar / 7z | 3 | Planned |
 | Full-text content search | 4 | Done, in the next release |
-| FTP / FTPS server | 4 | Planned |
-| Notifications (webhook, ntfy, email) | 4 | Planned |
-| Prometheus metrics | 4 | Planned |
+| FTP / FTPS server | 4 | Done, in the next release |
+| Notifications (webhook, ntfy, email) | 4 | Done, in the next release |
+| Prometheus metrics | 4 | Done, in the next release |
+| OpenAPI spec and API docs page, readiness check, request ids in logs | 4 | Done, in the next release |
 | Comments, collections, casting (Chromecast and AirPlay), themes and branding | 4 | Done, in the next release |
 | This documentation site | 4 | In progress |
 

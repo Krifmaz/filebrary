@@ -4,12 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::Parser;
-use filebrary::{
-    AppState,
-    config::{Config, LogFormat},
-    crypto, db,
-};
-use tracing_subscriber::EnvFilter;
+use filebrary::{AppState, config::Config, crypto, db};
 
 /// A small, fast, self-hosted file manager.
 #[derive(Parser, Debug)]
@@ -38,7 +33,10 @@ async fn main() -> anyhow::Result<()> {
     if let Some(Command::Healthcheck) = cli.command {
         return healthcheck(config.listen).await;
     }
-    init_logging(config.log_format);
+    filebrary::ops::logging::init(config.log_format);
+    // One TLS crypto provider for the whole process (notifications, FTPS):
+    // ring, which needs no system libraries.
+    let _ = rustls::crypto::ring::default_provider().install_default();
 
     std::fs::create_dir_all(&config.data_dir)
         .with_context(|| format!("creating data dir {}", config.data_dir.display()))?;
@@ -52,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
     filebrary::auth::bootstrap_admin(&state)
         .await
         .map_err(|e| anyhow::anyhow!("creating the first administrator: {e}"))?;
+    let ftp = filebrary::ops::ftp::spawn(&state, shutdown_signal())?;
     state.search.start(&state);
 
     let listener = tokio::net::TcpListener::bind(listen)
@@ -64,6 +63,10 @@ async fn main() -> anyhow::Result<()> {
     )
     .with_graceful_shutdown(shutdown_signal())
     .await?;
+    if let Some(ftp) = ftp {
+        // The FTP server saw the same signal; give it its grace period.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(6), ftp).await;
+    }
     Ok(())
 }
 
@@ -92,16 +95,6 @@ async fn healthcheck(mut addr: std::net::SocketAddr) -> anyhow::Result<()> {
     }
 }
 
-fn init_logging(format: LogFormat) {
-    let filter = EnvFilter::try_from_env("FILEBRARY_LOG")
-        .unwrap_or_else(|_| EnvFilter::new("info,tower_http=info,sqlx=warn"));
-    let builder = tracing_subscriber::fmt().with_env_filter(filter);
-    match format {
-        LogFormat::Json => builder.json().init(),
-        LogFormat::Text => builder.init(),
-    }
-}
-
 async fn shutdown_signal() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
@@ -115,6 +108,7 @@ async fn shutdown_signal() {
     };
     #[cfg(not(unix))]
     let term = std::future::pending::<()>();
+    // Both arms are Send + Sync, so the FTP server can wait on this too.
     tokio::select! {
         () = ctrl_c => {},
         () = term => {},

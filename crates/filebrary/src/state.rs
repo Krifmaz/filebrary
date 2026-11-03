@@ -36,6 +36,16 @@ pub struct Inner {
     /// The full-text content index, or `None` when `[fulltext] enabled =
     /// false` or no source has `content_search` switched on.
     pub content_index: Option<Arc<filebrary_fulltext::ContentIndex>>,
+    /// Event bus: publish upload, share, quota and job events here; the
+    /// notification dispatcher delivers them to webhooks, ntfy and email.
+    pub events: filebrary_events::EventBus,
+    /// The running notification dispatcher (lists targets, sends tests).
+    /// `None` when no target is configured.
+    pub notifier: Option<filebrary_events::DispatcherHandle>,
+    /// Prometheus recorder handle, rendered by `/metrics`.
+    pub metrics: crate::ops::metrics::Metrics,
+    /// When the server started, for the uptime metric.
+    pub started_at: std::time::Instant,
     /// Login rate limiter and auth hooks.
     pub auth: crate::auth::AuthRuntime,
 }
@@ -69,6 +79,17 @@ impl AppState {
         let upload_dir = config.data_dir.join("uploads");
         std::fs::create_dir_all(&upload_dir)
             .with_context(|| format!("creating {}", upload_dir.display()))?;
+        let events = filebrary_events::EventBus::new(config.notifications.instance.clone());
+        let notifier = if config.notifications.is_empty() {
+            None
+        } else {
+            let dispatcher = filebrary_events::Dispatcher::from_config(&config.notifications)
+                .map_err(anyhow::Error::msg)
+                .context("setting up notifications")?;
+            // The dispatcher runs on the current Tokio runtime.
+            Some(dispatcher.spawn(&events))
+        };
+        let metrics = crate::ops::metrics::Metrics::install();
         let names: Vec<String> = sources.keys().cloned().collect();
         let search = Search::new(db.clone(), config.search.clone(), &names);
         let content_index = crate::content::open_index(&config)?;
@@ -83,6 +104,10 @@ impl AppState {
             upload_dir,
             uploads_in_flight: Default::default(),
             content_index,
+            events,
+            notifier,
+            metrics,
+            started_at: std::time::Instant::now(),
         })))
     }
 

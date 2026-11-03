@@ -16,6 +16,8 @@ Preview it locally with `mdbook serve docs`.
 | Path                       | What                                                          |
 |----------------------------|---------------------------------------------------------------|
 | `crates/filebrary`         | The server: axum app, config, auth, API, shares, embedded UI. |
+| `crates/filebrary-events`  | Event bus and notifications (webhook, ntfy, email).           |
+| `crates/filebrary-ftp`     | Optional FTP/FTPS server over the storage trait.              |
 | `crates/filebrary-storage` | `Storage` trait, `VPath` path validation; local, S3, SFTP and SMB backends. |
 | `migrations/`              | SQLite migrations for the whole workspace (one history).      |
 | `web/`                     | React + TypeScript + Vite PWA, built into `web/dist`.         |
@@ -100,6 +102,43 @@ full and other users see for the folders they can view. Endpoints:
 `/api/trash`, `/api/tags`, `/api/stars`, `/api/annotations`, `/api/activity`;
 see [docs/src/organize.md](docs/src/organize.md).
 
+## Monitoring, notifications and FTP
+
+- `/healthz` (liveness), `/readyz` (database and sources), `/metrics`
+  (Prometheus, optional `metrics.token`), `/api/openapi.json` and the
+  built-in API reference at `/api/docs`.
+- `FILEBRARY_LOG_FORMAT=json` gives one JSON object per line; every request
+  carries an `X-Request-Id` and is logged by route pattern, status and latency.
+- Upload, share-opened, quota-near-full and job-failed events go to webhooks
+  (HMAC-signed), ntfy and email: see `docs/src/guide/notifications.md`.
+- An FTP/FTPS server using the same users and permissions is built in and
+  off by default (`[ftp] enabled = true`): see `docs/src/guide/ftp.md`.
+
+Idle memory of a release build with one local source is about 12 MB RSS
+(`filebrary_process_resident_memory_bytes` and
+`filebrary_process_peak_resident_memory_bytes` report it live).
+
+## Comments, collections, casting, themes
+
+* **Comments**: select a file and press *Comments*. Anyone who can see a file
+  reads its thread; posting needs `download`; authors edit their own, and
+  holders of `edit` (and admins) can delete any comment on the file.
+  API: `/api/comments`.
+* **Collections**: select files or folders from any source and press *Add to
+  collection*; the *Collections* page lists them and creates one share link
+  for a whole collection (password, expiry and download limit as usual). The
+  link only serves items the owner may still share. API: `/api/collections`.
+* **Casting**: video and audio open in a player with a *Cast* button when a
+  Chromecast (Chrome) or AirPlay device (Safari) is nearby. It uses the
+  browser's Remote Playback API, so no third-party script is loaded; the
+  device streams from a signed URL that expires after 6 hours and stops
+  working as soon as the user loses access. Set `public_url` so devices
+  reach the right address.
+* **Themes and branding**: *Appearance* lets each user pick light, dark,
+  system or a custom palette; administrators set the product name, logo,
+  default theme and the colours of each theme, which also brand the login
+  page, share pages and the installed PWA.
+
 ## Search
 
 Every source is indexed into SQLite (names, type, size, date) and kept fresh
@@ -162,24 +201,3 @@ default allocator arenas. The writer arena is freed after each commit, so an
 idle server keeps only the memory-mapped index, which the OS can evict.
 Reproduce with `cargo run --release -p filebrary-fulltext --example
 index_dir -- <dir> <query>`.
-
-## Comments, collections, casting, themes
-
-* **Comments**: select a file and press *Comments*. Anyone who can see a file
-  reads its thread; posting needs `download`; authors edit their own, and
-  holders of `edit` (and admins) can delete any comment on the file.
-  API: `/api/comments`.
-* **Collections**: select files or folders from any source and press *Add to
-  collection*; the *Collections* page lists them and creates one share link
-  for a whole collection (password, expiry and download limit as usual). The
-  link only serves items the owner may still share. API: `/api/collections`.
-* **Casting**: video and audio open in a player with a *Cast* button when a
-  Chromecast (Chrome) or AirPlay device (Safari) is nearby. It uses the
-  browser's Remote Playback API, so no third-party script is loaded; the
-  device streams from a signed URL that expires after 6 hours and stops
-  working as soon as the user loses access. Set `public_url` so devices
-  reach the right address.
-* **Themes and branding**: *Appearance* lets each user pick light, dark,
-  system or a custom palette; administrators set the product name, logo,
-  default theme and the colours of each theme, which also brand the login
-  page, share pages and the installed PWA.
