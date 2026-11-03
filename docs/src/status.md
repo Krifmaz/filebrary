@@ -19,7 +19,7 @@ top linking here.
 | Trash bin with restore and automatic purging | 2 | Done, in the next release |
 | Tags, stars, activity log | 2 | Done, in the next release |
 | Text editor | 2 | Planned |
-| WebDAV server | 2 | Planned |
+| WebDAV server | 2 | Done, in the next release |
 | S3-compatible, SFTP and SMB sources | 3 | Planned |
 | OIDC single sign-on, LDAP, TOTP two-factor, API keys, storage quotas | 3 | Planned |
 | Job queue, conversions (documents, video, photos), custom admin jobs | 3 | Planned |
