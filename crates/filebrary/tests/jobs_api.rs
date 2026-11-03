@@ -3,6 +3,9 @@
 //!
 //! Tests that need ffmpeg or LibreOffice are skipped (with a message) when
 //! the program is not installed; CI's conversion job installs both.
+// The custom-job helpers are only used by the Unix-only tests (they run
+// Unix programs such as `sleep` and `sed`).
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 
 mod common;
 
