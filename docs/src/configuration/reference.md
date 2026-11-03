@@ -236,6 +236,301 @@ Days activity-log events are kept. `0` keeps them forever.
 | Default     | `365`                                   |
 | Environment | `FILEBRARY_ACTIVITY_RETENTION_DAYS`     |
 
+## Two-factor login and quotas
+
+### `totp_issuer`
+
+The name authenticator apps show next to Filebrary's two-factor codes. See [Two-factor authentication](../guide/authentication.md#two-factor-authentication-totp).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"Filebrary"` |
+
+### `default_quota`
+
+The storage limit for users who have no limit of their own. Administrators set per-user limits in the admin pages or with `PUT /api/users/{id}/quota`; a user set to unlimited stays unlimited.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | size such as `"500M"`, `"10G"` or `"1.5T"` (binary units), optional |
+| Default     | not set (unlimited) |
+| Environment | `FILEBRARY_DEFAULT_QUOTA` (an empty value unsets it) |
+
+Uploads that would go over a user's limit fail with `507 quota_exceeded`. See [Storage quotas](../guide/authentication.md#storage-quotas).
+
+### `quota_rescan_hours`
+
+Hours between measurements of each limited user's real usage: the size of everything in their home folder (their scope on each source). This corrects the running total for deletes, abandoned uploads and changes made outside Filebrary.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | whole number of hours |
+| Default     | `6` |
+| Environment | `FILEBRARY_QUOTA_RESCAN_HOURS` |
+
+`0` turns the rescan off; usage is then only counted on upload.
+
+## Single sign-on (OIDC)
+
+The `[oidc]` table turns on OpenID Connect sign-in. Leave it out to turn SSO off. It needs [`public_url`](#public_url), because the provider redirects back to `<public_url>/api/auth/oidc/callback`. See [Single sign-on](../guide/authentication.md#single-sign-on-oidc).
+
+```toml
+[oidc]
+issuer_url = "https://auth.example.com"
+client_id = "filebrary"
+client_secret_file = "/run/secrets/oidc_client_secret"
+admin_group = "filebrary-admins"
+```
+
+### `oidc.issuer_url`
+
+The provider's issuer URL. Discovery is read from `/.well-known/openid-configuration` below it.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | URL; `https://` except for `localhost` |
+| Default     | required |
+
+### `oidc.client_id`
+
+The client id registered at the provider.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `oidc.client_secret`
+
+The client secret. Prefer `client_secret_file` or the environment variable so the secret is not in the file.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string, optional |
+| Default     | not set (public client) |
+| Environment | `FILEBRARY_OIDC_CLIENT_SECRET` (overrides both this and `client_secret_file`) |
+
+### `oidc.client_secret_file`
+
+A file holding the client secret, such as a Docker secret. Trailing newlines are ignored.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | path, optional |
+| Default     | not set |
+
+### `oidc.scopes`
+
+Scopes requested besides `openid`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of strings |
+| Default     | `["profile", "email", "groups"]` |
+
+### `oidc.username_claim`
+
+The claim used as the local username on first sign-in. Falls back to a verified `email`, then `sub`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"preferred_username"` |
+
+### `oidc.groups_claim`
+
+The claim listing the user's groups. A user joins each local group with the same name and leaves local groups the claim no longer lists.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"groups"` |
+
+### `oidc.admin_group`
+
+Members of this provider group are administrators; others are not. Checked at every sign-in. Unset: administrator rights are managed in Filebrary.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string, optional |
+| Default     | not set |
+
+### `oidc.allowed_groups`
+
+Only members of at least one of these groups may sign in.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of strings |
+| Default     | `[]` (everyone the provider accepts) |
+
+### `oidc.auto_create`
+
+Create a local user on first sign-in. When off, an administrator creates the account first (with the `oidc` source and the same username), and the first sign-in links to it.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean |
+| Default     | `true` |
+
+### `oidc.button_label`
+
+Text of the sign-in button on the login page.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"Sign in with SSO"` |
+
+### `oidc.disable_password_login`
+
+Hide and refuse password login for everyone except administrators, who keep it as a way in when the provider is down.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean |
+| Default     | `false` |
+
+## LDAP
+
+The `[ldap]` table lets users who are not local password accounts sign in with their directory password. Leave it out to turn LDAP off. See [LDAP](../guide/authentication.md#ldap).
+
+```toml
+[ldap]
+url = "ldaps://ldap.example.com"
+bind_dn = "cn=filebrary,ou=services,dc=example,dc=com"
+bind_password_file = "/run/secrets/ldap_password"
+base_dn = "ou=people,dc=example,dc=com"
+```
+
+### `ldap.url`
+
+The directory server.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | `ldaps://host:636` or `ldap://host:389` |
+| Default     | required |
+
+### `ldap.starttls`
+
+Upgrade an `ldap://` connection with StartTLS. Use this or `ldaps://` so passwords are not sent in clear text.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean |
+| Default     | `false` |
+
+### `ldap.bind_dn`
+
+The service account used to search for users.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | DN, optional |
+| Default     | not set (anonymous search) |
+
+### `ldap.bind_password`
+
+The service account's password. Prefer `bind_password_file` or the environment variable.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string, optional |
+| Default     | not set |
+| Environment | `FILEBRARY_LDAP_BIND_PASSWORD` (overrides both this and `bind_password_file`) |
+
+### `ldap.bind_password_file`
+
+A file holding the service account's password. Trailing newlines are ignored.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | path, optional |
+| Default     | not set |
+
+### `ldap.base_dn`
+
+Where users are searched for (subtree).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | DN |
+| Default     | required |
+
+### `ldap.user_filter`
+
+The search filter. `{username}` is replaced by the login name, escaped so it cannot change the filter. Exactly one entry must match. For Active Directory use `(&(objectClass=user)(sAMAccountName={username}))`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | LDAP filter containing `{username}` |
+| Default     | `"(&(objectClass=person)(uid={username}))"` |
+
+### `ldap.username_attribute`
+
+The attribute holding the login name stored in Filebrary (`sAMAccountName` for Active Directory).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"uid"` |
+
+### `ldap.email_attribute`
+
+The attribute holding the e-mail address.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"mail"` |
+
+### `ldap.display_name_attribute`
+
+The attribute holding the display name.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"cn"` |
+
+### `ldap.group_attribute`
+
+The attribute listing the user's group DNs. Each group's `cn` is matched to local group names, as for SSO.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"memberOf"` |
+
+### `ldap.required_group`
+
+Only members of this group may sign in.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | group DN, optional |
+| Default     | not set |
+
+### `ldap.admin_group`
+
+Members of this group are administrators; others are not. Checked at every sign-in.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | group DN, optional |
+| Default     | not set |
+
+### `ldap.timeout_secs`
+
+Network timeout for each LDAP operation, in seconds.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | whole number |
+| Default     | `10` |
+
 ## Search
 
 These settings live in a `[search]` table. See [Search](../guide/search.md).

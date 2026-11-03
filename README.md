@@ -19,6 +19,7 @@ Preview it locally with `mdbook serve docs`.
 | `crates/filebrary-events`  | Event bus and notifications (webhook, ntfy, email).           |
 | `crates/filebrary-ftp`     | Optional FTP/FTPS server over the storage trait.              |
 | `crates/filebrary-storage` | `Storage` trait, `VPath` path validation; local, S3, SFTP and SMB backends. |
+| `crates/filebrary-identity` | TOTP 2FA, API keys, quotas, LDAP and OIDC logic and storage. |
 | `migrations/`              | SQLite migrations for the whole workspace (one history).      |
 | `web/`                     | React + TypeScript + Vite PWA, built into `web/dist`.         |
 | `docs/`                    | mdBook documentation.                                         |
@@ -33,6 +34,25 @@ npm --prefix web ci && npm --prefix web run build   # optional: embeds the UI
 cargo build --release
 ./target/release/filebrary            # serves ./data/files on 127.0.0.1:8080
 ```
+
+## Text editor
+
+Text and code files open in a CodeMirror editor in the web UI, with syntax
+highlighting for about 100 languages, search (Ctrl/Cmd+F), line wrapping and
+Ctrl/Cmd+S to save. Users with the `edit` permission can save; everyone else
+with `download` gets a read-only view. Files up to 5 MiB that are valid UTF-8
+open in the editor; others are offered as a download.
+
+Saving never silently overwrites someone else's change. The server hands out a
+strong ETag (from the file's SHA-256) when the file is opened, and a save must
+carry it in `If-Match`. If the file changed in the meantime (another tab, user,
+WebDAV client or a change on disk), the save is refused with `412` and the
+editor offers to load the other version or overwrite it.
+
+API: `GET /api/sources/{id}/text?path=...` returns
+`{path, content, etag, size, modified}`; `PUT` on the same URL takes the raw
+text and `If-Match: <etag>` (or `If-None-Match: *` to create a file). A `PUT`
+without either header is refused with `428`.
 
 ## Configuration (short)
 
@@ -71,6 +91,23 @@ generated and printed once in the log. Log in and change it.
   lead into a hidden folder.
 - A user can also be confined to a folder (scope) per source; the paths
   they see start there.
+
+## Single sign-on, 2FA, API keys and quotas
+
+- **OpenID Connect** (`[oidc]`): sign in with Authelia, Authentik, Keycloak,
+  Google, Entra and others. Accounts link by issuer and `sub`; admin rights
+  and group membership can follow the provider's groups.
+- **LDAP** (`[ldap]`): search-then-bind against OpenLDAP, Active Directory,
+  FreeIPA or lldap, over `ldaps://` or StartTLS.
+- **TOTP 2FA**: any authenticator app, with ten single-use recovery codes.
+- **API keys**: `Authorization: Bearer fbk_...`, with scopes
+  (`files:read`, `files:write`, `files:delete`, `shares`, `admin`) that cap
+  what the key can do; never more than its owner.
+- **Quotas**: per-user limits (`default_quota = "10G"`); uploads over the
+  limit get `507 quota_exceeded`.
+
+The logic lives in `crates/filebrary-identity`; details in
+`docs/src/guide/authentication.md`.
 
 The admin API is under `/api/users`, `/api/groups` and `/api/permissions`
 (see `crates/filebrary/src/auth/routes.rs`).

@@ -18,10 +18,10 @@ top linking here.
 | Thumbnails and previews (images incl. HEIC/RAW, video, audio, PDF, Office) | 2 | Planned |
 | Trash bin with restore and automatic purging | 2 | Done, in the next release |
 | Tags, stars, activity log | 2 | Done, in the next release |
-| Text editor | 2 | Planned |
+| Text editor | 2 | Done, in the next release |
 | WebDAV server | 2 | Planned |
 | S3-compatible, SFTP and SMB sources | 3 | Done, in the next release |
-| OIDC single sign-on, LDAP, TOTP two-factor, API keys, storage quotas | 3 | Planned |
+| OIDC single sign-on, LDAP, TOTP two-factor, API keys, storage quotas | 3 | Done, in the next release |
 | Job queue, conversions (documents, video, photos), custom admin jobs | 3 | Planned |
 | Archives: create zip / tar.gz, browse inside zip / tar / 7z | 3 | Planned |
 | Full-text content search | 4 | Done, in the next release |

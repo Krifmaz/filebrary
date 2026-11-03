@@ -1,6 +1,9 @@
 # Release: on a version tag (v1.2.3), build binaries for every platform,
 # publish them to a GitHub release with checksums, and push multi-arch
 # Docker images (default and -full) to ghcr.io.
+#
+# Also called by tag-release.yml, because a tag created with GITHUB_TOKEN
+# does not start this workflow by itself.
 name: Release
 
 on:
@@ -11,6 +14,12 @@ on:
       tag:
         description: Existing tag to (re)build, e.g. v0.1.0
         required: true
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing tag to build, e.g. v0.1.0
+        required: true
+        type: string
 
 permissions:
   contents: read
