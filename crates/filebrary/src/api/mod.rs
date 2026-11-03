@@ -10,6 +10,8 @@
 //! | `/api/auth/...`, `/api/users`, `/api/groups` | [`crate::auth::routes`] | auth |
 //! | `/api/shares`                  | [`crate::shares::api_router`]    | shares  |
 //! | `/api/public/shares/{token}`   | [`crate::shares::public_router`] | shares  |
+//! | `/api/trash`, `/api/tags`, `/api/stars`, `/api/annotations` | [`crate::organize::api`] | organize |
+//! | `/api/activity`                | [`crate::activity`]       | organize |
 //!
 //! Errors are JSON: `{"error": "<machine code>", "message": "<human text>"}`.
 //! Paths are passed as `path` query parameters (or JSON fields), absolute
@@ -35,6 +37,8 @@ pub fn router() -> Router<AppState> {
         .merge(crate::auth::routes::routes())
         .nest("/shares", crate::shares::api_router())
         .nest("/public/shares", crate::shares::public_router())
+        .merge(crate::organize::api::routes())
+        .nest("/activity", crate::activity::routes())
 }
 
 /// `GET /api/health`: liveness probe, also served at `/healthz`.

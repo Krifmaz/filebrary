@@ -95,6 +95,8 @@ fn write_archive(
         expanded = rt
             .block_on(storage.list(&VPath::root()))?
             .into_iter()
+            // Never pack the trash folder when zipping a whole source.
+            .filter(|e| e.name != crate::organize::trash::TRASH_DIR)
             .map(|e| e.path)
             .collect::<Vec<_>>();
         &expanded[..]
