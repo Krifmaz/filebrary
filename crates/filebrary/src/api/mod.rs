@@ -12,11 +12,11 @@
 //! | `/api/public/shares/{token}`   | [`crate::shares::public_router`] | shares  |
 //! | `/api/trash`, `/api/tags`, `/api/stars`, `/api/annotations` | [`crate::organize::api`] | organize |
 //! | `/api/activity`                | [`crate::activity`]       | organize |
-//! | `/api/search`, `/api/search/...` | [`crate::search::api`]  | search  |
 //! | `/api/comments`                | [`crate::comments`]       | social  |
 //! | `/api/collections`             | [`crate::collections`]    | social  |
 //! | `/api/cast`, `/api/public/cast/{token}/{name}` | [`crate::cast`] | social |
 //! | `/api/branding`, `/api/admin/branding`, `/api/me/theme` | [`crate::branding`] | social |
+//! | `/api/search`, `/api/search/...` | [`crate::search::api`]  | search  |
 //!
 //! Errors are JSON: `{"error": "<machine code>", "message": "<human text>"}`.
 //! Paths are passed as `path` query parameters (or JSON fields), absolute
