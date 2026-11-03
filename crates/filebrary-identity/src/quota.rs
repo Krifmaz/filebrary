@@ -45,12 +45,13 @@ impl Quota {
     }
 }
 
-/// Reads a user's quota (unlimited with zero usage if never set).
+/// Reads a user's quota. A user without a row yet gets `default_limit` (the
+/// server's `default_quota`) and zero usage.
 ///
 /// # Errors
 ///
 /// Database errors.
-pub async fn get(db: &SqlitePool, user_id: i64) -> Result<Quota> {
+pub async fn get(db: &SqlitePool, user_id: i64, default_limit: Option<i64>) -> Result<Quota> {
     let row: Option<(Option<i64>, i64)> =
         sqlx::query_as("SELECT limit_bytes, used_bytes FROM user_quotas WHERE user_id = ?")
             .bind(user_id)
@@ -58,7 +59,10 @@ pub async fn get(db: &SqlitePool, user_id: i64) -> Result<Quota> {
             .await?;
     Ok(row
         .map(|(limit, used)| Quota { limit, used })
-        .unwrap_or_default())
+        .unwrap_or(Quota {
+            limit: default_limit,
+            used: 0,
+        }))
 }
 
 /// Sets or clears (`None`) a user's limit. Usage is kept.
@@ -85,21 +89,28 @@ pub async fn set_limit(db: &SqlitePool, user_id: i64, limit: Option<i64>) -> Res
 
 /// Atomically adds `bytes` to the user's usage if it fits under the limit.
 ///
-/// Returns the quota after the reservation.
+/// A user without a row yet starts with `default_limit`. Returns the quota
+/// after the reservation.
 ///
 /// # Errors
 ///
 /// `QuotaExceeded` if it does not fit, `InvalidInput` for negative `bytes`.
-pub async fn reserve(db: &SqlitePool, user_id: i64, bytes: i64) -> Result<Quota> {
+pub async fn reserve(
+    db: &SqlitePool,
+    user_id: i64,
+    bytes: i64,
+    default_limit: Option<i64>,
+) -> Result<Quota> {
     if bytes < 0 {
         return Err(Error::invalid("cannot reserve a negative size"));
     }
     let t = now();
     sqlx::query(
         "INSERT INTO user_quotas (user_id, limit_bytes, used_bytes, updated_at)
-         VALUES (?, NULL, 0, ?) ON CONFLICT(user_id) DO NOTHING",
+         VALUES (?, ?, 0, ?) ON CONFLICT(user_id) DO NOTHING",
     )
     .bind(user_id)
+    .bind(default_limit)
     .bind(t)
     .execute(db)
     .await?;
@@ -113,7 +124,7 @@ pub async fn reserve(db: &SqlitePool, user_id: i64, bytes: i64) -> Result<Quota>
     .bind(bytes)
     .execute(db)
     .await?;
-    let q = get(db, user_id).await?;
+    let q = get(db, user_id, default_limit).await?;
     if done.rows_affected() == 0 {
         return Err(Error::QuotaExceeded {
             limit: q.limit.unwrap_or(0),
@@ -141,18 +152,25 @@ pub async fn release(db: &SqlitePool, user_id: i64, bytes: i64) -> Result<()> {
     Ok(())
 }
 
-/// Replaces the user's usage with a measured value (after a rescan).
+/// Replaces the user's usage with a measured value (after a rescan). A user
+/// without a row yet starts with `default_limit`.
 ///
 /// # Errors
 ///
 /// Database errors.
-pub async fn set_used(db: &SqlitePool, user_id: i64, bytes: i64) -> Result<()> {
+pub async fn set_used(
+    db: &SqlitePool,
+    user_id: i64,
+    bytes: i64,
+    default_limit: Option<i64>,
+) -> Result<()> {
     sqlx::query(
-        "INSERT INTO user_quotas (user_id, limit_bytes, used_bytes, updated_at) VALUES (?, NULL, ?, ?)
+        "INSERT INTO user_quotas (user_id, limit_bytes, used_bytes, updated_at) VALUES (?, ?, ?, ?)
          ON CONFLICT(user_id) DO UPDATE SET used_bytes = excluded.used_bytes,
              updated_at = excluded.updated_at",
     )
     .bind(user_id)
+    .bind(default_limit)
     .bind(bytes.max(0))
     .bind(now())
     .execute(db)
@@ -160,17 +178,21 @@ pub async fn set_used(db: &SqlitePool, user_id: i64, bytes: i64) -> Result<()> {
     Ok(())
 }
 
-/// Users that have a limit, for the periodic rescan.
+/// Users whose usage should be measured by the periodic rescan: those with
+/// a limit, plus (when `default_limit` is set) those with no row yet.
 ///
 /// # Errors
 ///
 /// Database errors.
-pub async fn limited_users(db: &SqlitePool) -> Result<Vec<i64>> {
-    Ok(
-        sqlx::query_scalar("SELECT user_id FROM user_quotas WHERE limit_bytes IS NOT NULL")
-            .fetch_all(db)
-            .await?,
+pub async fn limited_users(db: &SqlitePool, default_limit: Option<i64>) -> Result<Vec<i64>> {
+    Ok(sqlx::query_scalar(
+        "SELECT u.id FROM users u LEFT JOIN user_quotas q ON q.user_id = u.id
+         WHERE q.limit_bytes IS NOT NULL OR (q.user_id IS NULL AND ?)
+         ORDER BY u.id",
     )
+    .bind(default_limit.is_some())
+    .fetch_all(db)
+    .await?)
 }
 
 /// Parses a human size such as `500M`, `10 GiB`, `1.5T` or `1048576`.

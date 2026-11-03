@@ -39,7 +39,7 @@ pub struct LdapConfig {
     pub bind_dn: Option<String>,
     /// Password of the service account. Prefer `bind_password_file`.
     #[serde(default)]
-    pub bind_password: Option<String>,
+    pub bind_password: Option<crate::SecretString>,
     /// File holding the service account password (for Docker secrets).
     #[serde(default)]
     pub bind_password_file: Option<PathBuf>,
@@ -125,15 +125,11 @@ impl LdapConfig {
     }
 
     fn service_password(&self) -> Result<Option<String>> {
-        if let Some(p) = &self.bind_password {
-            return Ok(Some(p.clone()));
-        }
-        match &self.bind_password_file {
-            Some(f) => std::fs::read_to_string(f)
-                .map(|s| Some(s.trim_end_matches(['\r', '\n']).to_owned()))
-                .map_err(|e| Error::Ldap(format!("reading {}: {e}", f.display()))),
-            None => Ok(None),
-        }
+        crate::secret::read(
+            self.bind_password.as_ref(),
+            self.bind_password_file.as_deref(),
+        )
+        .map_err(|e| Error::Ldap(format!("reading ldap.bind_password_file: {e}")))
     }
 
     /// The filter for `username`, with the name escaped per RFC 4515.
@@ -171,6 +167,8 @@ pub struct LdapUser {
     pub email: Option<String>,
     /// Display name, if any.
     pub display_name: Option<String>,
+    /// Group DNs from `group_attribute`.
+    pub groups: Vec<String>,
     /// Member of `admin_group`.
     pub is_admin: bool,
 }
@@ -289,6 +287,12 @@ fn to_user(cfg: &LdapConfig, typed: &str, entry: &SearchEntry) -> LdapUser {
             .unwrap_or_else(|| typed.to_owned()),
         email: first_attr(&entry.attrs, &cfg.email_attribute),
         display_name: first_attr(&entry.attrs, &cfg.display_name_attribute),
+        groups: entry
+            .attrs
+            .iter()
+            .filter(|(k, _)| k.eq_ignore_ascii_case(&cfg.group_attribute))
+            .flat_map(|(_, v)| v.iter().cloned())
+            .collect(),
         is_admin: cfg
             .admin_group
             .as_deref()
@@ -360,6 +364,7 @@ mod tests {
         assert_eq!(u.username, "bob");
         assert_eq!(u.email.as_deref(), Some("bob@example.com"));
         assert_eq!(u.display_name, None);
+        assert_eq!(u.groups.len(), 1);
         assert!(u.is_admin);
     }
 

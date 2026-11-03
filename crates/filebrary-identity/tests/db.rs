@@ -24,7 +24,8 @@ async fn db() -> SqlitePool {
     MIGRATOR.run(&pool).await.unwrap();
     for (id, name) in [(1, "alice"), (2, "bob")] {
         sqlx::query(
-            "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, 'x', 0)",
+            "INSERT INTO users (id, username, password_hash, created_at, updated_at)
+             VALUES (?, ?, 'x', 0, 0)",
         )
         .bind(id)
         .bind(name)
@@ -192,14 +193,17 @@ async fn api_keys_lifecycle() {
 #[tokio::test]
 async fn quotas_reserve_atomically() {
     let db = db().await;
-    assert_eq!(quota::get(&db, 1).await.unwrap(), quota::Quota::default());
+    assert_eq!(
+        quota::get(&db, 1, None).await.unwrap(),
+        quota::Quota::default()
+    );
     // Unlimited users can always reserve.
-    quota::reserve(&db, 1, 1 << 40).await.unwrap();
-    quota::set_used(&db, 1, 0).await.unwrap();
+    quota::reserve(&db, 1, 1 << 40, None).await.unwrap();
+    quota::set_used(&db, 1, 0, None).await.unwrap();
 
     quota::set_limit(&db, 1, Some(100)).await.unwrap();
-    quota::reserve(&db, 1, 60).await.unwrap();
-    let err = quota::reserve(&db, 1, 41).await.unwrap_err();
+    quota::reserve(&db, 1, 60, None).await.unwrap();
+    let err = quota::reserve(&db, 1, 41, None).await.unwrap_err();
     assert!(matches!(
         err,
         Error::QuotaExceeded {
@@ -208,13 +212,22 @@ async fn quotas_reserve_atomically() {
             requested: 41
         }
     ));
-    quota::reserve(&db, 1, 40).await.unwrap();
+    quota::reserve(&db, 1, 40, None).await.unwrap();
     quota::release(&db, 1, 500).await.unwrap();
-    assert_eq!(quota::get(&db, 1).await.unwrap().used, 0);
+    assert_eq!(quota::get(&db, 1, None).await.unwrap().used, 0);
     assert!(quota::set_limit(&db, 1, Some(-1)).await.is_err());
-    assert_eq!(quota::limited_users(&db).await.unwrap(), [1]);
+    assert_eq!(quota::limited_users(&db, None).await.unwrap(), [1]);
     quota::set_limit(&db, 1, None).await.unwrap();
-    assert!(quota::limited_users(&db).await.unwrap().is_empty());
+    assert!(quota::limited_users(&db, None).await.unwrap().is_empty());
+
+    // The server default applies to users without their own setting...
+    assert_eq!(quota::get(&db, 2, Some(10)).await.unwrap().limit, Some(10));
+    assert_eq!(quota::limited_users(&db, Some(10)).await.unwrap(), [2]);
+    assert!(quota::reserve(&db, 2, 11, Some(10)).await.is_err());
+    quota::reserve(&db, 2, 10, Some(10)).await.unwrap();
+    // ...but not to one an administrator set to unlimited.
+    assert_eq!(quota::get(&db, 1, Some(10)).await.unwrap().limit, None);
+    quota::reserve(&db, 1, 11, Some(10)).await.unwrap();
 }
 
 #[tokio::test]

@@ -30,6 +30,8 @@ pub struct Inner {
     pub uploads_in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
     /// Login rate limiter and auth hooks.
     pub auth: crate::auth::AuthRuntime,
+    /// SSO, LDAP, 2FA, API key and quota settings and caches.
+    pub identity: crate::identity::Identity,
 }
 
 impl Deref for AppState {
@@ -71,15 +73,22 @@ impl AppState {
         std::fs::create_dir_all(&upload_dir)
             .with_context(|| format!("creating {}", upload_dir.display()))?;
         let auth = crate::auth::AuthRuntime::new(&config);
-        Ok(Self(Arc::new(Inner {
+        let identity = crate::identity::Identity::new(&config);
+        let state = Self(Arc::new(Inner {
             auth,
+            identity,
             config,
             db,
             sources,
             secret,
             upload_dir,
             uploads_in_flight: Default::default(),
-        })))
+        }));
+        // Fresh runtime, so nothing can be installed yet.
+        let _ = state
+            .auth
+            .set_hooks(Arc::new(crate::identity::IdentityHooks));
+        Ok(state)
     }
 
     /// Looks up a source by name.

@@ -924,6 +924,7 @@ dependencies = [
  "base64 0.23.1",
  "bytes",
  "clap",
+ "filebrary-identity",
  "filebrary-storage",
  "futures",
  "hex",

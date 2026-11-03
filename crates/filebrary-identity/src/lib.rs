@@ -25,9 +25,11 @@ pub mod identities;
 pub mod ldap;
 pub mod oidc;
 pub mod quota;
+mod secret;
 pub mod totp;
 
 pub use error::{Error, Result};
+pub use secret::SecretString;
 
 /// The current time as Unix seconds.
 pub(crate) fn now() -> i64 {

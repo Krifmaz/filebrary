@@ -45,7 +45,7 @@ pub struct OidcConfig {
     pub client_id: String,
     /// Client secret. Prefer `client_secret_file`.
     #[serde(default)]
-    pub client_secret: Option<String>,
+    pub client_secret: Option<crate::SecretString>,
     /// File holding the client secret (for Docker secrets).
     #[serde(default)]
     pub client_secret_file: Option<std::path::PathBuf>,
@@ -118,15 +118,11 @@ impl OidcConfig {
     }
 
     fn secret(&self) -> Result<Option<String>> {
-        if let Some(s) = &self.client_secret {
-            return Ok(Some(s.clone()));
-        }
-        match &self.client_secret_file {
-            Some(f) => std::fs::read_to_string(f)
-                .map(|s| Some(s.trim_end_matches(['\r', '\n']).to_owned()))
-                .map_err(|e| Error::Oidc(format!("reading {}: {e}", f.display()))),
-            None => Ok(None),
-        }
+        crate::secret::read(
+            self.client_secret.as_ref(),
+            self.client_secret_file.as_deref(),
+        )
+        .map_err(|e| Error::Oidc(format!("reading oidc.client_secret_file: {e}")))
     }
 }
 

@@ -47,6 +47,7 @@ async fn main() -> anyhow::Result<()> {
     let listen = config.listen;
     let state = AppState::new(config, pool, secret)?;
     filebrary::spawn_maintenance(state.clone());
+    filebrary::identity::spawn_maintenance(state.clone());
     filebrary::auth::bootstrap_admin(&state)
         .await
         .map_err(|e| anyhow::anyhow!("creating the first administrator: {e}"))?;

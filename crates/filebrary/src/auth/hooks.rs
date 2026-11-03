@@ -34,6 +34,22 @@ pub trait AuthHooks: Send + Sync + 'static {
         Box::pin(async { Ok(()) })
     }
 
+    /// Checks a username and password that the local database cannot vouch
+    /// for: the user is unknown, or their `auth_source` is not `local`
+    /// (`existing` is the record if there is one). An LDAP directory plugs
+    /// in here. Return the local user to log in (creating it if needed), or
+    /// `Ok(None)` for a failed login. [`AuthHooks::after_password`] still
+    /// runs afterwards, so 2FA applies. Default: `Ok(None)`.
+    fn authenticate_external<'a>(
+        &'a self,
+        _state: &'a AppState,
+        _username: &'a str,
+        _password: &'a str,
+        _existing: Option<&'a UserRecord>,
+    ) -> BoxFuture<'a, AppResult<Option<UserRecord>>> {
+        Box::pin(async { Ok(None) })
+    }
+
     /// Resolves an `Authorization: Bearer <token>` header to a user id and
     /// the token's scopes. `Ok(None)` means the token is unknown (401).
     /// Default: bearer tokens are not accepted.

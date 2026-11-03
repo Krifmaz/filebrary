@@ -55,6 +55,9 @@ pub enum AppError {
     /// The payload is larger than the server accepts.
     #[error("payload too large")]
     PayloadTooLarge,
+    /// The write would take the user over their storage quota (507).
+    #[error("{0}")]
+    QuotaExceeded(String),
     /// The caller exceeded a rate limit and must wait.
     #[error("too many attempts, retry in {retry_after} seconds")]
     TooManyRequests {
@@ -96,6 +99,7 @@ impl AppError {
                 (StatusCode::RANGE_NOT_SATISFIABLE, "range_not_satisfiable")
             }
             Self::PayloadTooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"),
+            Self::QuotaExceeded(_) => (StatusCode::INSUFFICIENT_STORAGE, "quota_exceeded"),
             Self::TooManyRequests { .. } => (StatusCode::TOO_MANY_REQUESTS, "too_many_requests"),
             Self::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
         }
