@@ -234,7 +234,7 @@ mod tests {
     struct Recorder {
         name: String,
         filter: EventFilter,
-        fail: AtomicU32,
+        fail: Mutex<u32>,
         permanent: bool,
         got: Mutex<Vec<EventKind>>,
         calls: AtomicU32,
@@ -245,7 +245,7 @@ mod tests {
             Arc::new(Self {
                 name: name.into(),
                 filter,
-                fail: AtomicU32::new(fail),
+                fail: Mutex::new(fail),
                 permanent,
                 got: Mutex::new(Vec::new()),
                 calls: AtomicU32::new(0),
@@ -266,11 +266,13 @@ mod tests {
         fn send<'a>(&'a self, n: &'a Notice) -> BoxFuture<'a, Result<(), SinkError>> {
             Box::pin(async move {
                 self.calls.fetch_add(1, Ordering::SeqCst);
-                if self
-                    .fail
-                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |f| f.checked_sub(1))
-                    .is_ok()
-                {
+                let failing = {
+                    let mut left = self.fail.lock().unwrap();
+                    let failing = *left > 0;
+                    *left = left.saturating_sub(1);
+                    failing
+                };
+                if failing {
                     return Err(if self.permanent {
                         SinkError::Permanent("no".into())
                     } else {
