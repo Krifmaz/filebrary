@@ -364,16 +364,11 @@ async fn symlinks_never_leave_the_users_scope() {
 async fn tag_filter() {
     let e = env(false).await;
     e.scan().await;
-    // Without the tag tables (another feature's migration) the filter is refused.
-    let (status, _) = e.get(&e.admin, "/api/search?tag=x").await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-
     for sql in [
-        "CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE)",
-        "CREATE TABLE IF NOT EXISTS file_tags (tag_id INTEGER, source TEXT, path TEXT, PRIMARY KEY (tag_id, source, path))",
-        "INSERT INTO tags (id, name) VALUES (1, 'Holiday'), (2, 'best')",
-        "INSERT INTO file_tags VALUES (1, 'files', '/photos/beach.JPG'), (2, 'files', '/photos/beach.JPG'),
-                                      (1, 'files', '/photos/2024/party.png'), (1, 'files', '/home/bob/photos/cat.jpg')",
+        "INSERT INTO tags (id, name, created_at) VALUES (1, 'Holiday', 0), (2, 'best', 0)",
+        "INSERT INTO file_tags (tag_id, source, path, added_at) VALUES
+            (1, 'files', '/photos/beach.JPG', 0), (2, 'files', '/photos/beach.JPG', 0),
+            (1, 'files', '/photos/2024/party.png', 0), (1, 'files', '/home/bob/photos/cat.jpg', 0)",
     ] {
         sqlx::query(sql).execute(&e.state.db).await.unwrap();
     }

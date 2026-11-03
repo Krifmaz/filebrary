@@ -102,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
             q: Some("0012345".into()),
             ..Default::default()
         })?;
-    let (hits, _) = filebrary::search::query::run(&state.db, &user, &f, |_| true, false).await?;
+    let (hits, _) = filebrary::search::query::run(&state.db, &user, &f, |_| true).await?;
     eprintln!(
         "substring query: {} hits in {:.1?}",
         hits.len(),

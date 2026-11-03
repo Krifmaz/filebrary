@@ -357,8 +357,7 @@ struct Area {
     under: VPath,
 }
 
-/// Runs a search for `user`. `indexed` says whether a source is indexed;
-/// `has_tags` whether the tag tables exist.
+/// Runs a search for `user`. `indexed` says whether a source is indexed.
 ///
 /// # Errors
 ///
@@ -369,7 +368,6 @@ pub async fn run(
     user: &User,
     f: &Filters,
     indexed: impl Fn(&str) -> bool,
-    has_tags: bool,
 ) -> AppResult<(Vec<SearchHit>, bool)> {
     // Which (source, folder) pairs the caller may search.
     let mut areas = Vec::new();
@@ -405,11 +403,6 @@ pub async fn run(
     }
     if areas.is_empty() {
         return Ok((Vec::new(), false));
-    }
-    if !f.tags.is_empty() && !has_tags {
-        return Err(AppError::bad_request(
-            "tags are not available on this server",
-        ));
     }
 
     let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(

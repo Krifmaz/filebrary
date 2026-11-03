@@ -51,15 +51,8 @@ async fn search(
         ));
     }
     let filters = Filters::from_params(&params)?;
-    let has_tags = !filters.tags.is_empty() && tag_tables_exist(&state).await?;
-    let (hits, has_more) = query::run(
-        &state.db,
-        &auth.user,
-        &filters,
-        |s| state.search.indexes(s),
-        has_tags,
-    )
-    .await?;
+    let (hits, has_more) =
+        query::run(&state.db, &auth.user, &filters, |s| state.search.indexes(s)).await?;
     let indexing = state.search.status().iter().any(|s| {
         s.scanning
             && auth
@@ -72,17 +65,6 @@ async fn search(
         has_more,
         indexing,
     }))
-}
-
-/// The tag tables come from another work stream's migration; until it is
-/// applied, tag filters are refused instead of failing with a SQL error.
-async fn tag_tables_exist(state: &AppState) -> AppResult<bool> {
-    let (n,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('tags', 'file_tags')",
-    )
-    .fetch_one(&state.db)
-    .await?;
-    Ok(n == 2)
 }
 
 /// `GET /api/search/status`.

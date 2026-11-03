@@ -48,7 +48,7 @@ use crate::{config::SourceKind, state::AppState, storage::VPath};
 pub use store::{IndexRow, IndexStore};
 
 /// Name of the per-source trash folder (at the source root), which is never indexed.
-pub const TRASH_DIR: &str = ".filebrary-trash";
+pub use crate::organize::trash::TRASH_DIR;
 
 /// Returns `true` for paths the indexer must skip: the trash folder and its
 /// contents, and temporary files of in-flight atomic writes.
