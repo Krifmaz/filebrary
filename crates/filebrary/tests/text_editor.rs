@@ -6,86 +6,44 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode, header},
 };
-use filebrary::{
-    AppState,
-    auth::{Perms, session},
-    config::{Config, SourceConfig, SourceKind},
-    db,
-};
+use filebrary::auth::Perms;
 use serde_json::Value;
 use tower::ServiceExt;
+
+mod common;
+
+use common::{Client as Login, TestApp};
 
 struct Harness {
     app: Router,
     db: sqlx::SqlitePool,
     root: std::path::PathBuf,
-    _dir: tempfile::TempDir,
+    _t: TestApp,
 }
 
-struct Login {
-    cookie: String,
-    csrf: String,
-}
-
-/// Builds an app with one source `s` and two users: `alice` (edit +
+/// Builds an app with one source `files` and two users: `alice` (edit +
 /// upload, scoped to `/home`) and `bob` (view + download only).
 async fn setup() -> (Harness, Login, Login) {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("files");
+    let t = TestApp::new().await;
+    let root = t.root();
     std::fs::create_dir_all(root.join("home")).unwrap();
-    let config = Config {
-        data_dir: dir.path().join("data"),
-        sources: vec![SourceConfig {
-            name: "s".into(),
-            kind: SourceKind::Local,
-            path: root.clone(),
-        }],
-        ..Config::default()
-    };
-    let pool = db::open_memory().await.unwrap();
-    let state = AppState::new(config, pool, [7; 32]).unwrap();
-
-    let mut logins = Vec::new();
-    for (name, perms, scope) in [
-        (
+    let alice = t
+        .user(
             "alice",
+            false,
             Perms::VIEW | Perms::DOWNLOAD | Perms::UPLOAD | Perms::EDIT,
             "/home",
-        ),
-        ("bob", Perms::VIEW | Perms::DOWNLOAD, "/"),
-    ] {
-        let id: i64 = sqlx::query_scalar(
-            "INSERT INTO users (username, password_hash, created_at) VALUES (?, 'x', 0) RETURNING id",
         )
-        .bind(name)
-        .fetch_one(&state.db)
-        .await
-        .unwrap();
-        sqlx::query(
-            "INSERT INTO user_sources (user_id, source, perms, scope) VALUES (?, 's', ?, ?)",
-        )
-        .bind(id)
-        .bind(perms.bits())
-        .bind(scope)
-        .execute(&state.db)
-        .await
-        .unwrap();
-        let s = session::create(&state, id, None, None).await.unwrap();
-        logins.push(Login {
-            cookie: format!("{}={}", session::SESSION_COOKIE, s.token),
-            csrf: s.csrf_token,
-        });
-    }
-    let bob = logins.pop().unwrap();
-    let alice = logins.pop().unwrap();
-    let db = state.db.clone();
-    let app = filebrary::app(state);
+        .await;
+    let bob = t
+        .user("bob", false, Perms::VIEW | Perms::DOWNLOAD, "/")
+        .await;
     (
         Harness {
-            app,
-            db,
+            app: t.app.clone(),
+            db: t.state.db.clone(),
             root,
-            _dir: dir,
+            _t: t,
         },
         alice,
         bob,
@@ -107,7 +65,7 @@ impl Harness {
 
     async fn get(&self, who: &Login, path: &str) -> (StatusCode, Option<String>, Value) {
         self.send(
-            Request::get(format!("/api/sources/s/text?path={path}"))
+            Request::get(format!("/api/sources/files/text?path={path}"))
                 .header(header::COOKIE, &who.cookie)
                 .body(Body::empty())
                 .unwrap(),
@@ -122,7 +80,7 @@ impl Harness {
         pre: Option<(header::HeaderName, &str)>,
         body: impl Into<Body>,
     ) -> (StatusCode, Option<String>, Value) {
-        let mut b = Request::put(format!("/api/sources/s/text?path={path}"))
+        let mut b = Request::put(format!("/api/sources/files/text?path={path}"))
             .header(header::COOKIE, &who.cookie)
             .header("x-csrf-token", &who.csrf);
         if let Some((k, v)) = pre {
@@ -367,7 +325,7 @@ async fn permissions_and_csrf() {
     // No CSRF header.
     let (st, _, _) = h
         .send(
-            Request::put("/api/sources/s/text?path=/a.txt")
+            Request::put("/api/sources/files/text?path=/a.txt")
                 .header(header::COOKIE, &alice.cookie)
                 .header(header::IF_NONE_MATCH, "*")
                 .body(Body::from("x"))
@@ -379,7 +337,7 @@ async fn permissions_and_csrf() {
     // No session.
     let (st, _, _) = h
         .send(
-            Request::get("/api/sources/s/text?path=/a.txt")
+            Request::get("/api/sources/files/text?path=/a.txt")
                 .body(Body::empty())
                 .unwrap(),
         )
