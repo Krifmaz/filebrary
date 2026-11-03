@@ -323,6 +323,7 @@ pub async fn restore(
         .execute(&state.db)
         .await?;
     meta::on_move(&state.db, &item.source, &from, &item.source, &dest).await?;
+    state.search.changed(state, &item.source, &dest);
     Ok(dest)
 }
 
