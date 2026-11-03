@@ -33,6 +33,8 @@ path = "/srv"
 | `admin_username` | `FILEBRARY_ADMIN_USERNAME` | `admin` | Name of the administrator created on first start, when there are no users. |
 | `admin_password` | `FILEBRARY_ADMIN_PASSWORD` | generated | Password for that administrator. If unset, a random one is printed once to the log. Prefer the variable over the file. |
 | `log_format` | `FILEBRARY_LOG_FORMAT` | `text` | `text`, or `json` for structured logs. |
+| `trash_retention_days` | `FILEBRARY_TRASH_RETENTION_DAYS` | `30` | Days a deleted item stays in the trash before it is purged. `0` turns the trash off: deletes are permanent. See [Trash, tags, stars and activity](../organize.md). |
+| `activity_retention_days` | `FILEBRARY_ACTIVITY_RETENTION_DAYS` | `365` | Days activity-log events are kept. `0` keeps them forever. |
 | (none) | `FILEBRARY_LOG` | `info` | Log filter, e.g. `debug` or `info,sqlx=warn`. |
 
 Settings for later features are documented here as they land.

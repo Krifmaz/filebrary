@@ -211,6 +211,19 @@ impl User {
         })
     }
 
+    /// Whether `perm` holds everywhere strictly below the *real* folder
+    /// `real`, that is no deeper rule takes it away. Needed before acting on
+    /// a whole tree (copy, move, delete) so hidden subfolders are not
+    /// copied out, moved away from their rule, or deleted.
+    pub fn uniform_below(&self, source: &str, real: &VPath, perm: Perms) -> bool {
+        (self.is_admin && self.ceiling.contains(perm))
+            || self
+                .rules
+                .iter()
+                .filter(|r| r.source == source && r.path.starts_with(real) && r.path != *real)
+                .all(|r| self.perms_at(source, &r.path).contains(perm | Perms::VIEW))
+    }
+
     /// Checks that the user may do `perm` on `source` and maps the
     /// user-visible `path` to the real path inside the source.
     ///
@@ -306,9 +319,48 @@ pub async fn authorize(
     perm: Perms,
     path: &VPath,
 ) -> AppResult<VPath> {
+    authorize_inner(state, user, source, perm, path, true).await
+}
+
+/// Like [`authorize`] for operations on an entry itself (delete, rename,
+/// move away): symlinks in the parent folders are resolved, but a final
+/// symlink is not followed, since the link is what gets acted on.
+///
+/// # Errors
+///
+/// As [`authorize`].
+pub async fn authorize_entry(
+    state: &AppState,
+    user: &User,
+    source: &str,
+    perm: Perms,
+    path: &VPath,
+) -> AppResult<VPath> {
+    authorize_inner(state, user, source, perm, path, false).await
+}
+
+async fn authorize_inner(
+    state: &AppState,
+    user: &User,
+    source: &str,
+    perm: Perms,
+    path: &VPath,
+    follow_final: bool,
+) -> AppResult<VPath> {
     let real = user.require(source, perm, path)?;
     let src = state.source(source).ok_or(AppError::NotFound)?;
-    let resolved = match src.storage.resolve(&real).await {
+    let resolved = if follow_final {
+        src.storage.resolve(&real).await
+    } else {
+        match (real.parent(), real.name()) {
+            (Some(parent), Some(name)) => match src.storage.resolve(&parent).await {
+                Ok(p) => p.join(name),
+                Err(e) => Err(e),
+            },
+            _ => Ok(real.clone()),
+        }
+    };
+    let resolved = match resolved {
         Ok(r) => r,
         Err(crate::storage::StorageError::OutsideRoot) => {
             return Err(AppError::forbidden("path is outside the source"));
@@ -317,6 +369,33 @@ pub async fn authorize(
     };
     if resolved != real {
         check_resolved(user, source, perm, &resolved)?;
+    }
+    Ok(real)
+}
+
+/// [`authorize`] for an operation on a whole tree (copy, move, delete):
+/// also refuses when a deeper rule takes `perm` away somewhere below.
+/// With `follow_final` off it checks like [`authorize_entry`] (for delete
+/// and move, which act on a final symlink itself).
+///
+/// # Errors
+///
+/// As [`authorize`]; `Forbidden` when the folder holds items the user may
+/// not act on.
+pub async fn authorize_tree(
+    state: &AppState,
+    user: &User,
+    source: &str,
+    perm: Perms,
+    path: &VPath,
+    follow_final: bool,
+) -> AppResult<VPath> {
+    let real = authorize_inner(state, user, source, perm, path, follow_final).await?;
+    if !user.uniform_below(source, &real, perm) {
+        return Err(AppError::forbidden(format!(
+            "this folder contains items you do not have the {} permission on",
+            perm.names().join("+")
+        )));
     }
     Ok(real)
 }
@@ -660,6 +739,18 @@ mod tests {
         assert_eq!(u.grant("s").unwrap().perms, Perms::VIEW | Perms::DOWNLOAD);
         u.is_admin = true;
         assert!(!u.perms_at("s", &VPath::root()).contains(Perms::DELETE));
+    }
+
+    #[test]
+    fn uniform_below_sees_narrower_rules() {
+        let u = user(
+            vec![rule("/team", Perms::ALL), rule("/team/hr", Perms::NONE)],
+            "/",
+        );
+        let vp = |s: &str| VPath::parse(s).unwrap();
+        assert!(!u.uniform_below("s", &vp("team"), Perms::DOWNLOAD));
+        assert!(u.uniform_below("s", &vp("team/hr"), Perms::DOWNLOAD));
+        assert!(u.uniform_below("s", &vp("team/dev"), Perms::DELETE));
     }
 
     #[test]

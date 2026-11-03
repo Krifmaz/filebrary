@@ -569,3 +569,61 @@ async fn symlinks_cannot_bypass_folder_rules() {
         r.status
     );
 }
+
+/// Copying, moving or deleting a folder that holds a subfolder hidden by a
+/// deeper rule is refused, so the hidden content cannot be copied out.
+#[tokio::test]
+async fn tree_operations_respect_deeper_rules() {
+    let a = app().await;
+    let root = a._dir.path().join("files");
+    std::fs::create_dir_all(root.join("team/hr")).unwrap();
+    std::fs::create_dir_all(root.join("team/dev")).unwrap();
+    std::fs::write(root.join("team/hr/salaries.txt"), b"x").unwrap();
+    std::fs::write(root.join("team/dev/a.txt"), b"a").unwrap();
+    let admin = a.login("admin", ADMIN_PW).await.unwrap();
+    let bob = create_user(&a, &admin, "bob").await;
+    for (path, perms) in [
+        ("/", json!(["view", "download", "upload", "edit", "delete"])),
+        ("/team/hr", json!([])),
+    ] {
+        let r = a
+            .call(
+                &admin,
+                Method::PUT,
+                "/api/permissions",
+                Some(json!({
+                    "source": "files", "path": path,
+                    "subject": { "type": "user", "id": bob }, "perms": perms
+                })),
+            )
+            .await;
+        assert_eq!(r.status, StatusCode::OK);
+    }
+    let b = a.login("bob", "user-password-1").await.unwrap();
+    for (uri, body) in [
+        (
+            "/api/sources/files/copy",
+            json!({ "from": "/team", "to": "/copy" }),
+        ),
+        (
+            "/api/sources/files/move",
+            json!({ "from": "/team", "to": "/moved" }),
+        ),
+        ("/api/sources/files/delete", json!({ "paths": ["/team"] })),
+    ] {
+        let r = a.call(&b, Method::POST, uri, Some(body)).await;
+        assert_eq!(r.status, StatusCode::FORBIDDEN, "{uri}: {:?}", r.body);
+    }
+    assert!(root.join("team/hr/salaries.txt").exists());
+    assert!(!root.join("copy").exists());
+    // A folder without hidden parts can still be copied.
+    let r = a
+        .call(
+            &b,
+            Method::POST,
+            "/api/sources/files/copy",
+            Some(json!({ "from": "/team/dev", "to": "/dev-copy" })),
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.body);
+}

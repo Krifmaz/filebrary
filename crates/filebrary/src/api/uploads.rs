@@ -327,6 +327,12 @@ async fn finish(state: &AppState, auth: &AuthUser, uid: &str) -> AppResult<Uploa
     remove(state, uid).await?;
     result?;
     let entry = st.stat(&visible).await?;
+    crate::activity::Activity::new(crate::activity::action::UPLOAD)
+        .user(&auth.user)
+        .at(&row.source, &real)
+        .details(serde_json::json!({ "size": row.size, "overwrite": row.overwrite }))
+        .record(state)
+        .await;
     Ok(UploadStatus {
         id: uid.to_owned(),
         offset: row.size as u64,

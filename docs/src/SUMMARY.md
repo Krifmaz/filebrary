@@ -15,6 +15,10 @@
 - [Reverse proxy](configuration/reverse-proxy.md)
 - [Users and permissions](configuration/users.md)
 
+# Features
+
+- [Trash, tags, stars and activity](organize.md)
+
 # Operations
 
 - [Upgrading and backups](operations.md)
