@@ -170,3 +170,67 @@ path = "/mnt/pool/media"   # a mergerfs or other FUSE mount works too
 # password = "..."
 # password_file = "/run/secrets/smb"
 # domain = ""
+
+# --- FTP server -------------------------------------------------------------
+# Off by default. Same users, passwords and permissions as the web UI.
+
+[ftp]
+enabled = false
+listen = "0.0.0.0:2121"
+passive_ports = [50000, 50100]   # publish the range too in Docker
+# passive_host = "203.0.113.7"   # example: public address behind NAT/Docker
+max_login_attempts = 5
+login_block_secs = 300
+idle_timeout_secs = 600
+greeting = "Filebrary FTP server ready"
+
+# Explicit FTPS. Strongly recommended: without it passwords are sent in clear.
+# [ftp.tls]
+# cert = "/data/tls/cert.pem"   # example
+# key = "/data/tls/key.pem"     # example
+# mode = "required"             # or "optional"
+
+# --- Notifications ----------------------------------------------------------
+
+[notifications]
+instance = "Filebrary"          # shown in every notification
+quota_warning_percent = 90
+
+[notifications.retry]
+attempts = 4
+initial_backoff_ms = 1000
+timeout_secs = 10
+
+# [[notifications.webhooks]]
+# name = "automation"                         # unique across all targets
+# url = "https://hooks.example.com/filebrary" # example
+# secret = "shared secret"                    # signs each request
+# headers = { Authorization = "Bearer abc" }  # example
+# events = ["upload", "job_failed"]           # empty: every event
+
+# [[notifications.ntfy]]
+# name = "phone"
+# server = "https://ntfy.sh"
+# topic = "my-filebrary"   # example
+# token = "tk_..."         # or username + password
+# username = "me"
+# password = "..."
+# click = "https://files.example.com"
+# events = []
+
+# [[notifications.email]]
+# name = "admin-mail"
+# smtp_host = "smtp.example.com"
+# smtp_port = 587               # default depends on security
+# security = "starttls"         # tls | starttls | none
+# username = "files@example.com"
+# password = "..."
+# from = "Filebrary <files@example.com>"
+# to = ["admin@example.com"]
+# events = ["quota_near_full", "job_failed"]
+
+# --- Metrics ----------------------------------------------------------------
+
+[metrics]
+enabled = true
+# token = "a long random string"   # scrapers send Authorization: Bearer <token>

@@ -918,3 +918,419 @@ The Windows domain or workgroup.
 |-------------|-----------------------------------------|
 | Type        | string |
 | Default     | empty |
+
+## FTP server
+
+The optional FTP and FTPS server. See [FTP and FTPS](../guide/ftp.md).
+
+### `ftp.enabled`
+
+Runs the FTP server. Off by default.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean |
+| Default     | `false` |
+| Environment | `FILEBRARY_FTP_ENABLED` |
+
+### `ftp.listen`
+
+Address and port of the FTP control connection.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | socket address |
+| Default     | `"0.0.0.0:2121"` |
+| Environment | `FILEBRARY_FTP_LISTEN` |
+
+### `ftp.passive_ports`
+
+First and last port of the passive data port range. Publish the whole range when running in Docker.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of two port numbers |
+| Default     | `[50000, 50100]` |
+| Environment | `FILEBRARY_FTP_PASSIVE_PORTS` |
+
+In the environment variable, write the range as `low-high`, for example `50000-50100`.
+
+### `ftp.passive_host`
+
+Address announced to clients in `PASV` replies. Set it to the public address when the server is behind NAT or in Docker.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | IP address |
+| Default     | not set (the address the client connected to) |
+| Environment | `FILEBRARY_FTP_PASSIVE_HOST` |
+
+### `ftp.tls`
+
+Turns on explicit FTPS (`AUTH TLS`). Without it, passwords travel unencrypted and a warning is logged.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | table |
+| Default     | not set |
+
+### `ftp.tls.cert`
+
+PEM file with the certificate chain.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | path |
+| Default     | required when `[ftp.tls]` is set |
+
+### `ftp.tls.key`
+
+PEM file with the private key.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | path |
+| Default     | required when `[ftp.tls]` is set |
+
+### `ftp.tls.mode`
+
+`required` refuses logins and transfers that do not use TLS; `optional` allows plain FTP too.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | `"required"` or `"optional"` |
+| Default     | `"required"` |
+
+### `ftp.max_login_attempts`
+
+Failed logins from one address before it is blocked. FTP logins also count against [`login_max_attempts`](#login_max_attempts).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer |
+| Default     | `5` |
+
+### `ftp.login_block_secs`
+
+How long a blocked address stays blocked, in seconds.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer |
+| Default     | `300` |
+
+### `ftp.idle_timeout_secs`
+
+Idle time before an FTP session is closed, in seconds.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer |
+| Default     | `600` |
+
+### `ftp.greeting`
+
+One-line greeting sent when a client connects.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"Filebrary FTP server ready"` |
+
+## Notifications
+
+Where events are sent. See [Notifications](../guide/notifications.md).
+
+### `notifications.instance`
+
+Server name shown in every notification.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"Filebrary"` |
+
+### `notifications.quota_warning_percent`
+
+Storage quota percentage that sends `quota_near_full`, once, when a user's usage crosses it.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, 1 to 100 |
+| Default     | `90` |
+
+### `notifications.retry.attempts`
+
+Delivery attempts per notification, including the first.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, 1 to 10 |
+| Default     | `4` |
+
+### `notifications.retry.initial_backoff_ms`
+
+Wait before the first retry, in milliseconds; doubled after each attempt. Only network errors and `5xx`/`429` answers are retried.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer |
+| Default     | `1000` |
+
+### `notifications.retry.timeout_secs`
+
+Timeout of one delivery attempt, in seconds.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer |
+| Default     | `10` |
+
+### `notifications.webhooks`
+
+Webhook targets: each event is sent as an HTTP `POST` with a JSON body. `FILEBRARY_WEBHOOK_URL` (with optional `FILEBRARY_WEBHOOK_SECRET`) adds one named `env-webhook`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of tables |
+| Default     | none |
+
+### `notifications.webhooks[].name`
+
+Unique name across all notification targets, used in logs, metrics and the test endpoint.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `notifications.webhooks[].url`
+
+Where to send the `POST`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | `http` or `https` URL |
+| Default     | required |
+
+### `notifications.webhooks[].secret`
+
+Shared secret. When set, requests carry `X-Filebrary-Timestamp` and `X-Filebrary-Signature: sha256=<hex HMAC-SHA256 of "timestamp.body">`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | not set |
+
+### `notifications.webhooks[].headers`
+
+Extra request headers, for example `Authorization`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | table of strings |
+| Default     | none |
+
+### `notifications.webhooks[].events`
+
+Events to send: `upload`, `share_opened`, `quota_near_full`, `job_failed`. Empty means every event.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of strings |
+| Default     | `[]` (every event) |
+
+### `notifications.ntfy`
+
+[ntfy](https://ntfy.sh) targets. `FILEBRARY_NTFY_TOPIC` (with optional `FILEBRARY_NTFY_SERVER` and `FILEBRARY_NTFY_TOKEN`) adds one named `env-ntfy`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of tables |
+| Default     | none |
+
+### `notifications.ntfy[].name`
+
+Unique name across all notification targets.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `notifications.ntfy[].server`
+
+The ntfy server.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | `http` or `https` URL |
+| Default     | `"https://ntfy.sh"` |
+
+### `notifications.ntfy[].topic`
+
+The topic to publish to.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string of letters, digits, `-` and `_` |
+| Default     | required |
+
+### `notifications.ntfy[].token`
+
+Access token, sent as a bearer token.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | not set |
+
+### `notifications.ntfy[].username`
+
+User name for basic authentication, instead of a token.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | not set |
+
+### `notifications.ntfy[].password`
+
+Password for basic authentication.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | not set |
+
+### `notifications.ntfy[].click`
+
+URL opened when the notification is tapped.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | URL |
+| Default     | not set |
+
+### `notifications.ntfy[].events`
+
+Events to send. Empty means every event.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of strings |
+| Default     | `[]` (every event) |
+
+### `notifications.email`
+
+SMTP email targets.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of tables |
+| Default     | none |
+
+### `notifications.email[].name`
+
+Unique name across all notification targets.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `notifications.email[].smtp_host`
+
+SMTP server host name.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `notifications.email[].smtp_port`
+
+SMTP port.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | port number |
+| Default     | `465` for `tls`, `587` for `starttls`, `25` for `none` |
+
+### `notifications.email[].security`
+
+`tls` (TLS from the start), `starttls` (must upgrade) or `none` (only for a relay on the same host or network).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"starttls"` |
+
+### `notifications.email[].username`
+
+SMTP user name, if the server needs authentication.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | not set |
+
+### `notifications.email[].password`
+
+SMTP password.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | not set |
+
+### `notifications.email[].from`
+
+Sender address, for example `Filebrary <files@example.com>`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | email address |
+| Default     | required |
+
+### `notifications.email[].to`
+
+Recipients.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of email addresses |
+| Default     | required |
+
+### `notifications.email[].events`
+
+Events to send. Empty means every event.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of strings |
+| Default     | `[]` (every event) |
+
+## Metrics
+
+The Prometheus endpoint. See [Logs, health and metrics](../operations/monitoring.md#metrics).
+
+### `metrics.enabled`
+
+Serves `/metrics`. When off, it answers `404`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean |
+| Default     | `true` |
+| Environment | `FILEBRARY_METRICS_ENABLED` |
+
+### `metrics.token`
+
+Bearer token scrapers must send (`Authorization: Bearer <token>`). Without it, `/metrics` is open to anyone who can reach the server.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string, at least 16 characters |
+| Default     | not set |
+| Environment | `FILEBRARY_METRICS_TOKEN` |

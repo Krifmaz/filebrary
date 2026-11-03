@@ -30,6 +30,16 @@ pub struct Inner {
     pub upload_dir: PathBuf,
     /// Upload ids with a chunk currently being written (one writer at a time).
     pub uploads_in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// Event bus: publish upload, share, quota and job events here; the
+    /// notification dispatcher delivers them to webhooks, ntfy and email.
+    pub events: filebrary_events::EventBus,
+    /// The running notification dispatcher (lists targets, sends tests).
+    /// `None` when no target is configured.
+    pub notifier: Option<filebrary_events::DispatcherHandle>,
+    /// Prometheus recorder handle, rendered by `/metrics`.
+    pub metrics: crate::ops::metrics::Metrics,
+    /// When the server started, for the uptime metric.
+    pub started_at: std::time::Instant,
     /// Login rate limiter and auth hooks.
     pub auth: crate::auth::AuthRuntime,
     /// SSO, LDAP, 2FA, API key and quota settings and caches.
@@ -65,6 +75,17 @@ impl AppState {
         let upload_dir = config.data_dir.join("uploads");
         std::fs::create_dir_all(&upload_dir)
             .with_context(|| format!("creating {}", upload_dir.display()))?;
+        let events = filebrary_events::EventBus::new(config.notifications.instance.clone());
+        let notifier = if config.notifications.is_empty() {
+            None
+        } else {
+            let dispatcher = filebrary_events::Dispatcher::from_config(&config.notifications)
+                .map_err(anyhow::Error::msg)
+                .context("setting up notifications")?;
+            // The dispatcher runs on the current Tokio runtime.
+            Some(dispatcher.spawn(&events))
+        };
+        let metrics = crate::ops::metrics::Metrics::install();
         let auth = crate::auth::AuthRuntime::new(&config);
         let identity = crate::identity::Identity::new(&config);
         let state = Self(Arc::new(Inner {
@@ -76,6 +97,10 @@ impl AppState {
             secret,
             upload_dir,
             uploads_in_flight: Default::default(),
+            events,
+            notifier,
+            metrics,
+            started_at: std::time::Instant::now(),
         }));
         // Fresh runtime, so nothing can be installed yet.
         let _ = state

@@ -35,6 +35,35 @@ pub enum LogFormat {
     Json,
 }
 
+/// Settings for the Prometheus `/metrics` endpoint (`[metrics]` table).
+#[derive(Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct MetricsConfig {
+    /// Serve `/metrics`. On by default.
+    pub enabled: bool,
+    /// If set, scrapers must send `Authorization: Bearer <token>`.
+    /// Recommended when the server is reachable from the internet.
+    pub token: Option<String>,
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            token: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for MetricsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MetricsConfig")
+            .field("enabled", &self.enabled)
+            .field("token", &self.token.as_ref().map(|_| "***"))
+            .finish()
+    }
+}
+
 /// Which backend a source uses.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -183,6 +212,12 @@ pub struct Config {
     pub oidc: Option<filebrary_identity::oidc::OidcConfig>,
     /// LDAP login (`[ldap]`). Unset: off.
     pub ldap: Option<filebrary_identity::ldap::LdapConfig>,
+    /// The optional FTP/FTPS server (`[ftp]`), off by default.
+    pub ftp: filebrary_ftp::FtpConfig,
+    /// Event notifications by webhook, ntfy and email (`[notifications]`).
+    pub notifications: filebrary_events::NotificationsConfig,
+    /// The Prometheus endpoint (`[metrics]`).
+    pub metrics: MetricsConfig,
 }
 
 impl Default for Config {
@@ -210,6 +245,9 @@ impl Default for Config {
             totp_issuer: "Filebrary".to_owned(),
             oidc: None,
             ldap: None,
+            ftp: filebrary_ftp::FtpConfig::default(),
+            notifications: filebrary_events::NotificationsConfig::default(),
+            metrics: MetricsConfig::default(),
         }
     }
 }
@@ -287,6 +325,59 @@ impl Config {
                 "json" => LogFormat::Json,
                 _ => bail!("invalid value for FILEBRARY_LOG_FORMAT: {v:?} (use text or json)"),
             };
+        }
+        if let Some(v) = get("FILEBRARY_FTP_ENABLED") {
+            self.ftp.enabled = parse_bool("FILEBRARY_FTP_ENABLED", &v)?;
+        }
+        if let Some(v) = get("FILEBRARY_FTP_LISTEN") {
+            self.ftp.listen = parse("FILEBRARY_FTP_LISTEN", &v)?;
+        }
+        if let Some(v) = get("FILEBRARY_FTP_PASSIVE_PORTS") {
+            let (lo, hi) = v.split_once('-').with_context(|| {
+                format!("invalid value for FILEBRARY_FTP_PASSIVE_PORTS: {v:?} (use low-high)")
+            })?;
+            self.ftp.passive_ports = [
+                parse("FILEBRARY_FTP_PASSIVE_PORTS", lo.trim())?,
+                parse("FILEBRARY_FTP_PASSIVE_PORTS", hi.trim())?,
+            ];
+        }
+        if let Some(v) = get("FILEBRARY_FTP_PASSIVE_HOST") {
+            self.ftp.passive_host = (!v.is_empty()).then_some(v);
+        }
+        if let Some(v) = get("FILEBRARY_METRICS_ENABLED") {
+            self.metrics.enabled = parse_bool("FILEBRARY_METRICS_ENABLED", &v)?;
+        }
+        if let Some(v) = get("FILEBRARY_METRICS_TOKEN") {
+            self.metrics.token = (!v.is_empty()).then_some(v);
+        }
+        if let Some(v) = get("FILEBRARY_WEBHOOK_URL").filter(|v| !v.is_empty()) {
+            self.notifications
+                .webhooks
+                .retain(|w| w.name != "env-webhook");
+            self.notifications
+                .webhooks
+                .push(filebrary_events::WebhookConfig {
+                    name: "env-webhook".into(),
+                    url: v,
+                    secret: get("FILEBRARY_WEBHOOK_SECRET").filter(|s| !s.is_empty()),
+                    headers: Default::default(),
+                    events: Vec::new(),
+                });
+        }
+        if let Some(v) = get("FILEBRARY_NTFY_TOPIC").filter(|v| !v.is_empty()) {
+            self.notifications.ntfy.retain(|n| n.name != "env-ntfy");
+            self.notifications.ntfy.push(filebrary_events::NtfyConfig {
+                name: "env-ntfy".into(),
+                server: get("FILEBRARY_NTFY_SERVER")
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "https://ntfy.sh".into()),
+                topic: v,
+                token: get("FILEBRARY_NTFY_TOKEN").filter(|s| !s.is_empty()),
+                username: None,
+                password: None,
+                click: self.public_url.clone(),
+                events: Vec::new(),
+            });
         }
         if let Some(v) = get("FILEBRARY_TRASH_RETENTION_DAYS") {
             self.trash_retention_days = parse("FILEBRARY_TRASH_RETENTION_DAYS", &v)?;
@@ -370,6 +461,11 @@ impl Config {
         }
         if let Some(l) = &self.ldap {
             l.validate().map_err(|e| anyhow::anyhow!("[ldap]: {e}"))?;
+        }
+        self.ftp.validate().map_err(anyhow::Error::msg)?;
+        self.notifications.validate().map_err(anyhow::Error::msg)?;
+        if self.metrics.token.as_deref().is_some_and(|t| t.len() < 16) {
+            bail!("metrics.token must be at least 16 characters");
         }
         Ok(())
     }
@@ -491,6 +587,51 @@ mod tests {
         assert!(
             Config::default()
                 .apply_env(|k| (k == "FILEBRARY_SECURE_COOKIES").then(|| "maybe".into()))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn ops_sections() {
+        let cfg: Config = toml::from_str(
+            r#"
+            [ftp]
+            enabled = true
+            listen = "127.0.0.1:2121"
+            [metrics]
+            token = "0123456789abcdef"
+            [notifications]
+            quota_warning_percent = 80
+            [[notifications.ntfy]]
+            name = "phone"
+            topic = "files"
+            "#,
+        )
+        .unwrap();
+        cfg.validate().unwrap();
+        assert!(cfg.ftp.enabled);
+        assert_eq!(cfg.notifications.ntfy[0].topic, "files");
+        assert!(!format!("{cfg:?}").contains("0123456789abcdef"));
+        assert!(!Config::default().ftp.enabled);
+        assert!(Config::default().metrics.enabled);
+
+        let mut cfg = Config::default();
+        cfg.apply_env(|k| match k {
+            "FILEBRARY_FTP_ENABLED" => Some("true".into()),
+            "FILEBRARY_FTP_PASSIVE_PORTS" => Some("6000-6010".into()),
+            "FILEBRARY_WEBHOOK_URL" => Some("https://hooks.example.com/x".into()),
+            "FILEBRARY_NTFY_TOPIC" => Some("t".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert!(cfg.ftp.enabled);
+        assert_eq!(cfg.ftp.passive_ports, [6000, 6010]);
+        assert_eq!(cfg.notifications.webhooks[0].name, "env-webhook");
+        assert_eq!(cfg.notifications.ntfy[0].server, "https://ntfy.sh");
+        cfg.validate().unwrap();
+        assert!(
+            Config::default()
+                .apply_env(|k| (k == "FILEBRARY_FTP_PASSIVE_PORTS").then(|| "6000".into()))
                 .is_err()
         );
     }
