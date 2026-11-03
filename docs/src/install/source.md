@@ -2,7 +2,7 @@
 
 You need:
 
-- Rust 1.88 or newer (stable)
+- Rust 1.97 (pinned in `rust-toolchain.toml`; rustup installs it automatically)
 - Node.js 22 and npm
 
 ```sh
