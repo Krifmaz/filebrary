@@ -293,8 +293,8 @@ impl Ctx<'_> {
         }
     }
 
-    fn notify(&self, change: Change) {
-        self.srv.auth.on_change(self.user.as_ref(), &change);
+    async fn notify(&self, change: Change) {
+        self.srv.auth.on_change(self.user.as_ref(), &change).await;
     }
 }
 
@@ -584,6 +584,9 @@ impl Inner {
                         let (Ok(vis), Ok(real)) = (path.join(&c.name), r.key.join(&c.name)) else {
                             continue;
                         };
+                        if self.auth.hidden(source, &real) {
+                            continue;
+                        }
                         let h = ctx.href(source, &vis, c.is_dir());
                         self.write_response(ctx, &mut w, &h, &c, Some((source, &real)), &req)
                             .await;
@@ -762,7 +765,8 @@ impl Inner {
             ctx.notify(Change::Properties {
                 source: source.to_owned(),
                 path: r.key.clone(),
-            });
+            })
+            .await;
         }
         Ok(xml_response(
             StatusCode::MULTI_STATUS,
@@ -801,6 +805,13 @@ impl Inner {
                 items.push((mount_href(&self.config.prefix), "../".to_owned()));
             }
             for c in children {
+                if view
+                    .key
+                    .join(&c.name)
+                    .is_ok_and(|k| self.auth.hidden(source, &k))
+                {
+                    continue;
+                }
                 if let Ok(v) = path.join(&c.name) {
                     let label = if c.is_dir() {
                         format!("{}/", c.name)
@@ -969,7 +980,8 @@ impl Inner {
             source: source.to_owned(),
             path: r.key,
             created: existing.is_none(),
-        });
+        })
+        .await;
         Ok(resp)
     }
 
@@ -986,13 +998,20 @@ impl Inner {
         }
         ctx.check_lock(source, &r.key, Scope::Tree)?;
         ctx.check_membership(source, &r.key)?;
-        r.storage.delete(&r.path).await.map_err(storage_error)?;
+        let trash_id = self
+            .auth
+            .remove(ctx.user.as_ref(), source, &r.path, &r.storage)
+            .await
+            .map_err(storage_error)?;
         self.props.delete_tree(source, &r.key).await;
         self.locks.remove_tree(source, &r.key);
         ctx.notify(Change::Deleted {
             source: source.to_owned(),
             path: r.key,
-        });
+            replaced: false,
+            trash_id,
+        })
+        .await;
         Ok(status(StatusCode::NO_CONTENT))
     }
 
@@ -1024,7 +1043,8 @@ impl Inner {
         ctx.notify(Change::CreatedCollection {
             source: source.to_owned(),
             path: r.key,
-        });
+        })
+        .await;
         Ok(status(StatusCode::CREATED))
     }
 
@@ -1135,6 +1155,13 @@ impl Inner {
             dst.storage.delete(&dst.path).await.map_err(storage_error)?;
             self.props.delete_tree(&dsource, &dst.key).await;
             self.locks.remove_tree(&dsource, &dst.key);
+            ctx.notify(Change::Deleted {
+                source: dsource.clone(),
+                path: dst.key.clone(),
+                replaced: true,
+                trash_id: None,
+            })
+            .await;
         }
         if same_source {
             let res = if is_move {
@@ -1146,7 +1173,7 @@ impl Inner {
             };
             res.map_err(storage_error)?;
         } else {
-            copy_across(&src, &dst, src_entry.is_dir(), shallow)
+            copy_across(self.auth.as_ref(), &src, &dst, src_entry.is_dir(), shallow)
                 .await
                 .map_err(storage_error)?;
             if is_move {
@@ -1163,7 +1190,8 @@ impl Inner {
                 from: src.key.clone(),
                 to_source: dsource.clone(),
                 to: dst.key.clone(),
-            });
+            })
+            .await;
         } else {
             if shallow {
                 let props: Vec<PatchOp> = self
@@ -1186,7 +1214,8 @@ impl Inner {
                 from: src.key.clone(),
                 to_source: dsource.clone(),
                 to: dst.key.clone(),
-            });
+            })
+            .await;
         }
         Ok(status(if existing.is_some() {
             StatusCode::NO_CONTENT
@@ -1306,7 +1335,8 @@ impl Inner {
                 source: source.to_owned(),
                 path: r.key.clone(),
                 created: true,
-            });
+            })
+            .await;
         }
 
         let mut w = XmlWriter::new("prop");
@@ -1586,6 +1616,7 @@ fn html_listing(title: &str, items: &[(String, String)], head: bool) -> Resp {
 
 /// Copies between two different sources by streaming through the server.
 async fn copy_across(
+    auth: &dyn DavAuth,
     src: &Resolved,
     dst: &Resolved,
     is_dir: bool,
@@ -1599,16 +1630,25 @@ async fn copy_across(
         return Ok(());
     }
     // Iterative depth-first walk so deep trees cannot overflow the stack.
-    let mut stack = vec![(src.key.clone(), dst.key.clone())];
-    while let Some((from, to)) = stack.pop() {
+    // Storage calls use the user-visible paths of the confined backends; the
+    // real path is tracked only to skip hidden entries.
+    let mut stack = vec![(src.path.clone(), src.key.clone(), dst.path.clone())];
+    while let Some((from, from_key, to)) = stack.pop() {
         dst.storage.mkdir(&to).await?;
         if shallow {
             break;
         }
         for c in src.storage.list(&from).await? {
-            let (f, t) = (from.join(&c.name)?, to.join(&c.name)?);
+            let (f, fk, t) = (
+                from.join(&c.name)?,
+                from_key.join(&c.name)?,
+                to.join(&c.name)?,
+            );
+            if auth.hidden(&src.source, &fk) {
+                continue;
+            }
             if c.is_dir() {
-                stack.push((f, t));
+                stack.push((f, fk, t));
             } else {
                 let stream = src.storage.read(&f, None).await?;
                 let reader: filebrary_storage::ByteReader =

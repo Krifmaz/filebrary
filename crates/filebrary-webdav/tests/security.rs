@@ -302,3 +302,72 @@ async fn oversized_xml_bodies_are_refused() {
         .await;
     assert_eq!(r.status, StatusCode::PAYLOAD_TOO_LARGE);
 }
+
+#[tokio::test]
+async fn hidden_folders_are_invisible() {
+    let d = Dav::new();
+    let trash = d.dir_a.path().join(common::HIDDEN);
+    std::fs::create_dir(&trash).unwrap();
+    std::fs::write(trash.join("deleted.txt"), "old").unwrap();
+    let r = d.alice("PROPFIND", "/dav/a/", &[("depth", "1")], "").await;
+    assert!(!r.body.contains(common::HIDDEN));
+    let r = d.alice("GET", "/dav/a/", &[], "").await;
+    assert!(!r.body.contains(common::HIDDEN));
+    let p = format!("/dav/a/{}/deleted.txt", common::HIDDEN);
+    assert_eq!(
+        d.alice("GET", &p, &[], "").await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        d.alice("DELETE", &p, &[], "").await.status,
+        StatusCode::NOT_FOUND
+    );
+    d.alice("PUT", "/dav/a/f", &[], "x").await;
+    let dest = format!("/dav/a/{}/f", common::HIDDEN);
+    let r = d
+        .alice("MOVE", "/dav/a/f", &[("destination", &dest)], "")
+        .await;
+    assert_eq!(r.status, StatusCode::NOT_FOUND);
+    // A cross-source copy of the whole source skips it too.
+    let r = d
+        .alice("COPY", "/dav/a/", &[("destination", "/dav/b/all/")], "")
+        .await;
+    assert_eq!(r.status, StatusCode::CREATED);
+    assert!(d.dir_b.path().join("all/f").exists());
+    assert!(!d.dir_b.path().join("all").join(common::HIDDEN).exists());
+}
+
+#[tokio::test]
+async fn scoped_cross_source_copy_uses_visible_paths() {
+    let d = Dav::new();
+    let both = Some("both");
+    d.req(both, "MKCOL", "/dav/a/dir", &[], "").await;
+    d.req(both, "PUT", "/dav/a/dir/f", &[], "data").await;
+    assert!(d.dir_a.path().join("home/dir/f").exists());
+    let r = d
+        .req(
+            both,
+            "COPY",
+            "/dav/a/dir/",
+            &[("destination", "/dav/b/copy/")],
+            "",
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::CREATED);
+    assert_eq!(
+        std::fs::read_to_string(d.dir_b.path().join("copy/f")).unwrap(),
+        "data"
+    );
+    let r = d
+        .req(
+            both,
+            "MOVE",
+            "/dav/b/copy/f",
+            &[("destination", "/dav/a/back")],
+            "",
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::CREATED);
+    assert!(d.dir_a.path().join("home/back").exists());
+    assert!(!d.dir_a.path().join("back").exists());
+}

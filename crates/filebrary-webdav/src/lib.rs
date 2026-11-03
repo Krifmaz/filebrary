@@ -104,12 +104,19 @@ pub enum Change {
         /// The new directory.
         path: VPath,
     },
-    /// A file or collection was deleted.
+    /// A file or collection was deleted: by `DELETE`, or because `COPY`,
+    /// `MOVE` replaced it.
     Deleted {
         /// The source.
         source: String,
         /// What was deleted.
         path: VPath,
+        /// True when a `COPY` or `MOVE` overwrote it (always a permanent
+        /// delete); false for `DELETE`, which goes through [`DavAuth::remove`].
+        replaced: bool,
+        /// The id [`DavAuth::remove`] returned, when the item went to a
+        /// recycle bin.
+        trash_id: Option<String>,
     },
     /// A file or collection was moved or renamed.
     Moved {

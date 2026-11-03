@@ -33,12 +33,25 @@ use filebrary_webdav::{
 };
 
 use crate::{
+    activity::{Activity, action},
     auth::{Perms, User, load_user, password},
     crypto,
     error::AppError,
+    organize::{self, meta, trash},
     state::AppState,
-    storage::{Storage, VPath},
+    storage::{Storage, StorageError, VPath},
 };
+
+fn ours(user: &dyn DavUser) -> Option<&FilebraryDavUser> {
+    (user as &dyn std::any::Any).downcast_ref::<FilebraryDavUser>()
+}
+
+fn denied(e: &AppError) -> Denied {
+    match e {
+        AppError::NotFound => Denied::NotFound,
+        _ => Denied::Forbidden,
+    }
+}
 
 /// The URL prefix WebDAV is served under.
 pub const PREFIX: &str = "/dav";
@@ -206,7 +219,10 @@ impl DavAuth for FilebraryDavAuth {
             }
         };
         match load_user(&self.state, id).await {
-            Ok(Some(user)) => Ok(Arc::new(FilebraryDavUser { user })),
+            Ok(Some(user)) => Ok(Arc::new(FilebraryDavUser {
+                user,
+                ip: ip.map(|i| i.to_string()),
+            })),
             // Disabled or deleted since the credentials were cached.
             Ok(None) => Err(AuthError::Unauthorized),
             Err(e) => {
@@ -224,13 +240,43 @@ impl DavAuth for FilebraryDavAuth {
         path: &VPath,
     ) -> Result<(), Denied> {
         // Only our own users reach here; anything else is refused.
-        let Some(u) = (user as &dyn std::any::Any).downcast_ref::<FilebraryDavUser>() else {
-            return Err(Denied::NotFound);
+        let u = ours(user).ok_or(Denied::NotFound)?;
+        // `confine` checks the permission, resolves symlinks inside the scope
+        // and refuses the trash folder, exactly as the files API does.
+        organize::confine(&self.state, &u.user, source, perm(p), path)
+            .await
+            .map(|_| ())
+            .map_err(|e| denied(&e))
+    }
+
+    fn hidden(&self, _source: &str, real: &VPath) -> bool {
+        trash::is_reserved(real)
+    }
+
+    async fn remove(
+        &self,
+        user: &dyn DavUser,
+        source: &str,
+        path: &VPath,
+        _storage: &Arc<dyn Storage>,
+    ) -> Result<Option<String>, StorageError> {
+        // Deletes go to the trash, like the web UI. The trash lives at the
+        // source root, outside the user's scope, so confine the path first.
+        let u = ours(user).ok_or(StorageError::NotFound)?;
+        let to_storage = |e: AppError| match e {
+            AppError::NotFound => StorageError::NotFound,
+            AppError::Forbidden(m) | AppError::BadRequest(m) => StorageError::Unsupported(m),
+            other => StorageError::Io(std::io::Error::other(other.to_string())),
         };
-        match u.user.require(source, perm(p), path) {
-            Ok(_) => Ok(()),
-            Err(AppError::NotFound) => Err(Denied::NotFound),
-            Err(_) => Err(Denied::Forbidden),
+        let real = organize::confine(&self.state, &u.user, source, Perms::DELETE, path)
+            .await
+            .map_err(to_storage)?;
+        match trash::remove(&self.state, Some(u.user.id), source, &real)
+            .await
+            .map_err(to_storage)?
+        {
+            trash::Removed::Trashed(item) => Ok(Some(item.id)),
+            trash::Removed::Deleted => Ok(None),
         }
     }
 
@@ -250,14 +296,69 @@ impl DavAuth for FilebraryDavAuth {
         }
     }
 
-    fn on_change(&self, user: &dyn DavUser, change: &Change) {
-        tracing::info!(target: "filebrary::activity", user = %user.id(), via = "webdav", ?change);
+    async fn on_change(&self, user: &dyn DavUser, change: &Change) {
+        let Some(u) = ours(user) else { return };
+        let db = &self.state.db;
+        // Tags and stars follow files, as they do through the web UI.
+        let meta_result = match change {
+            Change::Moved {
+                source,
+                from,
+                to_source,
+                to,
+            } => meta::on_move(db, source, from, to_source, to).await,
+            Change::Copied {
+                source,
+                from,
+                to_source,
+                to,
+            } => meta::on_copy(db, source, from, to_source, to).await,
+            Change::Deleted {
+                source,
+                path,
+                replaced: true,
+                ..
+            } => meta::on_delete(db, source, path).await,
+            _ => Ok(()),
+        };
+        if let Err(e) = meta_result {
+            tracing::error!(error = %e, "webdav: updating tags and stars");
+        }
+        let ev = match change {
+            Change::Written { source, path, .. } => Activity::new(action::UPLOAD).at(source, path),
+            Change::CreatedCollection { source, path } => {
+                Activity::new(action::MKDIR).at(source, path)
+            }
+            Change::Deleted {
+                source,
+                path,
+                trash_id: Some(id),
+                ..
+            } => Activity::new(action::TRASH)
+                .at(source, path)
+                .details(serde_json::json!({ "trash_id": id, "via": "webdav" })),
+            Change::Deleted { source, path, .. } => Activity::new(action::DELETE).at(source, path),
+            Change::Moved {
+                source, from, to, ..
+            } => Activity::new(action::MOVE).at(source, from).target(to),
+            Change::Copied {
+                source, from, to, ..
+            } => Activity::new(action::COPY).at(source, from).target(to),
+            // Dead properties (Explorer and Finder metadata) are not worth an event.
+            _ => return,
+        };
+        ev.user(&u.user)
+            .ip(u.ip.as_deref())
+            .record(&self.state)
+            .await;
     }
 }
 
 /// A Filebrary user as the WebDAV server sees them.
 pub struct FilebraryDavUser {
     user: User,
+    /// The client address, for the activity log.
+    ip: Option<String>,
 }
 
 fn perm(p: DavPerm) -> Perms {

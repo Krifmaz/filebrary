@@ -137,7 +137,33 @@ pub trait DavAuth: Send + Sync + 'static {
 
     /// Called after every successful change, for the activity log and event
     /// notifications. The default does nothing.
-    fn on_change(&self, _user: &dyn DavUser, _change: &crate::Change) {}
+    async fn on_change(&self, _user: &dyn DavUser, _change: &crate::Change) {}
+
+    /// Deletes what a `DELETE` request names. The default deletes it from
+    /// `storage` (the user's confined backend) at the user-visible `path`.
+    /// A server with a recycle bin moves it there instead and returns an id
+    /// for it, which is passed on in [`crate::Change::Deleted`].
+    ///
+    /// # Errors
+    ///
+    /// Storage failures, reported to the client like any other.
+    async fn remove(
+        &self,
+        _user: &dyn DavUser,
+        _source: &str,
+        path: &VPath,
+        storage: &Arc<dyn Storage>,
+    ) -> Result<Option<String>, filebrary_storage::StorageError> {
+        storage.delete(path).await.map(|()| None)
+    }
+
+    /// True if the entry at the real path `real` must never be shown or
+    /// touched through WebDAV (for example the server's trash folder). Hidden
+    /// entries are left out of listings; requests for them should also be
+    /// refused by [`DavAuth::authorize`]. The default hides nothing.
+    fn hidden(&self, _source: &str, _real: &VPath) -> bool {
+        false
+    }
 }
 
 /// Credentials from an `Authorization: Basic` header.

@@ -71,10 +71,13 @@ impl DavAuth for TestAuth {
         user: &dyn DavUser,
         source: &str,
         perm: DavPerm,
-        _path: &VPath,
+        path: &VPath,
     ) -> Result<(), Denied> {
         let grants = &self.users[&user.id()].grants;
-        let (perms, _) = grants.get(source).ok_or(Denied::NotFound)?;
+        let (perms, scope) = grants.get(source).ok_or(Denied::NotFound)?;
+        if self.hidden(source, &scope.join_path(path)) {
+            return Err(Denied::NotFound);
+        }
         if !perms.contains(&DavPerm::View) {
             return Err(Denied::NotFound);
         }
@@ -93,10 +96,17 @@ impl DavAuth for TestAuth {
             base.sub(&scope).await.ok()
         }
     }
-    fn on_change(&self, _user: &dyn DavUser, change: &Change) {
+    async fn on_change(&self, _user: &dyn DavUser, change: &Change) {
         self.changes.lock().unwrap().push(change.clone());
     }
+
+    fn hidden(&self, _source: &str, real: &VPath) -> bool {
+        real.components().first().is_some_and(|c| c == HIDDEN)
+    }
 }
+
+/// A top-level folder name the test server hides, like Filebrary's trash.
+pub const HIDDEN: &str = ".hidden-trash";
 
 const ALL: [DavPerm; 5] = [
     DavPerm::View,
@@ -157,6 +167,11 @@ impl Dav {
         );
         add("viewer", grants(&[("a", &[DavPerm::View], "")]), None);
         add("scoped", grants(&[("a", &ALL, "home")]), None);
+        add(
+            "both",
+            grants(&[("a", &ALL, "home"), ("b", &ALL, "")]),
+            None,
+        );
         add(
             "quota",
             grants(&[("a", &ALL, "")]),

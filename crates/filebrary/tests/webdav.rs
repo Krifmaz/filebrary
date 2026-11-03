@@ -208,3 +208,46 @@ async fn webdav_can_be_turned_off() {
     assert_ne!(r.status(), StatusCode::MULTI_STATUS);
     assert_ne!(r.status(), StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn webdav_deletes_go_to_the_trash_and_are_logged() {
+    let app = TestApp::new().await;
+    add_user(&app, "admin", "pw-admin", true, Perms::ALL, "/").await;
+    let send = |m: &'static str, p: &'static str, body: &'static str| {
+        app.send(dav(m, p, "admin", "pw-admin", body))
+    };
+    assert_eq!(
+        send("PUT", "/dav/files/doc.txt", "x").await.status(),
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        send("DELETE", "/dav/files/doc.txt", "").await.status(),
+        StatusCode::NO_CONTENT
+    );
+    assert!(!app.root().join("doc.txt").exists());
+    // It is in the trash, and the trash folder is not visible over WebDAV.
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trash WHERE original_path = '/doc.txt'")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
+    let r = send("PROPFIND", "/dav/files/", "").await;
+    let body = String::from_utf8(body_bytes(r).await.to_vec()).unwrap();
+    assert!(!body.contains(".filebrary-trash"), "{body}");
+    assert_eq!(
+        send("PROPFIND", "/dav/files/.filebrary-trash/", "")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    // Both changes are in the activity log, with the client address.
+    let rows: Vec<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT action, path, ip FROM activity ORDER BY id")
+            .fetch_all(&app.state.db)
+            .await
+            .unwrap();
+    let actions: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
+    assert_eq!(actions, ["upload", "trash"]);
+    assert_eq!(rows[1].1, "/doc.txt");
+    assert_eq!(rows[1].2.as_deref(), Some("10.0.0.1"));
+}
