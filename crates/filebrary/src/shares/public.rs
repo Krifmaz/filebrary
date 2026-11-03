@@ -204,7 +204,8 @@ impl LiveShare {
 
 /// Loads a share by token and checks it is still alive: not expired, owner
 /// still enabled and still holding the rights the share hands out. Builds the
-/// confined storage for each item. (Collections hook in here.)
+/// confined storage for each item. A collection share takes its items from
+/// the collection on every request.
 pub async fn resolve(state: &AppState, token: &str) -> ShareResult<LiveShare> {
     let share = ShareStore::new(state.db.clone())
         .get_by_token(token)
@@ -216,6 +217,17 @@ pub async fn resolve(state: &AppState, token: &str) -> ShareResult<LiveShare> {
     let owner = auth::load_user(state, share.owner_id)
         .await?
         .ok_or_else(ShareError::not_found)?;
+    if let Some(cid) = share.collection_id {
+        let items = collection_items(state, &owner, cid).await?;
+        if items.is_empty() {
+            return Err(ShareError::not_found());
+        }
+        return Ok(LiveShare {
+            share,
+            items,
+            owner,
+        });
+    }
     let needed = Perms::SHARE
         | if share.upload_only {
             Perms::UPLOAD
@@ -271,6 +283,46 @@ pub async fn resolve(state: &AppState, token: &str) -> ShareResult<LiveShare> {
         items,
         owner,
     })
+}
+
+/// Items of a collection share: those the creator may still share right now
+/// (see [`crate::collections::share_items`]), each confined to the creator's
+/// scope in its own source. Items whose source is gone are skipped.
+async fn collection_items(state: &AppState, owner: &User, cid: i64) -> ShareResult<Vec<ShareItem>> {
+    let mut items = Vec::new();
+    for it in crate::collections::share_items(state, owner, cid).await? {
+        let (Some(source), Some(grant)) = (state.source(&it.source), owner.grant(&it.source))
+        else {
+            continue;
+        };
+        let scoped: Arc<dyn Storage> = if grant.scope.is_root() {
+            source.storage.clone()
+        } else {
+            match source.storage.sub(&grant.scope).await {
+                Ok(s) => s,
+                Err(StorageError::NotFound | StorageError::NotADirectory) => continue,
+                Err(e) => return Err(e.into()),
+            }
+        };
+        let real = grant.scope.join_path(&it.path);
+        let (storage, path) = match scoped.sub(&it.path).await {
+            Ok(sub) => (sub, VPath::root()),
+            Err(StorageError::NotADirectory | StorageError::NotFound) => {
+                (scoped.clone(), it.path.clone())
+            }
+            Err(e) => return Err(e.into()),
+        };
+        items.push(ShareItem {
+            source: it.source,
+            name: it.name,
+            storage,
+            path,
+            scoped,
+            visible: it.path,
+            real,
+        });
+    }
+    Ok(items)
 }
 
 /// Query parameters shared by the public routes.
@@ -555,12 +607,22 @@ async fn download(
             }
         }
         (Target::Root, _) => {
-            let Some(first) = live.items.first() else {
+            if live.items.is_empty() {
                 return Err(ShareError::not_found());
-            };
-            let paths = live.items.iter().map(|i| i.visible.clone()).collect();
-            let keep = files::download_filter(&live.owner, &first.source);
-            Ok(zip::zip_response(first.scoped.clone(), paths, "shared-files", keep).await?)
+            }
+            // Items may come from different sources (collections), so each is
+            // archived from its own confined backend under its share name.
+            let roots = live
+                .items
+                .iter()
+                .map(|i| zip::ZipRoot {
+                    storage: i.scoped.clone(),
+                    path: i.visible.clone(),
+                    name: i.name.clone(),
+                    keep: files::download_filter(&live.owner, &i.source),
+                })
+                .collect();
+            Ok(zip::zip_roots_response(roots, "shared-files").await?)
         }
     }
 }
