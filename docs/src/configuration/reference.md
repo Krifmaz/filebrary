@@ -310,3 +310,102 @@ outside the root are refused.
 The directory is created at start-up if it does not exist. It must be
 readable (and writable, for uploads) by the user Filebrary runs as. In Docker
 this is the path *inside* the container.
+
+### `sources[].content_search`
+
+Whether the text inside this source's documents (plain text and code, PDF,
+Word, PowerPoint, Excel/ODS, OpenDocument) is indexed for
+[content search](../guide/search.md#content-search). Turn it off for sources
+that hold mostly media, or that sit on slow network storage, to save disk
+space and CPU time. Switching it off drops the source's content index at the
+next start; switching it back on rebuilds it in the background.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean                                 |
+| Default     | `true`                                  |
+
+Sources set up through `FILEBRARY_SOURCES` use the default. Content search
+also needs [`fulltext.enabled`](#fulltextenabled) and the file-name index for
+the source.
+
+```toml
+[[sources]]
+name = "media"
+path = "/mnt/pool/media"
+content_search = false
+```
+
+## Content search
+
+The `[fulltext]` table tunes the full-text index, which is stored in
+`<data_dir>/fulltext`. Text extraction is pure Rust and runs inside the
+server; no external program is started.
+
+### `fulltext.enabled`
+
+Master switch for content search. When off, no content index is opened and
+no memory or disk is used for it, whatever the per-source
+[`content_search`](#sourcescontent_search) settings say. `content=` searches
+then answer `400`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean                                 |
+| Default     | `true`                                  |
+| Environment | `FILEBRARY_FULLTEXT`                    |
+
+### `fulltext.max_file_mib`
+
+Files larger than this many MiB are not read for content (their names are
+still indexed). One file is read into memory at a time, so this bounds peak
+memory while indexing.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer (MiB)                           |
+| Default     | `32`                                    |
+
+### `fulltext.max_chars`
+
+At most this many characters of text are indexed per file; the rest of a
+very long document is not searchable. Bounds index size and memory.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer                                 |
+| Default     | `1000000`                               |
+
+### `fulltext.writer_memory_mib`
+
+Size of the index writer's in-memory buffer, in MiB (at least 15). It is
+allocated only while files are being indexed and freed after each commit.
+Larger values index big batches a little faster.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer (MiB)                           |
+| Default     | `24`                                    |
+
+### `fulltext.commit_every_docs`
+
+New and changed documents become searchable after this many changes, or
+[`commit_interval_secs`](#fulltextcommit_interval_secs) after the first
+pending change, whichever comes first.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer                                 |
+| Default     | `500`                                   |
+
+### `fulltext.commit_interval_secs`
+
+The longest a change waits before it becomes searchable, in seconds.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer (seconds)                       |
+| Default     | `5`                                     |
+
+Measured peak memory while indexing is listed under
+[Logs, health and metrics](../operations/monitoring.md).

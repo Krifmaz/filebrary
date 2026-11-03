@@ -24,7 +24,7 @@ top linking here.
 | OIDC single sign-on, LDAP, TOTP two-factor, API keys, storage quotas | 3 | Planned |
 | Job queue, conversions (documents, video, photos), custom admin jobs | 3 | Planned |
 | Archives: create zip / tar.gz, browse inside zip / tar / 7z | 3 | Planned |
-| Full-text content search | 4 | Planned |
+| Full-text content search | 4 | Done |
 | FTP / FTPS server | 4 | Planned |
 | Notifications (webhook, ntfy, email) | 4 | Planned |
 | Prometheus metrics | 4 | Planned |

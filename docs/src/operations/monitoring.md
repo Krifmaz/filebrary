@@ -57,3 +57,26 @@ listed here when it lands.
 Filebrary aims to stay under 64 MB of memory when idle with no search
 index. Peak use while building the search index will be documented here
 with the search feature.
+
+### Content search
+
+Measured on Linux (release build) indexing 12 632 files (157 MiB of text
+and source code): 6.9 s, queries about 4 ms.
+
+| Allocator                                   | Peak anonymous memory while indexing |
+|---------------------------------------------|-------------------------------------:|
+| musl (static binary, Alpine image), or glibc with `MALLOC_ARENA_MAX=2` | about 77 MB |
+| glibc defaults                              | about 154 MB                          |
+
+The peak is roughly the index writer buffer
+([`fulltext.writer_memory_mib`](../configuration/reference.md#fulltextwriter_memory_mib),
+24 MiB) plus the largest file being read
+([`fulltext.max_file_mib`](../configuration/reference.md#fulltextmax_file_mib))
+and its extracted text. The buffer is freed after every commit, so an idle
+server keeps only the memory-mapped index, which the operating system can
+evict. Lower those two settings on small machines. To measure your own
+data:
+
+```sh
+cargo run --release -p filebrary-fulltext --example index_dir -- /path/to/files "some words"
+```
