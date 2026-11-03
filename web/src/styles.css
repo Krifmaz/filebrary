@@ -154,12 +154,13 @@ table.files tbody tr { cursor: default; user-select: none; }
 table.files tbody tr:hover { background: var(--surface-2); }
 table.files tbody tr.selected { background: var(--accent-soft); }
 table.files td.check, table.files th.check { width: 2.5rem; }
-table.files td.name { display: flex; align-items: center; gap: 0.5rem; word-break: break-word; }
+table.files td.name { word-break: break-word; }
 table.files td.size { width: 7rem; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 table.files td.date { width: 13rem; white-space: nowrap; color: var(--muted); }
-table.files td.actions { display: flex; gap: 0.4rem; justify-content: flex-end; }
+table.files td.actions { text-align: right; white-space: nowrap; }
+table.files td.actions button + button { margin-left: 0.4rem; }
 table.files .empty { padding: 3rem 0.75rem; text-align: center; }
-.ico { width: 1.4rem; text-align: center; flex: none; }
+.ico { display: inline-block; width: 1.4rem; margin-right: 0.5rem; text-align: center; }
 
 .drop-overlay {
   position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
