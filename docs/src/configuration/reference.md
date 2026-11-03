@@ -251,6 +251,83 @@ permissions, scopes and login rate limit as the web UI. See
 | Default     | `true`                                  |
 | Environment | `FILEBRARY_WEBDAV`                      |
 
+## Search
+
+These settings live in a `[search]` table. See [Search](../guide/search.md).
+
+```toml
+[search]
+enabled = true
+watch = true
+```
+
+### `search.enabled`
+
+Build and maintain the file index. When off, no indexing runs in the
+background and `GET /api/search` answers with an error.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean                                 |
+| Default     | `true`                                  |
+| Environment | `FILEBRARY_SEARCH_ENABLED`              |
+
+### `search.watch`
+
+Watch local sources for changes (inotify on Linux, FSEvents on macOS,
+ReadDirectoryChangesW on Windows), so changes made outside Filebrary are
+searchable within about a second. On Linux each folder uses one inotify
+watch; raise `fs.inotify.max_user_watches` for very large trees. If the
+watcher cannot start, the source falls back to periodic rescans and the
+error is shown in the search status.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean                                 |
+| Default     | `true`                                  |
+| Environment | `FILEBRARY_SEARCH_WATCH`                |
+
+### `search.rescan_minutes`
+
+Minutes between full rescans of sources that are not watched: network
+sources, sources with `search.watch` off, and sources whose watcher could
+not start.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, at least `1`                   |
+| Default     | `60`                                    |
+| Environment | `FILEBRARY_SEARCH_RESCAN_MINUTES`       |
+
+### `search.watched_rescan_hours`
+
+Hours between full rescans of watched sources, a safety net for missed
+events. `0` turns them off.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer                                 |
+| Default     | `24`                                    |
+
+### `search.exclude_sources`
+
+Names of sources that are never indexed (and so never appear in search).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | list of source names                    |
+| Default     | `[]`                                    |
+
+### `search.batch_size`
+
+Rows written per database transaction while scanning. Larger batches scan a
+little faster and use a little more memory.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, `1` to `10000`                 |
+| Default     | `500`                                   |
+
 ## Sources
 
 ### `sources`

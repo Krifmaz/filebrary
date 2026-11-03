@@ -22,7 +22,7 @@ export function SharesPage() {
   }, [reload]);
 
   const revoke = async (s: Share) => {
-    if (!confirm(`Revoke the link to ${s.paths.join(", ")}? Anyone using it will lose access.`)) return;
+    if (!confirm(`Revoke the link to ${s.collection_id != null ? "this collection" : s.paths.join(", ")}? Anyone using it will lose access.`)) return;
     try {
       await api.deleteShare(s.id);
     } catch (e) {
@@ -55,7 +55,9 @@ export function SharesPage() {
                 <tr key={s.id}>
                   <td className="name">
                     <span title={s.paths.join("\n")}>
-                      {s.source}: {s.paths.length === 1 ? s.paths[0] : `${s.paths.length} items`}
+                      {s.collection_id != null
+                        ? "Collection"
+                        : `${s.source}: ${s.paths.length === 1 ? s.paths[0] : `${s.paths.length} items`}`}
                     </span>
                     {s.has_password && <span className="badge">password</span>}
                   </td>

@@ -7,3 +7,4 @@ import "./theme";
 import "./comments";
 import "./collections";
 import "./cast";
+import "../editor";

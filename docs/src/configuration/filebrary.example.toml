@@ -66,6 +66,16 @@ activity_retention_days = 365
 # Serve WebDAV at /dav/ (Windows Explorer, macOS Finder, rclone).
 webdav = true
 
+# --- Search -----------------------------------------------------------------
+
+[search]
+enabled = true                # build and maintain the file index
+watch = true                  # follow changes on local sources (inotify, ...)
+rescan_minutes = 60           # full rescan of sources that are not watched
+watched_rescan_hours = 24     # safety-net rescan of watched sources; 0 = off
+exclude_sources = []          # sources never indexed
+batch_size = 500              # rows per transaction while scanning
+
 # --- Sources ----------------------------------------------------------------
 # With no [[sources]], <data_dir>/files is served as "files".
 

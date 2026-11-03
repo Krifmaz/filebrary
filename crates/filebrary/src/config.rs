@@ -208,6 +208,8 @@ pub struct Config {
     pub notifications: filebrary_events::NotificationsConfig,
     /// The Prometheus endpoint (`[metrics]`).
     pub metrics: MetricsConfig,
+    /// Indexed search (see [`crate::search::SearchSettings`]).
+    pub search: crate::search::SearchSettings,
 }
 
 impl Default for Config {
@@ -234,6 +236,7 @@ impl Default for Config {
             ftp: filebrary_ftp::FtpConfig::default(),
             notifications: filebrary_events::NotificationsConfig::default(),
             metrics: MetricsConfig::default(),
+            search: crate::search::SearchSettings::default(),
         }
     }
 }
@@ -314,6 +317,15 @@ impl Config {
                 "json" => LogFormat::Json,
                 _ => bail!("invalid value for FILEBRARY_LOG_FORMAT: {v:?} (use text or json)"),
             };
+        }
+        if let Some(v) = get("FILEBRARY_SEARCH_ENABLED") {
+            self.search.enabled = parse_bool("FILEBRARY_SEARCH_ENABLED", &v)?;
+        }
+        if let Some(v) = get("FILEBRARY_SEARCH_WATCH") {
+            self.search.watch = parse_bool("FILEBRARY_SEARCH_WATCH", &v)?;
+        }
+        if let Some(v) = get("FILEBRARY_SEARCH_RESCAN_MINUTES") {
+            self.search.rescan_minutes = parse("FILEBRARY_SEARCH_RESCAN_MINUTES", &v)?;
         }
         if let Some(v) = get("FILEBRARY_FTP_ENABLED") {
             self.ftp.enabled = parse_bool("FILEBRARY_FTP_ENABLED", &v)?;
@@ -412,6 +424,7 @@ impl Config {
         if self.login_max_attempts == 0 {
             bail!("login_max_attempts must be at least 1");
         }
+        self.search.validate()?;
         if let Some(u) = &self.public_url
             && !(u.starts_with("http://") || u.starts_with("https://"))
         {

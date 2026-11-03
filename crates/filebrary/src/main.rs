@@ -49,6 +49,7 @@ async fn main() -> anyhow::Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("creating the first administrator: {e}"))?;
     let ftp = filebrary::ops::ftp::spawn(&state, shutdown_signal())?;
+    state.search.start(&state);
 
     let listener = tokio::net::TcpListener::bind(listen)
         .await
