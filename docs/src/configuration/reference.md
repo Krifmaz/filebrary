@@ -1,0 +1,728 @@
+# Settings reference
+
+This page lists every setting. How settings are loaded (file, environment,
+defaults), the command line and the value formats are explained in the
+[configuration overview](overview.md). A complete commented file is on the
+[example configuration](example.md) page.
+
+Each setting below is a top-level TOML key unless its name contains a dot
+(a table) or `[]` (an array of tables).
+
+> **For contributors:** every field of the `Config` struct must have a
+> heading here, and every heading must match a field. `cargo test` checks
+> this (`crates/filebrary/tests/docs_config.rs`). See
+> [Contributing](../contributing.md#keeping-the-settings-reference-in-sync).
+
+## Server
+
+### `listen`
+
+The address and port the web server listens on.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | socket address (`host:port`)            |
+| Default     | `"127.0.0.1:8080"`                      |
+| Environment | `FILEBRARY_LISTEN`                      |
+
+The default only accepts connections from the same machine. Use
+`"0.0.0.0:8080"` to listen on every IPv4 address, or `"[::]:8080"` for IPv6
+(which on Linux usually accepts IPv4 too). The Docker image sets
+`FILEBRARY_LISTEN=0.0.0.0:8080`.
+
+```toml
+listen = "0.0.0.0:8080"
+```
+
+### `data_dir`
+
+The directory that holds Filebrary's own state: the SQLite database
+(`filebrary.db`, with its `-wal` and `-shm` files), the staging area for
+resumable uploads, and `secret.key`, the key that signs sessions and share
+tokens. It is created if it does not exist.
+
+|             |                         |
+|-------------|-------------------------|
+| Type        | path                    |
+| Default     | `"./data"` (`/data` in the Docker image) |
+| Environment | `FILEBRARY_DATA_DIR`    |
+
+Back this directory up; see [Backups and upgrades](../operations.md). It must be on
+a local file system (SQLite does not work reliably over NFS or SMB). Keep it
+outside every source so users cannot browse it.
+
+If no [`sources`](#sources) are configured, Filebrary serves
+`<data_dir>/files` as a single source called `files`.
+
+### `public_url`
+
+The address users reach Filebrary at, for example
+`"https://files.example.com"`. It is used to build absolute share links and to
+decide whether session cookies are marked `Secure`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | URL starting with `http://` or `https://`, optional |
+| Default     | not set                                  |
+| Environment | `FILEBRARY_PUBLIC_URL` (an empty value unsets it) |
+
+Set it whenever Filebrary runs behind a reverse proxy or on a non-default
+port. Serving under a sub-path is not supported yet; use a sub-domain.
+
+### `log_format`
+
+How log lines are written to standard output.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | `"text"` or `"json"`                    |
+| Default     | `"text"`                                |
+| Environment | `FILEBRARY_LOG_FORMAT`                  |
+
+`json` writes one JSON object per line, for log collectors such as Loki,
+Vector or Elasticsearch. The level filter is set separately with
+`FILEBRARY_LOG`. See [Logs, health and metrics](../operations/monitoring.md).
+
+## Sessions and sign-in
+
+### `session_ttl_hours`
+
+How long a login stays valid without activity, in hours. Using the session
+extends it: once less than half of this time is left, the next request
+renews it to the full length.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, at least `1`                   |
+| Default     | `168` (7 days)                          |
+| Environment | `FILEBRARY_SESSION_TTL_HOURS`           |
+
+### `secure_cookies`
+
+Forces the `Secure` flag on session and CSRF cookies on (`true`) or off
+(`false`). A `Secure` cookie is only sent over HTTPS.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean, optional                       |
+| Default     | not set: on when [`public_url`](#public_url) starts with `https://`, off otherwise |
+| Environment | `FILEBRARY_SECURE_COOKIES`              |
+
+Only set this to `false` if you really serve Filebrary over plain HTTP.
+Browsers will not sign you in over HTTP while it is `true`.
+
+### `trust_proxy_headers`
+
+Whether to take the client's address from the `X-Forwarded-For` header
+instead of the TCP connection. The client address is used for login rate
+limiting and the activity log.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean                                 |
+| Default     | `false`                                 |
+| Environment | `FILEBRARY_TRUST_PROXY_HEADERS`         |
+
+Turn it on only when Filebrary is reachable **only** through a reverse proxy
+you control that sets this header. Otherwise anyone can forge their address
+and get around rate limiting. See [Running behind a reverse proxy](reverse-proxy.md).
+
+### `login_max_attempts`
+
+Failed logins allowed for one username, or from one client address, within
+[`login_window_secs`](#login_window_secs). Further attempts are refused with
+`429 Too Many Requests` until the window has passed.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, at least `1`                   |
+| Default     | `5`                                     |
+| Environment | none (file only)                        |
+
+### `login_window_secs`
+
+The length of the login rate-limiting window, in seconds.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer                                 |
+| Default     | `300` (5 minutes)                       |
+| Environment | none (file only)                        |
+
+### `admin_username`
+
+Name of the administrator created on first start, when the database has no
+users yet. Ignored once any user exists. See
+[Users and permissions](users.md#the-first-administrator).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string                                  |
+| Default     | `"admin"`                               |
+| Environment | `FILEBRARY_ADMIN_USERNAME`              |
+
+### `admin_password`
+
+Password for that first administrator. If unset, a random password is
+generated and printed once to the log. Prefer the environment variable (or a
+secret manager) to writing a password into the file, and change it after the
+first sign-in.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string, optional                        |
+| Default     | not set: random, logged once            |
+| Environment | `FILEBRARY_ADMIN_PASSWORD` (an empty value unsets it) |
+
+## Uploads
+
+### `max_chunk_mib`
+
+The largest single chunk of a resumable upload, in MiB. The web UI splits
+files into chunks no bigger than this, so files of any size can be uploaded.
+Lower it if a reverse proxy in front of Filebrary limits request bodies (for
+example nginx's `client_max_body_size`).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, `1` to `4096`                  |
+| Default     | `64`                                    |
+| Environment | none (file only)                        |
+
+### `max_drop_upload_mib`
+
+The largest file a visitor may send through a public upload-only
+("drop") share link, in MiB. Uploads by signed-in users are limited by their
+quota instead.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer                                 |
+| Default     | `1024` (1 GiB)                          |
+| Environment | none (file only)                        |
+
+### `upload_expiry_hours`
+
+Hours after which an unfinished resumable upload is discarded and its
+staged chunks deleted from [`data_dir`](#data_dir).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer                                 |
+| Default     | `24`                                    |
+| Environment | none (file only)                        |
+
+## Trash and activity log
+
+### `trash_retention_days`
+
+Days a deleted item stays in the trash before it is purged automatically.
+`0` turns the trash off, so deletes are permanent. Purging runs hourly. See
+[Trash, tags, stars and activity](../organize.md).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, `0` to `36500`                 |
+| Default     | `30`                                    |
+| Environment | `FILEBRARY_TRASH_RETENTION_DAYS`        |
+
+### `activity_retention_days`
+
+Days activity-log events are kept. `0` keeps them forever.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, `0` to `36500`                 |
+| Default     | `365`                                   |
+| Environment | `FILEBRARY_ACTIVITY_RETENTION_DAYS`     |
+
+## Sources
+
+### `sources`
+
+The storage sources to serve, as an array of tables. Each source appears as
+a top-level location in the web UI and has its own permissions. See
+[Storage sources](sources.md).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of tables (`[[sources]]`)          |
+| Default     | empty: serve `<data_dir>/files` as `files` (`files=/srv` in the Docker image) |
+| Environment | `FILEBRARY_SOURCES`, as `name=path` pairs separated by `;` (or `,`), local sources only |
+
+```toml
+[[sources]]
+name = "files"
+path = "/srv/files"
+
+[[sources]]
+name = "media"
+path = "/mnt/pool/media"
+```
+
+The same with an environment variable:
+
+```sh
+FILEBRARY_SOURCES="files=/srv/files;media=/mnt/pool/media"
+```
+
+A non-empty `FILEBRARY_SOURCES` replaces every source from the file. An
+empty value counts as unset, so `FILEBRARY_SOURCES=` lets the file's
+`[[sources]]` apply even in the Docker image, which sets the variable.
+
+### `sources[].name`
+
+The source's identifier. It appears in URLs, permissions and the API, so
+changing it later breaks existing share links and permission entries for
+that source.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string: 1 to 32 characters from `a-z`, `0-9`, `-` and `_` |
+| Default     | required                                |
+
+Names must be unique.
+
+### `sources[].kind`
+
+Which storage backend the source uses.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | `"local"`                               |
+| Default     | `"local"`                               |
+
+`local` serves a directory on the host, including FUSE file systems such as
+mergerfs pools. S3-compatible, SFTP and SMB backends are planned; see
+[Feature status](../status.md).
+
+### `sources[].path`
+
+For `local` sources, the root directory. Users can never reach anything
+outside it: paths are normalised and checked, and symbolic links that point
+outside the root are refused.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | path                                    |
+| Default     | required                                |
+
+The directory is created at start-up if it does not exist. It must be
+readable (and writable, for uploads) by the user Filebrary runs as. In Docker
+this is the path *inside* the container.
+
+## FTP server
+
+The optional FTP and FTPS server. See [FTP and FTPS](../guide/ftp.md).
+
+### `ftp.enabled`
+
+Runs the FTP server. Off by default.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean |
+| Default     | `false` |
+| Environment | `FILEBRARY_FTP_ENABLED` |
+
+### `ftp.listen`
+
+Address and port of the FTP control connection.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | socket address |
+| Default     | `"0.0.0.0:2121"` |
+| Environment | `FILEBRARY_FTP_LISTEN` |
+
+### `ftp.passive_ports`
+
+First and last port of the passive data port range. Publish the whole range when running in Docker.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of two port numbers |
+| Default     | `[50000, 50100]` |
+| Environment | `FILEBRARY_FTP_PASSIVE_PORTS` |
+
+In the environment variable, write the range as `low-high`, for example `50000-50100`.
+
+### `ftp.passive_host`
+
+Address announced to clients in `PASV` replies. Set it to the public address when the server is behind NAT or in Docker.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | IP address |
+| Default     | not set (the address the client connected to) |
+| Environment | `FILEBRARY_FTP_PASSIVE_HOST` |
+
+### `ftp.tls`
+
+Turns on explicit FTPS (`AUTH TLS`). Without it, passwords travel unencrypted and a warning is logged.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | table |
+| Default     | not set |
+
+### `ftp.tls.cert`
+
+PEM file with the certificate chain.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | path |
+| Default     | required when `[ftp.tls]` is set |
+
+### `ftp.tls.key`
+
+PEM file with the private key.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | path |
+| Default     | required when `[ftp.tls]` is set |
+
+### `ftp.tls.mode`
+
+`required` refuses logins and transfers that do not use TLS; `optional` allows plain FTP too.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | `"required"` or `"optional"` |
+| Default     | `"required"` |
+
+### `ftp.max_login_attempts`
+
+Failed logins from one address before it is blocked. FTP logins also count against [`login_max_attempts`](#login_max_attempts).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer |
+| Default     | `5` |
+
+### `ftp.login_block_secs`
+
+How long a blocked address stays blocked, in seconds.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer |
+| Default     | `300` |
+
+### `ftp.idle_timeout_secs`
+
+Idle time before an FTP session is closed, in seconds.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer |
+| Default     | `600` |
+
+### `ftp.greeting`
+
+One-line greeting sent when a client connects.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"Filebrary FTP server ready"` |
+
+## Notifications
+
+Where events are sent. See [Notifications](../guide/notifications.md).
+
+### `notifications.instance`
+
+Server name shown in every notification.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"Filebrary"` |
+
+### `notifications.quota_warning_percent`
+
+Storage quota percentage that sends `quota_near_full`, once, when a user's usage crosses it.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, 1 to 100 |
+| Default     | `90` |
+
+### `notifications.retry.attempts`
+
+Delivery attempts per notification, including the first.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, 1 to 10 |
+| Default     | `4` |
+
+### `notifications.retry.initial_backoff_ms`
+
+Wait before the first retry, in milliseconds; doubled after each attempt. Only network errors and `5xx`/`429` answers are retried.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer |
+| Default     | `1000` |
+
+### `notifications.retry.timeout_secs`
+
+Timeout of one delivery attempt, in seconds.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer |
+| Default     | `10` |
+
+### `notifications.webhooks`
+
+Webhook targets: each event is sent as an HTTP `POST` with a JSON body. `FILEBRARY_WEBHOOK_URL` (with optional `FILEBRARY_WEBHOOK_SECRET`) adds one named `env-webhook`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of tables |
+| Default     | none |
+
+### `notifications.webhooks[].name`
+
+Unique name across all notification targets, used in logs, metrics and the test endpoint.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `notifications.webhooks[].url`
+
+Where to send the `POST`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | `http` or `https` URL |
+| Default     | required |
+
+### `notifications.webhooks[].secret`
+
+Shared secret. When set, requests carry `X-Filebrary-Timestamp` and `X-Filebrary-Signature: sha256=<hex HMAC-SHA256 of "timestamp.body">`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | not set |
+
+### `notifications.webhooks[].headers`
+
+Extra request headers, for example `Authorization`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | table of strings |
+| Default     | none |
+
+### `notifications.webhooks[].events`
+
+Events to send: `upload`, `share_opened`, `quota_near_full`, `job_failed`. Empty means every event.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of strings |
+| Default     | `[]` (every event) |
+
+### `notifications.ntfy`
+
+[ntfy](https://ntfy.sh) targets. `FILEBRARY_NTFY_TOPIC` (with optional `FILEBRARY_NTFY_SERVER` and `FILEBRARY_NTFY_TOKEN`) adds one named `env-ntfy`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of tables |
+| Default     | none |
+
+### `notifications.ntfy[].name`
+
+Unique name across all notification targets.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `notifications.ntfy[].server`
+
+The ntfy server.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | `http` or `https` URL |
+| Default     | `"https://ntfy.sh"` |
+
+### `notifications.ntfy[].topic`
+
+The topic to publish to.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string of letters, digits, `-` and `_` |
+| Default     | required |
+
+### `notifications.ntfy[].token`
+
+Access token, sent as a bearer token.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | not set |
+
+### `notifications.ntfy[].username`
+
+User name for basic authentication, instead of a token.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | not set |
+
+### `notifications.ntfy[].password`
+
+Password for basic authentication.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | not set |
+
+### `notifications.ntfy[].click`
+
+URL opened when the notification is tapped.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | URL |
+| Default     | not set |
+
+### `notifications.ntfy[].events`
+
+Events to send. Empty means every event.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of strings |
+| Default     | `[]` (every event) |
+
+### `notifications.email`
+
+SMTP email targets.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of tables |
+| Default     | none |
+
+### `notifications.email[].name`
+
+Unique name across all notification targets.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `notifications.email[].smtp_host`
+
+SMTP server host name.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `notifications.email[].smtp_port`
+
+SMTP port.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | port number |
+| Default     | `465` for `tls`, `587` for `starttls`, `25` for `none` |
+
+### `notifications.email[].security`
+
+`tls` (TLS from the start), `starttls` (must upgrade) or `none` (only for a relay on the same host or network).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"starttls"` |
+
+### `notifications.email[].username`
+
+SMTP user name, if the server needs authentication.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | not set |
+
+### `notifications.email[].password`
+
+SMTP password.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | not set |
+
+### `notifications.email[].from`
+
+Sender address, for example `Filebrary <files@example.com>`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | email address |
+| Default     | required |
+
+### `notifications.email[].to`
+
+Recipients.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of email addresses |
+| Default     | required |
+
+### `notifications.email[].events`
+
+Events to send. Empty means every event.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of strings |
+| Default     | `[]` (every event) |
+
+## Metrics
+
+The Prometheus endpoint. See [Logs, health and metrics](../operations/monitoring.md#metrics).
+
+### `metrics.enabled`
+
+Serves `/metrics`. When off, it answers `404`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean |
+| Default     | `true` |
+| Environment | `FILEBRARY_METRICS_ENABLED` |
+
+### `metrics.token`
+
+Bearer token scrapers must send (`Authorization: Bearer <token>`). Without it, `/metrics` is open to anyone who can reach the server.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string, at least 16 characters |
+| Default     | not set |
+| Environment | `FILEBRARY_METRICS_TOKEN` |

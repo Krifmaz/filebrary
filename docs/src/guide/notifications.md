@@ -47,8 +47,8 @@ Failed deliveries are retried with backoff (`[notifications.retry]`:
 
 | Event | When | Fields |
 | --- | --- | --- |
-| `upload` | A file finished uploading (web, FTP) | `user`, `source`, `path`, `size` |
-| `share_opened` | Someone opened a share link | `share_id`, `owner`, `source`, `path`, `remote_addr` |
+| `upload` | A file finished uploading (web, FTP, drop link; drop-link uploads name the link owner as `user`) | `user`, `source`, `path`, `size` |
+| `share_opened` | Someone opened a share link (its top level, after the password if it has one; browsing deeper is not reported again) | `share_id`, `owner`, `source`, `path`, `remote_addr` |
 | `quota_near_full` | A user's usage crossed `quota_warning_percent` | `user`, `used_bytes`, `quota_bytes`, `threshold_percent` |
 | `job_failed` | A background job failed after its last retry | `job_id`, `kind`, `user`, `error` |
 | `test` | An administrator pressed "send test" | `message` |

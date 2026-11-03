@@ -75,6 +75,8 @@ rustls = { version = "0.23.46", default-features = false, features = ["ring", "s
 
 [dev-dependencies]
 suppaftp = { version = "8", default-features = false, features = ["tokio"] }
+# Walks the `Config` type so `tests/docs_config.rs` can check every setting is documented.
+serde-reflection = "0.6.0"
 tempfile = { workspace = true }
 tower = { version = "0.5.3", features = ["util"] }
 

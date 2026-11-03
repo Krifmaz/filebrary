@@ -1,21 +1,46 @@
 # Upgrading and backups
 
-## Backups
+## What to back up
 
-Everything Filebrary owns is in the data directory (`/data` in Docker):
-the SQLite database, the configuration file and caches. Your files stay in
-their sources and are never moved into the data directory.
+Everything Filebrary owns is in the [data directory](configuration/reference.md#data_dir)
+(`/data` in Docker). Your files stay in their sources and are never moved
+into it.
 
-To back up while running, use SQLite's online backup so the copy is
-consistent:
+| File | Contents | Back up? |
+|---|---|---|
+| `filebrary.db` (+ `-wal`, `-shm`) | Users, groups, permissions, share links, sessions; tags, comments, collections, branding, activity log; later the search index | **Yes** |
+| `secret.key` | Key that signs sessions and share tokens. If lost, everyone is signed out. Keep it secret. | **Yes** |
+| Upload staging area | Chunks of unfinished uploads | No |
+| Caches (thumbnails, previews, once available) | Rebuilt on demand | No |
+
+Also back up your configuration file, if you use one.
+
+## Taking a backup
+
+While Filebrary runs, use SQLite's online backup so the copy is consistent
+(copying `filebrary.db` alone while it is in use can give a broken copy,
+because recent changes may still be in the `-wal` file):
 
 ```sh
 sqlite3 /data/filebrary.db ".backup '/backup/filebrary.db'"
+cp /data/secret.key /backup/
 ```
 
-Or stop Filebrary and copy the whole data directory.
+The Docker image has no `sqlite3`; run it from the host against the volume,
+or stop the container first. Stopping Filebrary and copying the whole data
+directory is always safe.
+
+## Restoring
+
+Stop Filebrary, put `filebrary.db` and `secret.key` back in the data
+directory (delete any leftover `filebrary.db-wal` and `filebrary.db-shm`),
+and start it again.
 
 ## Upgrading
+
+Database migrations run automatically on start-up, and are not reversible:
+**take a backup first**, so you can go back to the old version with the old
+database if needed. Read the release notes for anything that needs action.
 
 Docker:
 
@@ -25,59 +50,10 @@ docker stop filebrary && docker rm filebrary
 # then run the same `docker run` command as before
 ```
 
-Binary: replace the binary and restart the service. Database migrations run
-automatically on start. Take a backup first.
+With Docker Compose: `docker compose pull && docker compose up -d`.
 
-## Monitoring
+Pin a version tag such as `0.1` (minor updates) or `0.1.0` (exact) instead
+of `latest` if you want to choose when to upgrade.
 
-| Endpoint            | What                                                                    |
-|---------------------|-------------------------------------------------------------------------|
-| `/healthz`          | Liveness (also `/health`, `/api/health`); used by `filebrary healthcheck`. |
-| `/readyz`           | Readiness: database and every source root answer within 2 s, else 503.  |
-| `/metrics`          | Prometheus metrics (`filebrary_*`). Protect with `metrics.token`.       |
-| `/api/openapi.json` | OpenAPI 3.1 description of the REST API.                                |
-| `/api/docs`         | Built-in API reference page (no CDN, works offline).                    |
-
-Logs are structured: set `FILEBRARY_LOG_FORMAT=json` for one JSON object per
-line. Every request gets an `X-Request-Id` (kept from the client when sane,
-otherwise generated) and one `request finished` line with `request_id`,
-`method`, `route` (the route pattern, never the raw path), `status` and
-`latency_ms`. `filebrary_process_peak_resident_memory_bytes` reports peak
-memory, for example while indexing.
-
-```toml
-[metrics]
-enabled = true                # default
-token = "a long random string" # scrapers send Authorization: Bearer <token>
-```
-
-Metrics include `filebrary_http_requests_total{method,route,status}`,
-`filebrary_http_request_duration_seconds`, `filebrary_http_requests_in_flight`,
-`filebrary_build_info`, `filebrary_uptime_seconds`,
-`filebrary_process_resident_memory_bytes`, `filebrary_process_open_fds`,
-`filebrary_db_connections{state}`, `filebrary_events_published_total{kind}`,
-`filebrary_notifications_sent_total` and `filebrary_notifications_failed_total`
-(by `sink`, `target`, `event`), `filebrary_ftp_logins_total{result}` and
-`filebrary_ftp_transfers_total{direction}`.
-
-| TOML key | Environment | Default | Description |
-| --- | --- | --- | --- |
-| `metrics.enabled` | `FILEBRARY_METRICS_ENABLED` | `true` | Serve `/metrics` (404 when off). |
-| `metrics.token` | `FILEBRARY_METRICS_TOKEN` | none | Bearer token scrapers must send; at least 16 characters. |
-
-Prometheus scrape job:
-
-```yaml
-- job_name: filebrary
-  bearer_token: a long random string
-  static_configs: [{ targets: ["files.example.com:8080"] }]
-```
-
-Kubernetes probes: `livenessProbe` on `/healthz`, `readinessProbe` on
-`/readyz`.
-
-## API reference
-
-The REST API is described by an OpenAPI 3.1 document at `/api/openapi.json`;
-open `/api/docs` on your server for a readable reference. Import the JSON into
-any OpenAPI tool to generate a client.
+Binary: replace the binary and restart the service
+(`sudo systemctl restart filebrary`).
