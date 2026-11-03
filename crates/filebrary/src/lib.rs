@@ -46,6 +46,25 @@ use tower_http::{
 
 pub use state::AppState;
 
+/// Starts periodic housekeeping: expired sessions and stale uploads are removed
+/// at start-up and then hourly.
+pub fn spawn_maintenance(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(3600));
+        loop {
+            tick.tick().await;
+            if let Err(e) = auth::session::purge_expired(&state).await {
+                tracing::warn!(error = %e, "purging sessions failed");
+            }
+            match api::uploads::purge_stale(&state).await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(count = n, "removed stale uploads"),
+                Err(e) => tracing::warn!(error = %e, "purging uploads failed"),
+            }
+        }
+    })
+}
+
 /// Builds the complete application router.
 pub fn app(state: AppState) -> Router {
     Router::new()
