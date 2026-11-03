@@ -3,7 +3,12 @@
  * toolbar for file operations, and a drop zone for uploads.
  *
  * Keyboard: Enter opens, Delete deletes, F2 renames, Ctrl/Cmd+A selects all,
- * Escape clears the selection, Backspace goes to the parent folder.
+ * Escape clears the selection, Backspace goes to the parent folder, arrow
+ * keys move the selection, `1`–`5` pick a view mode and `V` / `Shift+V`
+ * cycle through them.
+ *
+ * View modes (details, compact list, small/medium/large icons) are
+ * remembered per user and per folder; see `features/view/viewMode.ts`.
  *
  * The parent mounts one instance per folder (keyed by source and path), so
  * selection and filter start fresh in every folder.
@@ -19,6 +24,10 @@ import { ShareDialog } from "./ShareDialog";
 import { Suspense } from "react";
 import { viewerFor, type Viewer } from "../viewers";
 import { fileActions, type FileAction } from "../actions";
+import { FileGrid } from "../features/view/FileGrid";
+import { usePreviewCapabilities } from "../features/view/previews";
+import { ViewSwitcher } from "../features/view/ViewSwitcher";
+import { isGrid, loadViewMode, modeForKey, nextMode, saveViewMode, type ViewMode } from "../features/view/viewMode";
 
 /** Props for {@link Browser}. */
 export interface BrowserProps {
@@ -27,6 +36,8 @@ export interface BrowserProps {
   uploads: UploadManager;
   /** Bumped by the parent when uploads finish, to trigger a reload. */
   refreshKey: number;
+  /** Signed-in user's id; the view mode is remembered per user. */
+  user?: number | string;
 }
 
 type SortKey = "name" | "size" | "modified";
@@ -55,7 +66,7 @@ export function sortEntries(entries: Entry[], key: SortKey, asc: boolean): Entry
 }
 
 /** File browser for one folder of one source. */
-export function Browser({ source, path, uploads, refreshKey }: BrowserProps) {
+export function Browser({ source, path, uploads, refreshKey, user = "anonymous" }: BrowserProps) {
   const perms = source.permissions;
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +81,14 @@ export function Browser({ source, path, uploads, refreshKey }: BrowserProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [mode, setModeState] = useState<ViewMode>(() => loadViewMode(user, source.id, path));
+  const previews = usePreviewCapabilities(mode !== "details");
+
+  const setMode = (m: ViewMode) => {
+    setModeState(m);
+    saveViewMode(user, source.id, path, m);
+  };
 
   const refresh = useCallback(() => setReload((n) => n + 1), []);
 
@@ -162,9 +181,51 @@ export function Browser({ source, path, uploads, refreshKey }: BrowserProps) {
     setAnchor(entry.path);
   };
 
+  /** Items per row in the current layout, measured from the DOM. */
+  const columns = (): number => {
+    if (mode === "details") return 1;
+    const items = listRef.current?.querySelectorAll<HTMLElement>("[data-path]") ?? [];
+    const top = items[0]?.offsetTop;
+    let n = 0;
+    for (const el of items) {
+      if (el.offsetTop !== top) break;
+      n++;
+    }
+    return Math.max(1, n);
+  };
+
+  /** Moves the selection by `delta` items and scrolls it into view. */
+  const moveSelection = (delta: number) => {
+    if (!visible.length) return;
+    const at = anchor ? visible.findIndex((x) => x.path === anchor) : -1;
+    const i = at < 0 ? (delta > 0 ? 0 : visible.length - 1) : Math.min(visible.length - 1, Math.max(0, at + delta));
+    const target = visible[i];
+    if (!target) return;
+    setSelected(new Set([target.path]));
+    setAnchor(target.path);
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-path="${CSS.escape(target.path)}"]`);
+    el?.scrollIntoView?.({ block: "nearest" });
+  };
+
   const onKey = (e: React.KeyboardEvent) => {
-    if ((e.target as HTMLElement).closest("input, textarea, dialog")) return;
-    if (e.key === "Escape") setSelected(new Set());
+    if ((e.target as HTMLElement).closest("input, textarea, select, dialog")) return;
+    const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+    const arrows: Record<string, () => number> = {
+      ArrowDown: columns,
+      ArrowUp: () => -columns(),
+      ArrowRight: () => (mode === "details" ? 0 : 1),
+      ArrowLeft: () => (mode === "details" ? 0 : -1),
+    };
+    const byKey = plain && !e.shiftKey ? modeForKey(e.key) : undefined;
+    if (byKey) setMode(byKey);
+    else if (plain && (e.key === "v" || e.key === "V")) setMode(nextMode(mode, e.shiftKey ? -1 : 1));
+    else if (plain && !e.shiftKey && arrows[e.key]) {
+      const d = arrows[e.key]?.() ?? 0;
+      if (d) {
+        e.preventDefault();
+        moveSelection(d);
+      }
+    } else if (e.key === "Escape") setSelected(new Set());
     else if (e.key === "a" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       setSelected(new Set(visible.map((x) => x.path)));
@@ -277,6 +338,21 @@ export function Browser({ source, path, uploads, refreshKey }: BrowserProps) {
             {a.label}
           </button>
         ))}
+        <span className="view-controls">
+          {mode !== "details" && (
+            <span className="sort-control">
+              <select aria-label="Sort by" value={sort.key} onChange={(e) => setSort({ key: e.target.value as SortKey, asc: sort.asc })}>
+                <option value="name">Name</option>
+                <option value="size">Size</option>
+                <option value="modified">Modified</option>
+              </select>
+              <button type="button" className="icon" aria-label={sort.asc ? "Ascending" : "Descending"} title="Reverse order" onClick={() => setSort({ key: sort.key, asc: !sort.asc })}>
+                {sort.asc ? "▲" : "▼"}
+              </button>
+            </span>
+          )}
+          <ViewSwitcher mode={mode} onChange={setMode} />
+        </span>
         <input className="filter" type="search" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter this folder" />
       </div>
 
@@ -304,28 +380,20 @@ export function Browser({ source, path, uploads, refreshKey }: BrowserProps) {
 
       {error && <p className="error" role="alert">{error}</p>}
 
-      <div className="table-wrap">
-        <table className="files">
-          <thead>
-            <tr>
-              <th className="check">
-                <input
-                  type="checkbox"
-                  aria-label="Select all"
-                  checked={visible.length > 0 && selectedEntries.length === visible.length}
-                  onChange={(e) => setSelected(e.target.checked ? new Set(visible.map((x) => x.path)) : new Set())}
-                />
-              </th>
-              {header("name", "Name")}
-              {header("size", "Size")}
-              {header("modified", "Modified")}
-            </tr>
-          </thead>
-          <tbody>
-            {path !== "/" && (
-              <tr className="up" onDoubleClick={() => navigate(filesUrl(source.id, parent(path)))}>
-                <td />
-                <td colSpan={3}>
+      {mode !== "details" && (
+        <div className="grid-wrap" ref={listRef}>
+          <FileGrid
+            mode={mode}
+            source={source.id}
+            entries={visible}
+            selected={selected}
+            previews={isGrid(mode) ? previews : undefined}
+            onClickItem={clickRow}
+            onToggle={toggle}
+            onOpen={open}
+            leading={
+              path !== "/" && (
+                <li className="up" role="option" aria-selected={false} onDoubleClick={() => navigate(filesUrl(source.id, parent(path)))}>
                   <a
                     href={filesUrl(source.id, parent(path))}
                     onClick={(e) => {
@@ -333,60 +401,111 @@ export function Browser({ source, path, uploads, refreshKey }: BrowserProps) {
                       navigate(filesUrl(source.id, parent(path)));
                     }}
                   >
-                    ⬆ ..
+                    {isGrid(mode) ? <span className="thumb"><span className="thumb-icon">⬆</span></span> : <span className="ico">⬆</span>}
+                    <span className="tile-name">..</span>
                   </a>
-                </td>
-              </tr>
-            )}
-            {entries === null && (
-              <tr>
-                <td />
-                <td colSpan={3} className="muted">Loading…</td>
-              </tr>
-            )}
-            {entries !== null && visible.length === 0 && !error && (
-              <tr>
-                <td />
-                <td colSpan={3} className="muted empty">
+                </li>
+              )
+            }
+            placeholder={
+              entries === null ? (
+                <li className="muted placeholder">Loading…</li>
+              ) : visible.length === 0 && !error ? (
+                <li className="muted placeholder empty">
                   {filter ? "Nothing matches the filter." : perms.upload ? "This folder is empty. Drop files here to upload." : "This folder is empty."}
-                </td>
+                </li>
+              ) : null
+            }
+          />
+        </div>
+      )}
+
+      {mode === "details" && (
+        <div className="table-wrap" ref={listRef}>
+          <table className="files">
+            <thead>
+              <tr>
+                <th className="check">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all"
+                    checked={visible.length > 0 && selectedEntries.length === visible.length}
+                    onChange={(e) => setSelected(e.target.checked ? new Set(visible.map((x) => x.path)) : new Set())}
+                  />
+                </th>
+                {header("name", "Name")}
+                {header("size", "Size")}
+                {header("modified", "Modified")}
               </tr>
-            )}
-            {visible.map((e) => (
-              <tr
-                key={e.path}
-                className={selected.has(e.path) ? "selected" : undefined}
-                onClick={(ev) => clickRow(ev, e)}
-                onDoubleClick={() => open(e)}
-                aria-selected={selected.has(e.path)}
-              >
-                <td className="check" onClick={(ev) => ev.stopPropagation()}>
-                  <input type="checkbox" checked={selected.has(e.path)} onChange={() => toggle(e)} aria-label={`Select ${e.name}`} />
-                </td>
-                <td className="name">
-                  <span className="ico" aria-hidden>{iconFor(e.name, e.is_dir)}</span>
-                  {e.is_dir ? (
+            </thead>
+            <tbody>
+              {path !== "/" && (
+                <tr className="up" onDoubleClick={() => navigate(filesUrl(source.id, parent(path)))}>
+                  <td />
+                  <td colSpan={3}>
                     <a
-                      href={filesUrl(source.id, e.path)}
-                      onClick={(ev) => {
-                        ev.preventDefault();
-                        ev.stopPropagation();
-                        navigate(filesUrl(source.id, e.path));
+                      href={filesUrl(source.id, parent(path))}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        navigate(filesUrl(source.id, parent(path)));
                       }}
                     >
-                      {e.name}
+                      ⬆ ..
                     </a>
-                  ) : (
-                    <span>{e.name}</span>
-                  )}
-                </td>
-                <td className="size">{e.is_dir ? "" : formatSize(e.size)}</td>
-                <td className="date">{formatDate(e.modified)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  </td>
+                </tr>
+              )}
+              {entries === null && (
+                <tr>
+                  <td />
+                  <td colSpan={3} className="muted">Loading…</td>
+                </tr>
+              )}
+              {entries !== null && visible.length === 0 && !error && (
+                <tr>
+                  <td />
+                  <td colSpan={3} className="muted empty">
+                    {filter ? "Nothing matches the filter." : perms.upload ? "This folder is empty. Drop files here to upload." : "This folder is empty."}
+                  </td>
+                </tr>
+              )}
+              {visible.map((e) => (
+                <tr
+                  key={e.path}
+                  data-path={e.path}
+                  className={selected.has(e.path) ? "selected" : undefined}
+                  onClick={(ev) => clickRow(ev, e)}
+                  onDoubleClick={() => open(e)}
+                  aria-selected={selected.has(e.path)}
+                >
+                  <td className="check" onClick={(ev) => ev.stopPropagation()}>
+                    <input type="checkbox" checked={selected.has(e.path)} onChange={() => toggle(e)} aria-label={`Select ${e.name}`} />
+                  </td>
+                  <td className="name">
+                    <span className="ico" aria-hidden>{iconFor(e.name, e.is_dir)}</span>
+                    {e.is_dir ? (
+                      <a
+                        href={filesUrl(source.id, e.path)}
+                        onClick={(ev) => {
+                          ev.preventDefault();
+                          ev.stopPropagation();
+                          navigate(filesUrl(source.id, e.path));
+                        }}
+                      >
+                        {e.name}
+                      </a>
+                    ) : (
+                      <span>{e.name}</span>
+                    )}
+                  </td>
+                  <td className="size">{e.is_dir ? "" : formatSize(e.size)}</td>
+                  <td className="date">{formatDate(e.modified)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {dragging && <div className="drop-overlay">Drop files or folders to upload to {path}</div>}
       {toast && <div className="toast" role="status">{toast}</div>}
