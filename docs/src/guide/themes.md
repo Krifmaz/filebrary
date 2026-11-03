@@ -5,6 +5,21 @@
 Under **Appearance**, each user picks a theme: light, dark, follow the
 system, or a custom palette of their own.
 
+The built-in themes share the look of [Encore](https://github.com/Krifmaz/encore):
+
+* **Dark** uses Encore's charcoal and cream: charcoal panels, cream text
+  and a cream accent.
+* **Light** uses Encore's light neutrals with a charcoal accent.
+
+Both use the Inter typeface when it is installed (falling back to the
+system font), rounded panels and pill-shaped tabs and badges. A custom
+palette that leaves a colour unset takes it from the light theme, or from
+the dark theme when its background is dark.
+
+![Files in the dark theme](../images/theme-dark.png)
+
+![Files in the light theme](../images/theme-light.png)
+
 ## Branding
 
 Administrators set, for the whole server:
