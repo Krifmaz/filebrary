@@ -1,0 +1,11 @@
+# Keep the build context small and reproducible.
+target/
+**/node_modules/
+web/dist/
+docs/book/
+.git/
+.github/
+*.db
+*.db-*
+.env
+.env.*
