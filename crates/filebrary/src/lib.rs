@@ -15,6 +15,7 @@
 //! * [`dav`]: WebDAV at `/dav`, on the `filebrary-webdav` crate.
 //! * [`shares`]: share links.
 //! * [`ops`]: health, metrics, logging, OpenAPI, notifications admin, FTP glue.
+//! * [`jobs`]: background job queue, conversions, archives and custom jobs.
 //! * [`organize`]: trash bin, tags and stars.
 //! * [`activity`]: the activity log.
 //! * [`comments`]: comments on files.
@@ -49,6 +50,7 @@ pub mod dav;
 pub mod db;
 pub mod error;
 pub mod identity;
+pub mod jobs;
 pub mod ops;
 pub mod organize;
 pub mod search;
@@ -88,6 +90,7 @@ pub fn spawn_maintenance(state: AppState) -> tokio::task::JoinHandle<()> {
 
 /// Builds the complete application router.
 pub fn app(state: AppState) -> Router {
+    state.jobs.start(&state);
     let mut router = Router::new();
     // WebDAV at /dav (see `dav`), kept in its own block.
     if state.config.webdav {
