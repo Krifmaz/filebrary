@@ -52,16 +52,24 @@ async fn env_with(trash_days: u64) -> Env {
     std::fs::create_dir_all(&config.data_dir).unwrap();
     let pool = db::open_memory().await.unwrap();
     sqlx::query(
-        "INSERT INTO users (id, username, password_hash, is_admin, created_at)
-         VALUES (1, 'admin', 'x', 1, 0), (2, 'bob', 'x', 0, 0)",
+        "INSERT INTO users (id, username, password_hash, is_admin, created_at, updated_at)
+         VALUES (1, 'admin', 'x', 1, 0, 0), (2, 'bob', 'x', 0, 0, 0)",
     )
     .execute(&pool)
     .await
     .unwrap();
     let bob_perms = Perms::VIEW | Perms::DOWNLOAD | Perms::UPLOAD | Perms::EDIT | Perms::DELETE;
-    sqlx::query("INSERT INTO user_sources (user_id, source, perms, scope) VALUES (2, 'files', ?, '/home/bob')")
-        .bind(bob_perms.bits())
-        .execute(&pool)
+    let home = filebrary::storage::VPath::parse("/home/bob").unwrap();
+    filebrary::auth::permissions::set(
+        &pool,
+        "files",
+        &home,
+        filebrary::auth::Subject::User(2),
+        bob_perms,
+    )
+    .await
+    .unwrap();
+    filebrary::auth::users::set_scope(&pool, 2, "files", &home)
         .await
         .unwrap();
     let state = AppState::new(config, pool, [7; 32]).unwrap();
