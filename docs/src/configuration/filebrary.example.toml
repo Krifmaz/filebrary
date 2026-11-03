@@ -37,6 +37,11 @@ trust_proxy_headers = false
 login_max_attempts = 5
 login_window_secs = 300
 
+# First administrator, created only when there are no users yet. Without a
+# password, a random one is logged once. Prefer FILEBRARY_ADMIN_PASSWORD.
+admin_username = "admin"
+# admin_password = "change-me"
+
 # --- Uploads ----------------------------------------------------------------
 
 # Largest resumable-upload chunk, in MiB (1-4096).

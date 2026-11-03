@@ -6,10 +6,19 @@ After [installing](docker.md), open Filebrary in a browser:
 
 ## 1. Create the administrator
 
-On first start, with no users in the database, Filebrary prints how to
-create the first administrator account to its log. Read it with
-`docker logs filebrary` or `journalctl -u filebrary`, and follow the
-instructions. Sign in with that account.
+On first start, with no users in the database, Filebrary creates an
+administrator called `admin` (see
+[`admin_username`](../configuration/reference.md#admin_username)). Its
+password is [`admin_password`](../configuration/reference.md#admin_password)
+(`FILEBRARY_ADMIN_PASSWORD`) if you set one; otherwise a random password is
+printed once to the log:
+
+```sh
+docker logs filebrary 2>&1 | grep "first administrator"
+# or: journalctl -u filebrary | grep "first administrator"
+```
+
+Sign in with it and change the password right away.
 
 ## 2. Check your sources
 
@@ -22,7 +31,7 @@ inside the container) and that the Filebrary user can read it.
 
 Under **Settings → Users**, create accounts for other people and give them
 permissions on each source: view, download, upload, edit, delete and share.
-See [Users, groups and permissions](../guide/users.md).
+See [Users and permissions](../configuration/users.md).
 
 ## 4. Put it on the internet safely
 

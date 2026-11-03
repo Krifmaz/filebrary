@@ -17,7 +17,7 @@ What Filebrary does to keep your files safe, and what it expects from you.
 * Passwords are hashed with argon2id.
 * Session cookies are `HttpOnly`, `SameSite`, and `Secure` over HTTPS.
 * Changing requests need a CSRF token.
-* Failed logins are rate limited per client address.
+* Failed logins are rate limited per username and per client address.
 * Share-link passwords are hashed, and share tokens are long random values.
 
 ## HTTP headers

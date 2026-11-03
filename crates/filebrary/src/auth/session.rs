@@ -6,6 +6,7 @@
 //! lifetime is extended.
 
 use axum_extra::extract::cookie::{Cookie, SameSite};
+use sqlx::SqlitePool;
 
 use crate::{crypto, db, error::AppResult, state::AppState};
 
@@ -119,17 +120,47 @@ pub async fn delete(state: &AppState, token_hash: &[u8]) -> AppResult<()> {
     Ok(())
 }
 
-/// Deletes every session of a user (after a password change, for example).
+/// Deletes every session of a user, optionally keeping one (the session
+/// that just changed its own password, for example).
 ///
 /// # Errors
 ///
 /// Database failures.
-pub async fn delete_for_user(state: &AppState, user_id: i64) -> AppResult<()> {
-    sqlx::query("DELETE FROM sessions WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&state.db)
-        .await?;
-    Ok(())
+pub async fn delete_for_user(db: &SqlitePool, user_id: i64, keep: Option<&[u8]>) -> AppResult<u64> {
+    let r = match keep {
+        Some(k) => {
+            sqlx::query("DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?")
+                .bind(user_id)
+                .bind(k)
+                .execute(db)
+                .await?
+        }
+        None => {
+            sqlx::query("DELETE FROM sessions WHERE user_id = ?")
+                .bind(user_id)
+                .execute(db)
+                .await?
+        }
+    };
+    Ok(r.rows_affected())
+}
+
+/// Creates a session and its cookie: the last step of every login (password,
+/// TOTP, OIDC). Put the cookie in the response's `CookieJar` and send the
+/// returned CSRF token to the client.
+///
+/// # Errors
+///
+/// Database failures.
+pub async fn issue(
+    state: &AppState,
+    user_id: i64,
+    ip: Option<&str>,
+    user_agent: Option<&str>,
+) -> AppResult<(NewSession, Cookie<'static>)> {
+    let s = create(state, user_id, ip, user_agent).await?;
+    let c = cookie(state, s.token.clone());
+    Ok((s, c))
 }
 
 /// Removes expired sessions. Called periodically.

@@ -16,10 +16,10 @@
 - [Example configuration](configuration/example.md)
 - [Storage sources](configuration/sources.md)
 - [Reverse proxy](configuration/reverse-proxy.md)
+- [Users and permissions](configuration/users.md)
 
 # Using Filebrary
 
-- [Users, groups and permissions](guide/users.md)
 - [Signing in](guide/authentication.md)
 - [Working with files](guide/files.md)
 - [Trash, tags, stars and activity](organize.md)

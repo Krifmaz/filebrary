@@ -8,7 +8,7 @@ into it.
 
 | File | Contents | Back up? |
 |---|---|---|
-| `filebrary.db` (+ `-wal`, `-shm`) | Users, groups, permissions, share links, sessions; later tags, comments, activity log, search index | **Yes** |
+| `filebrary.db` (+ `-wal`, `-shm`) | Users, groups, permissions, share links, sessions; tags, comments, collections, branding, activity log; later the search index | **Yes** |
 | `secret.key` | Key that signs sessions and share tokens. If lost, everyone is signed out. Keep it secret. | **Yes** |
 | Upload staging area | Chunks of unfinished uploads | No |
 | Caches (thumbnails, previews, once available) | Rebuilt on demand | No |

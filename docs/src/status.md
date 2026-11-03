@@ -8,8 +8,8 @@ top linking here.
 | Feature | Phase | Status |
 |---|---|---|
 | Local folder sources (including FUSE / mergerfs), path safety | 1 | In progress for v0.1 |
-| Users, groups, per-source and per-folder permissions | 1 | In progress for v0.1 |
-| Local passwords (argon2id), secure session cookies, CSRF protection, login rate limiting | 1 | In progress for v0.1 |
+| Users, groups, per-source and per-folder permissions | 1 | Done, in the next release |
+| Local passwords (argon2id), secure session cookies, CSRF protection, login rate limiting | 1 | Done, in the next release |
 | Browse, chunked resumable upload, download, zip of a selection | 1 | In progress for v0.1 |
 | Share links (password, expiry, download limit, upload-only drop links) | 1 | In progress for v0.1 |
 | Docker image, standalone binaries for Linux, macOS, Windows | 1 | In progress for v0.1 |

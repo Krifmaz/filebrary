@@ -2,17 +2,23 @@
 
 ## Local passwords
 
-Passwords are hashed with **argon2id**. They are never stored or logged in
-clear text. After sign-in the browser gets a session cookie that is
-`HttpOnly`, `SameSite`, and `Secure` when served over HTTPS (see
+Passwords are hashed with **argon2id** and must be at least 8 characters.
+They are never stored or logged in clear text. After sign-in the browser
+gets a session cookie that is `HttpOnly`, `SameSite=Lax`, and `Secure` when
+served over HTTPS (see
 [`secure_cookies`](../configuration/reference.md#secure_cookies)). Sessions
 expire after [`session_ttl_hours`](../configuration/reference.md#session_ttl_hours)
-of inactivity. Every request that changes something must carry a CSRF token,
-which the web UI handles for you.
+of inactivity. Every request that changes something must send the CSRF
+token in the `X-CSRF-Token` header, which the web UI does for you.
+Disabling a user or resetting their password ends all their sessions.
 
-Repeated failed logins from one address are blocked for a while; see
+Repeated failed logins, for one username or from one client address, are
+refused with `429 Too Many Requests` for a while; see
 [`login_max_attempts`](../configuration/reference.md#login_max_attempts) and
 [`login_window_secs`](../configuration/reference.md#login_window_secs).
+
+Accounts, groups and permission rules are described in
+[Users and permissions](../configuration/users.md).
 
 ## Two-factor authentication (TOTP)
 

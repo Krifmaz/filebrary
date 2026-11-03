@@ -129,7 +129,7 @@ and get around rate limiting. See [Running behind a reverse proxy](reverse-proxy
 
 ### `login_max_attempts`
 
-Failed logins allowed from one client address within
+Failed logins allowed for one username, or from one client address, within
 [`login_window_secs`](#login_window_secs). Further attempts are refused with
 `429 Too Many Requests` until the window has passed.
 
@@ -148,6 +148,31 @@ The length of the login rate-limiting window, in seconds.
 | Type        | integer                                 |
 | Default     | `300` (5 minutes)                       |
 | Environment | none (file only)                        |
+
+### `admin_username`
+
+Name of the administrator created on first start, when the database has no
+users yet. Ignored once any user exists. See
+[Users and permissions](users.md#the-first-administrator).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string                                  |
+| Default     | `"admin"`                               |
+| Environment | `FILEBRARY_ADMIN_USERNAME`              |
+
+### `admin_password`
+
+Password for that first administrator. If unset, a random password is
+generated and printed once to the log. Prefer the environment variable (or a
+secret manager) to writing a password into the file, and change it after the
+first sign-in.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string, optional                        |
+| Default     | not set: random, logged once            |
+| Environment | `FILEBRARY_ADMIN_PASSWORD` (an empty value unsets it) |
 
 ## Uploads
 

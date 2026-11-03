@@ -1,6 +1,6 @@
 # Sharing
 
-Anyone with the **share** permission can create a link to a file or folder
+Anyone with the [**share** permission](../configuration/users.md#permissions) can create a link to a file or folder
 they can download. The person receiving the link needs no account.
 
 Share links are built from [`public_url`](../configuration/reference.md#public_url),
