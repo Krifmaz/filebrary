@@ -204,9 +204,15 @@ async fn list(
         .list(&path)
         .await?
         .into_iter()
-        .map(|e| {
-            let visible = path.join(&e.name).unwrap_or_else(|_| path.clone());
-            EntryDto::from_entry(e, visible)
+        .filter_map(|e| {
+            let visible = path.join(&e.name).ok()?;
+            // Hide entries a permission rule hides.
+            let shown = if e.is_dir() {
+                auth.user.can_traverse(&id, &visible)
+            } else {
+                auth.user.effective(&id, &visible).contains(Perms::VIEW)
+            };
+            shown.then(|| EntryDto::from_entry(e, visible))
         })
         .collect();
     // Folders first, then case-insensitive by name.
@@ -275,7 +281,24 @@ async fn zip_selection(
         .name
         .filter(|n| !n.is_empty() && n.len() < 200 && !n.contains(['/', '\\']))
         .unwrap_or(default_name);
-    zip::zip_response(st, items, &name).await
+    for item in &items {
+        crate::auth::authorize(&state, &auth.user, &id, Perms::DOWNLOAD, item).await?;
+    }
+    zip::zip_response(st, items, &name, download_filter(&auth.user, &id)).await
+}
+
+/// Keeps what `user` may download (files) or look into (folders) in `source`;
+/// paths are user-visible.
+pub fn download_filter(user: &User, source: &str) -> zip::ZipFilter {
+    let user = user.clone();
+    let source = source.to_owned();
+    Arc::new(move |p: &VPath, is_dir: bool| {
+        if is_dir {
+            user.can_traverse(&source, p)
+        } else {
+            user.effective(&source, p).contains(Perms::DOWNLOAD)
+        }
+    })
 }
 
 /// Body for `mkdir`.

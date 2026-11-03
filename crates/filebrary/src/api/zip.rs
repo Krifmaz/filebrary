@@ -81,11 +81,18 @@ fn options_for(name: &str, size: u64) -> SimpleFileOptions {
     }
 }
 
+/// Decides whether a path (and, for a symlink, its resolved target) may go
+/// into an archive. The flag is `true` for folders.
+pub type ZipFilter = Arc<dyn Fn(&VPath, bool) -> bool + Send + Sync>;
+
 /// Writes `items` (real paths) into the archive, recursing into folders.
+/// Entries rejected by `keep` (by their path or their symlink-resolved
+/// path) are skipped silently.
 fn write_archive(
     rt: &tokio::runtime::Handle,
     storage: &dyn Storage,
     items: &[VPath],
+    keep: &ZipFilter,
     out: ChannelWriter,
 ) -> anyhow::Result<()> {
     let mut zip = zip::ZipWriter::new_stream(out);
@@ -109,6 +116,11 @@ fn write_archive(
         .collect();
     while let Some((path, name)) = stack.pop() {
         let entry = rt.block_on(storage.stat(&path))?;
+        let is_dir = entry.kind == EntryKind::Dir;
+        let resolved = rt.block_on(storage.resolve(&path))?;
+        if !keep(&path, is_dir) || (resolved != path && !keep(&resolved, is_dir)) {
+            continue;
+        }
         match entry.kind {
             EntryKind::Dir => {
                 zip.add_directory(format!("{name}/"), SimpleFileOptions::default())?;
@@ -137,7 +149,9 @@ fn write_archive(
 /// `file_name` is the suggested download name (without `.zip`).
 ///
 /// Every item is checked before streaming starts, so a missing or forbidden
-/// item yields a proper error status instead of a broken download.
+/// item yields a proper error status instead of a broken download. Nested
+/// entries that `keep` rejects (for example folders hidden by a permission
+/// rule) are left out.
 ///
 /// # Errors
 ///
@@ -146,6 +160,7 @@ pub async fn zip_response(
     storage: Arc<dyn Storage>,
     items: Vec<VPath>,
     file_name: &str,
+    keep: ZipFilter,
 ) -> AppResult<Response> {
     if items.is_empty() || items.iter().any(VPath::is_root) && items.len() > 1 {
         return Err(AppError::bad_request(
@@ -163,7 +178,7 @@ pub async fn zip_response(
             tx,
             buf: Vec::with_capacity(CHUNK),
         };
-        if let Err(e) = write_archive(&rt, storage.as_ref(), &items, out) {
+        if let Err(e) = write_archive(&rt, storage.as_ref(), &items, &keep, out) {
             tracing::warn!(error = %e, "zip stream aborted");
             // Make the client see a failed transfer instead of a truncated "success".
             let _ = err_tx.blocking_send(Err(std::io::Error::other("archive failed")));

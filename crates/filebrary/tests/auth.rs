@@ -519,6 +519,41 @@ async fn symlinks_cannot_bypass_folder_rules() {
             "{p}"
         );
     }
+    // Listings hide the denied folder; a zip of the root leaves it (and
+    // the links into it) out.
+    let r = a
+        .call(&b, Method::GET, "/api/sources/files/list?path=/", None)
+        .await;
+    let names: Vec<&str> = r.body["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["public"], "{:?}", r.body);
+    let r = a
+        .call(
+            &b,
+            Method::GET,
+            "/api/sources/files/zip?path=/private",
+            None,
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::NOT_FOUND);
+    let req = Request::get("/api/sources/files/zip?path=/public")
+        .header(header::COOKIE, b.cookie.clone().unwrap())
+        .body(Body::empty())
+        .unwrap();
+    let resp = a.router.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(text.contains("public/ok.txt"));
+    assert!(
+        !text.contains("secret"),
+        "denied content leaked into the zip"
+    );
+    assert!(!text.contains("file-link") && !text.contains("dir-link"));
     // Listing through the link is refused too.
     let r = a
         .call(
