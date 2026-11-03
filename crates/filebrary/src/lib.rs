@@ -23,6 +23,7 @@
 //! * [`cast`]: cookie-free media URLs for Chromecast/AirPlay.
 //! * [`branding`]: branding, themes and the PWA manifest.
 //! * [`search`]: the file index, its watcher and `GET /api/search`.
+//! * [`content`]: full-text content search (`content=` on `GET /api/search`).
 //! * [`web`]: the embedded React UI.
 
 #![warn(missing_docs)]
@@ -43,6 +44,7 @@ pub mod cast;
 pub mod collections;
 pub mod comments;
 pub mod config;
+pub mod content;
 pub mod crypto;
 pub mod dav;
 pub mod db;

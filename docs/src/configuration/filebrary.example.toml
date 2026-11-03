@@ -143,10 +143,12 @@ max_remote_mib = 1024   # largest remote file copied locally for a preview
 name = "files"        # a-z, 0-9, '-', '_'; 1-32 characters; unique
 kind = "local"        # the default
 path = "/srv/files"
+content_search = true # index the text inside documents (the default)
 
 [[sources]]
 name = "media"
 path = "/mnt/pool/media"   # a mergerfs or other FUSE mount works too
+content_search = false     # mostly photos and video: skip content indexing
 
 # Remote sources: uncomment one block and fill it in. They connect on first
 # use, so an unreachable server does not stop Filebrary from starting.
@@ -298,3 +300,14 @@ max_archive_entry_mib = 4096
 # timeout_secs = 600               # default: jobs.timeout_secs
 # env = { OPTIPNG_LEVEL = "2" }
 # workdir = "/var/tmp"             # default: the job's private folder
+
+# --- Content search ---------------------------------------------------------
+# Full-text index of text, PDF and Office files, in <data_dir>/fulltext.
+
+[fulltext]
+enabled = true              # FILEBRARY_FULLTEXT; off: no content index at all
+max_file_mib = 32           # larger files are not read for content
+max_chars = 1000000         # characters indexed per file
+writer_memory_mib = 24      # indexing buffer, freed after each commit
+commit_every_docs = 500     # changes become searchable after this many...
+commit_interval_secs = 5    # ...or this many seconds

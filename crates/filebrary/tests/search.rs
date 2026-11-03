@@ -397,7 +397,6 @@ async fn bad_filters_are_rejected() {
         "min_size=lots",
         "after=yesterday",
         "path=/docs",
-        "content=hello",
         "unknown=1",
     ] {
         let (status, v) = e.get(&e.admin, &format!("/api/search?{q}")).await;

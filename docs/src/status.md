@@ -24,7 +24,7 @@ top linking here.
 | OIDC single sign-on, LDAP, TOTP two-factor, API keys, storage quotas | 3 | Done, in the next release |
 | Job queue, conversions (documents, video, photos), custom admin jobs | 3 | Done, in the next release |
 | Archives: create zip / tar.gz, browse inside zip / tar / 7z | 3 | Done, in the next release |
-| Full-text content search | 4 | Planned |
+| Full-text content search | 4 | Done, in the next release |
 | FTP / FTPS server | 4 | Done, in the next release |
 | Notifications (webhook, ntfy, email) | 4 | Done, in the next release |
 | Prometheus metrics | 4 | Done, in the next release |

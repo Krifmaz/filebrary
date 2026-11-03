@@ -1,0 +1,23 @@
+[package]
+name = "filebrary-fulltext"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Full-text content index (tantivy) for Filebrary: text, PDF and Office documents."
+
+[dependencies]
+# Pure Rust only: zstd (a C library) is left out of tantivy's features.
+tantivy = { version = "0.27", default-features = false, features = ["mmap", "lz4-compression"] }
+pdf-extract = "0.12.1"
+calamine = "0.38.0"
+zip = { version = "9.3.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+quick-xml = "0.42.0"
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
