@@ -58,7 +58,7 @@ impl TestApp {
     /// Creates a user (admin, or with `perms` on "files" within `scope`) and logs in.
     pub async fn user(&self, name: &str, admin: bool, perms: Perms, scope: &str) -> Client {
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, 'x', ?, 0) RETURNING id",
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at) VALUES (?, 'x', ?, 0, 0) RETURNING id",
         )
         .bind(name)
         .bind(admin)
@@ -66,11 +66,17 @@ impl TestApp {
         .await
         .unwrap();
         if !admin {
-            sqlx::query("INSERT INTO user_sources (user_id, source, perms, scope) VALUES (?, 'files', ?, ?)")
-                .bind(id)
-                .bind(perms.bits())
-                .bind(scope)
-                .execute(&self.state.db)
+            let scope = filebrary::storage::VPath::parse(scope).unwrap();
+            filebrary::auth::permissions::set(
+                &self.state.db,
+                "files",
+                &scope,
+                filebrary::auth::Subject::User(id),
+                perms,
+            )
+            .await
+            .unwrap();
+            filebrary::auth::users::set_scope(&self.state.db, id, "files", &scope)
                 .await
                 .unwrap();
         }

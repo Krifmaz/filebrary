@@ -244,7 +244,7 @@ mod tests {
     async fn setup() -> SqlitePool {
         let pool = db::open_memory().await.unwrap();
         sqlx::query(
-            "INSERT INTO users (id, username, password_hash, created_at) VALUES (1, 'a', 'x', 0)",
+            "INSERT INTO users (id, username, password_hash, created_at, updated_at) VALUES (1, 'a', 'x', 0, 0)",
         )
         .execute(&pool)
         .await

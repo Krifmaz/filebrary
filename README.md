@@ -38,6 +38,32 @@ cargo build --release
 (`365`; `0` keeps events forever), `FILEBRARY_WEBDAV` (`true`|`false`). `filebrary healthcheck` probes
 `/healthz` for container health checks.
 
+## Users and permissions
+
+On first start, with no users in the database, Filebrary creates an
+administrator named `admin` (`FILEBRARY_ADMIN_USERNAME` / `admin_username`).
+Its password is `FILEBRARY_ADMIN_PASSWORD` if set; otherwise a random one is
+generated and printed once in the log. Log in and change it.
+
+- Passwords are hashed with argon2id. Sessions live in an `HttpOnly`,
+  `SameSite=Lax` cookie (`Secure` behind HTTPS); state-changing requests
+  must echo the session's CSRF token in `X-CSRF-Token`.
+- Failed logins are limited per username and per client address
+  (`login_max_attempts` within `login_window_secs`; answers 429 with
+  `Retry-After`). Behind a reverse proxy set `FILEBRARY_TRUST_PROXY_HEADERS`.
+- Administrators can do everything. Other users get permissions from
+  rules: each rule gives a user or a group some of `view`, `download`,
+  `upload`, `edit`, `delete`, `share` on a folder of a source and everything
+  below it. The most specific folder wins; at the same folder a user's own
+  rule beats their groups' (which are combined). An empty rule hides a
+  folder. Rules are checked on the symlink-resolved path, so a link cannot
+  lead into a hidden folder.
+- A user can also be confined to a folder (scope) per source; the paths
+  they see start there.
+
+The admin API is under `/api/users`, `/api/groups` and `/api/permissions`
+(see `crates/filebrary/src/auth/routes.rs`).
+
 ## Trash, tags, stars and activity
 
 Deleting moves items to a hidden per-source folder (`/.filebrary-trash`), from
