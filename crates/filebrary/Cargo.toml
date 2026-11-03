@@ -20,12 +20,14 @@ path = "src/main.rs"
 
 [dependencies]
 filebrary-storage = { path = "../filebrary-storage" }
+filebrary-events = { path = "../filebrary-events" }
+filebrary-ftp = { path = "../filebrary-ftp" }
 
 # Web
-axum = { workspace = true }
+axum = { workspace = true, features = ["matched-path"] }
 axum-extra = { workspace = true }
 tower = { version = "0.5.3", default-features = false, features = ["util"] }
-tower-http = { version = "0.7.1", default-features = false, features = ["trace", "set-header", "limit", "catch-panic"] }
+tower-http = { version = "0.7.1", default-features = false, features = ["trace", "set-header", "limit", "catch-panic", "request-id", "util"] }
 hyper = { version = "1.12.0", default-features = false }
 http-body-util = "0.1.5"
 tokio = { workspace = true }
@@ -65,7 +67,14 @@ tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 uuid = { version = "1.29.0", features = ["v4"] }
 
+# Operations: metrics, OpenAPI, TLS provider for outgoing notifications
+metrics = "0.24.3"
+metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
+utoipa = { version = "6.0.0", default-features = false, features = ["macros"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+
 [dev-dependencies]
+suppaftp = { version = "8", default-features = false, features = ["tokio"] }
 tempfile = { workspace = true }
 tower = { version = "0.5.3", features = ["util"] }
 

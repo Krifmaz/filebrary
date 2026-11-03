@@ -319,8 +319,14 @@ async fn finish(state: &AppState, auth: &AuthUser, uid: &str) -> AppResult<Uploa
         .await;
     // Whatever happened, the staged data is consumed or useless now.
     remove(state, uid).await?;
-    result?;
+    let written = result?;
     let entry = st.stat(&visible).await?;
+    state.events.publish(filebrary_events::Event::Upload {
+        user: auth.user.username.clone(),
+        source: row.source.clone(),
+        path: real.to_string(),
+        size: written,
+    });
     Ok(UploadStatus {
         id: uid.to_owned(),
         offset: row.size as u64,
