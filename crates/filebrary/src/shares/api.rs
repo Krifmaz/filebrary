@@ -101,7 +101,7 @@ async fn create(
     let mut names = HashSet::new();
     for p in &req.paths {
         let visible = VPath::parse(p)?;
-        let real = user.require(&req.source, needed, &visible)?;
+        let real = crate::auth::authorize(&st, user, &req.source, needed, &visible).await?;
         if crate::organize::trash::is_reserved(&real) {
             return Err(AppError::NotFound.into());
         }

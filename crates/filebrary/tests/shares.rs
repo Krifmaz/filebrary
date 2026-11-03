@@ -11,6 +11,7 @@ use filebrary::{
     auth::{Perms, session},
     config::{Config, SourceConfig, SourceKind},
     db,
+    storage::VPath,
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
@@ -63,17 +64,31 @@ async fn setup() -> Env {
     }
 }
 
-// Everything that touches the auth schema directly is in `user`, `set_perms`
+// Everything that touches the auth schema is in `user`, `rule`, `set_perms`
 // and `disable`, so a schema change only needs those updated.
 impl Env {
-    /// Replaces a non-admin user's permissions on the "files" source.
+    /// Sets the permission rule of user `id` on a real folder of "files".
+    /// An empty set hides the folder.
+    async fn rule(&self, id: i64, path: &str, perms: Perms) {
+        filebrary::auth::permissions::set(
+            &self.state.db,
+            "files",
+            &VPath::parse(path).unwrap(),
+            filebrary::auth::Subject::User(id),
+            perms,
+        )
+        .await
+        .unwrap();
+    }
+
+    /// Replaces a non-admin user's permissions at their scope.
     async fn set_perms(&self, id: i64, perms: Perms) {
-        sqlx::query("UPDATE user_sources SET perms = ? WHERE user_id = ?")
-            .bind(perms.bits())
-            .bind(id)
-            .execute(&self.state.db)
+        let scope = filebrary::auth::users::scopes(&self.state.db, id)
             .await
-            .unwrap();
+            .unwrap()
+            .remove("files")
+            .unwrap_or_default();
+        self.rule(id, &scope.to_string(), perms).await;
     }
 
     /// Disables a user account.
@@ -85,26 +100,28 @@ impl Env {
             .unwrap();
     }
 
-    /// Adds a user. Non-admins get `perms` on the whole source, or on `scope`.
+    /// Adds a user. Non-admins get `perms` on `scope`, which also confines them.
     async fn user(&self, name: &str, admin: bool, perms: Perms, scope: &str) -> (i64, Login) {
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO users (username, password_hash, is_admin, created_at) \
-             VALUES (?, 'x', ?, 0) RETURNING id",
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at) \
+             VALUES (?, 'x', ?, 0, 0) RETURNING id",
         )
         .bind(name)
         .bind(admin)
         .fetch_one(&self.state.db)
         .await
         .unwrap();
-        sqlx::query(
-            "INSERT INTO user_sources (user_id, source, perms, scope) VALUES (?, 'files', ?, ?)",
-        )
-        .bind(id)
-        .bind(perms.bits())
-        .bind(scope)
-        .execute(&self.state.db)
-        .await
-        .unwrap();
+        if !admin {
+            self.rule(id, scope, perms).await;
+            filebrary::auth::users::set_scope(
+                &self.state.db,
+                id,
+                "files",
+                &VPath::parse(scope).unwrap(),
+            )
+            .await
+            .unwrap();
+        }
         let s = session::create(&self.state, id, None, None).await.unwrap();
         (
             id,
@@ -878,4 +895,87 @@ async fn trash_is_never_shared() {
             .all(|n| !n.unwrap().contains(".filebrary-trash")),
         "zip must not contain the trash"
     );
+}
+
+#[tokio::test]
+async fn folders_hidden_from_the_creator_stay_hidden() {
+    let env = setup().await;
+    std::fs::write(env.root.join("docs/sub/hr.txt"), b"salaries").unwrap();
+    // Bob may share everything, but a rule hides /docs/sub from him.
+    let (bob_id, bob) = env
+        .user(
+            "bob",
+            false,
+            Perms::VIEW | Perms::DOWNLOAD | Perms::UPLOAD | Perms::SHARE,
+            "/",
+        )
+        .await;
+    let share = env
+        .create(&bob, json!({"source": "files", "paths": ["/docs"]}))
+        .await;
+    let token = share["token"].as_str().unwrap().to_owned();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(env.root.join("docs/sub"), env.root.join("docs/alias")).unwrap();
+    // Before the rule, everything is visible.
+    let (s, _, _) = env
+        .get(&format!(
+            "/api/public/shares/{token}/download?path=sub/hr.txt"
+        ))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+
+    env.rule(bob_id, "/docs/sub", Perms::NONE).await;
+
+    let (_, _, b) = env.get(&format!("/api/public/shares/{token}")).await;
+    let names: Vec<_> = json(&b)["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(names.contains(&"a.txt".to_owned()), "{names:?}");
+    assert!(!names.contains(&"sub".to_owned()), "{names:?}");
+    let mut denied = vec!["sub", "sub/hr.txt"];
+    if cfg!(unix) {
+        denied.extend(["alias", "alias/hr.txt"]);
+    }
+    for p in denied {
+        let (s, _, b) = env
+            .get(&format!("/api/public/shares/{token}/download?path={p}"))
+            .await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "download {p}");
+        assert!(!String::from_utf8_lossy(&b).contains("salaries"));
+        let (s, _, _) = env
+            .get(&format!("/api/public/shares/{token}?path={p}"))
+            .await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "list {p}");
+    }
+    let (s, _, b) = env
+        .get(&format!("/api/public/shares/{token}/download"))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let zip = zip::ZipArchive::new(std::io::Cursor::new(b.clone())).unwrap();
+    let names: Vec<String> = zip.file_names().map(|n| n.unwrap().into_owned()).collect();
+    assert!(names.contains(&"a.txt".to_owned()), "{names:?}");
+    assert!(!names.iter().any(|n| n.contains("hr.txt")), "{names:?}");
+    assert!(!b.windows(8).any(|w| w == b"salaries"));
+
+    // Drop links into a folder the creator can no longer upload to stop working.
+    let drop = env
+        .create(
+            &bob,
+            json!({"source": "files", "paths": ["/drop"], "upload_only": true}),
+        )
+        .await;
+    let dt = drop["token"].as_str().unwrap();
+    env.rule(bob_id, "/drop", Perms::VIEW).await;
+    let (s, _, _) = env
+        .send(
+            Request::post(format!("/api/public/shares/{dt}/uploads?path=x.txt"))
+                .body(Body::from("x"))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    assert!(!env.root.join("drop/x.txt").exists());
 }

@@ -47,8 +47,11 @@ use super::{
     store::{ACCESS_TTL_SECS, Share, ShareStore, now},
 };
 use crate::{
-    api::{download, zip},
-    auth::{self, Perms},
+    api::{
+        download, files,
+        zip::{self, ZipFilter},
+    },
+    auth::{self, Perms, User},
     error::AppError,
     organize::trash,
     state::AppState,
@@ -96,12 +99,26 @@ pub struct ShareItem {
     pub real: VPath,
 }
 
+impl ShareItem {
+    /// The creator-visible path at which `storage` is rooted.
+    fn storage_base(&self) -> VPath {
+        if self.path.is_root() {
+            self.visible.clone()
+        } else {
+            VPath::root()
+        }
+    }
+}
+
 /// A share that is alive and usable right now.
 pub struct LiveShare {
     /// The database row.
     pub share: Share,
     /// What it exposes.
     pub items: Vec<ShareItem>,
+    /// The share's creator as loaded for this request, whose rights bound
+    /// everything the share serves.
+    pub owner: User,
 }
 
 /// Where a share-relative path points.
@@ -111,11 +128,13 @@ pub enum Target {
     /// A real path inside one item.
     Item {
         /// The item.
-        item: ShareItem,
+        item: Box<ShareItem>,
         /// Path inside the item's (confined) storage.
         path: VPath,
         /// The same location as a path inside the source itself.
         real: VPath,
+        /// The same location as the creator sees it (scope-relative).
+        visible: VPath,
     },
 }
 
@@ -141,10 +160,37 @@ impl LiveShare {
             return Err(ShareError::not_found());
         }
         Ok(Target::Item {
-            item: item.clone(),
+            item: Box::new(item.clone()),
             path: item.path.join_path(&inner),
             real,
+            visible: item.visible.join_path(&inner),
         })
+    }
+
+    /// Re-checks the creator's right `perm` at a creator-visible path with
+    /// [`auth::authorize`], which applies per-folder rules to the
+    /// symlink-resolved path. Any refusal is a plain 404 for the visitor.
+    /// Returns the real path in the source.
+    pub async fn authorize(
+        &self,
+        state: &AppState,
+        source: &str,
+        perm: Perms,
+        visible: &VPath,
+    ) -> ShareResult<VPath> {
+        match auth::authorize(state, &self.owner, source, perm, visible).await {
+            Ok(real) => Ok(real),
+            Err(AppError::Internal(e)) => Err(AppError::Internal(e).into()),
+            Err(_) => Err(ShareError::not_found()),
+        }
+    }
+
+    /// Filter for listings and archives of `item.storage`: keeps what the
+    /// creator may download (files) or traverse (folders).
+    pub fn filter(&self, item: &ShareItem) -> ZipFilter {
+        let inner = files::download_filter(&self.owner, &item.source);
+        let base = item.storage_base();
+        Arc::new(move |p: &VPath, is_dir: bool| inner(&base.join_path(p), is_dir))
     }
 
     /// Display name of the share as a whole.
@@ -220,7 +266,11 @@ pub async fn resolve(state: &AppState, token: &str) -> ShareResult<LiveShare> {
             real: real.clone(),
         });
     }
-    Ok(LiveShare { share, items })
+    Ok(LiveShare {
+        share,
+        items,
+        owner,
+    })
 }
 
 /// Query parameters shared by the public routes.
@@ -339,8 +389,19 @@ async fn info(
             }
             (live.name(), true, None, Some(entries))
         }
-        Target::Item { item, path, real } => {
+        Target::Item {
+            item,
+            path,
+            real,
+            visible,
+        } => {
             let entry = item.storage.stat(&path).await?;
+            let perm = if entry.is_dir() {
+                Perms::VIEW
+            } else {
+                Perms::DOWNLOAD
+            };
+            live.authorize(&st, &item.source, perm, &visible).await?;
             let name = if rel.is_root() {
                 live.name()
             } else {
@@ -352,6 +413,9 @@ async fn info(
                 if real.is_root() {
                     list.retain(|e| e.name != trash::TRASH_DIR);
                 }
+                // Hide what a rule hides from the creator.
+                let keep = live.filter(&item);
+                list.retain(|e| keep(&e.path, e.is_dir()));
                 list.sort_by(|a, b| {
                     b.is_dir()
                         .cmp(&a.is_dir())
@@ -427,8 +491,19 @@ async fn download(
 
     // Resolve what will be sent before counting, so a bad path costs nothing.
     let file = match &target {
-        Target::Item { item, path, .. } => {
+        Target::Item {
+            item,
+            path,
+            visible,
+            ..
+        } => {
             let e = item.storage.stat(path).await?;
+            let perm = if e.is_dir() {
+                Perms::VIEW
+            } else {
+                Perms::DOWNLOAD
+            };
+            live.authorize(&st, &item.source, perm, visible).await?;
             (!e.is_dir()).then_some(e)
         }
         Target::Root => None,
@@ -446,7 +521,13 @@ async fn download(
         (Target::Item { item, path, .. }, Some(_)) => {
             Ok(download::file_response(item.storage.as_ref(), &path, &headers, q.inline).await?)
         }
-        (Target::Item { item, path, real }, None) => {
+        (
+            Target::Item {
+                item, path, real, ..
+            },
+            None,
+        ) => {
+            let keep = live.filter(&item);
             let name = if rel.is_root() {
                 live.name()
             } else {
@@ -463,11 +544,14 @@ async fn download(
                 paths.sort();
                 if paths.is_empty() {
                     // An empty folder: archive it through the owner's scope.
-                    return Ok(zip::zip_response(item.scoped, vec![item.visible], &name).await?);
+                    let keep = files::download_filter(&live.owner, &item.source);
+                    return Ok(
+                        zip::zip_response(item.scoped, vec![item.visible], &name, keep).await?,
+                    );
                 }
-                Ok(zip::zip_response(item.storage, paths, &name).await?)
+                Ok(zip::zip_response(item.storage, paths, &name, keep).await?)
             } else {
-                Ok(zip::zip_response(item.storage, vec![path], &name).await?)
+                Ok(zip::zip_response(item.storage, vec![path], &name, keep).await?)
             }
         }
         (Target::Root, _) => {
@@ -475,7 +559,8 @@ async fn download(
                 return Err(ShareError::not_found());
             };
             let paths = live.items.iter().map(|i| i.visible.clone()).collect();
-            Ok(zip::zip_response(first.scoped.clone(), paths, "shared-files").await?)
+            let keep = files::download_filter(&live.owner, &first.source);
+            Ok(zip::zip_response(first.scoped.clone(), paths, "shared-files", keep).await?)
         }
     }
 }
@@ -552,6 +637,17 @@ async fn upload(
     }
 
     let target = free_name(item.storage.as_ref(), &dir, file_name).await?;
+    // The creator must still be allowed to upload there (rules, quota).
+    let target_visible = item.storage_base().join_path(&target);
+    let real = live
+        .authorize(&st, &item.source, Perms::UPLOAD, &target_visible)
+        .await?;
+    // Write hooks (quotas) see the upload as the creator's; their answer is
+    // passed on so the visitor learns why it was refused.
+    st.auth
+        .hooks()
+        .before_write(&st, &live.owner, &item.source, &real, declared)
+        .await?;
     let mut seen: u64 = 0;
     let stream = body
         .into_data_stream()
