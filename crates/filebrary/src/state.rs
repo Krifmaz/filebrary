@@ -28,6 +28,8 @@ pub struct Inner {
     pub upload_dir: PathBuf,
     /// Upload ids with a chunk currently being written (one writer at a time).
     pub uploads_in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// Background job queue (conversions, archives, custom jobs).
+    pub jobs: crate::jobs::JobQueue,
 }
 
 impl Deref for AppState {
@@ -68,7 +70,9 @@ impl AppState {
         let upload_dir = config.data_dir.join("uploads");
         std::fs::create_dir_all(&upload_dir)
             .with_context(|| format!("creating {}", upload_dir.display()))?;
+        let jobs = crate::jobs::JobQueue::new(&config.jobs);
         Ok(Self(Arc::new(Inner {
+            jobs,
             config,
             db,
             sources,

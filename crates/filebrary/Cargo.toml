@@ -20,6 +20,7 @@ path = "src/main.rs"
 
 [dependencies]
 filebrary-storage = { path = "../filebrary-storage" }
+filebrary-archive = { path = "../filebrary-archive" }
 
 # Web
 axum = { workspace = true }
@@ -28,7 +29,7 @@ tower = { version = "0.5.3", default-features = false, features = ["util"] }
 tower-http = { version = "0.7.1", default-features = false, features = ["trace", "set-header", "limit", "catch-panic"] }
 hyper = { version = "1.12.0", default-features = false }
 http-body-util = "0.1.5"
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["process"] }
 tokio-util = { version = "0.7.20", features = ["io", "io-util"] }
 futures = { version = "0.3.34", default-features = false, features = ["std", "async-await"] }
 bytes = "1.12.1"
@@ -55,7 +56,10 @@ base64 = { workspace = true }
 hex = "0.4.3"
 
 # Archives (pure Rust deflate backend, no C libraries)
-zip = { version = "9.3.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { workspace = true }
+
+# Image conversion (pure Rust codecs)
+image = { workspace = true }
 
 # CLI, errors, logs
 clap = { version = "4.6.7", features = ["derive", "env"] }
@@ -64,6 +68,9 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 uuid = { version = "1.29.0", features = ["v4"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = { workspace = true }

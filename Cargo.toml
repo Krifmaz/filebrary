@@ -29,6 +29,13 @@ thiserror = "2.0.21"
 anyhow = "1.0.104"
 tracing = "0.1.44"
 tempfile = "3.27.0"
+# Archives: pure-Rust codecs only (no C libraries).
+zip = { version = "9.3.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
+tar = { version = "0.4.46", default-features = false }
+sevenz-rust2 = { version = "0.24.2", default-features = false }
+# Image decoding/encoding for conversions and thumbnails: pure-Rust codecs only.
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "tiff", "bmp"] }
 
 [profile.release]
 opt-level = 3

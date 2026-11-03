@@ -11,6 +11,7 @@ binary (web UI embedded) and one Docker image. Licensed under Apache-2.0.
 |----------------------------|---------------------------------------------------------------|
 | `crates/filebrary`         | The server: axum app, config, auth, API, shares, embedded UI. |
 | `crates/filebrary-storage` | `Storage` trait, `VPath` path validation, local backend.      |
+| `crates/filebrary-archive` | Browse zip/tar/tar.gz/7z; create zip and tar.gz (pure Rust). |
 | `migrations/`              | SQLite migrations for the whole workspace (one history).      |
 | `web/`                     | React + TypeScript + Vite PWA, built into `web/dist`.         |
 | `docs/`                    | mdBook documentation.                                         |
@@ -32,5 +33,19 @@ cargo build --release
 `FILEBRARY_LISTEN` (`0.0.0.0:8080`), `FILEBRARY_DATA_DIR`, `FILEBRARY_SOURCES`
 (`files=/srv;media=/mnt/media`), `FILEBRARY_PUBLIC_URL`,
 `FILEBRARY_SECURE_COOKIES`, `FILEBRARY_LOG` (filter, e.g. `debug`),
-`FILEBRARY_LOG_FORMAT` (`text`|`json`). `filebrary healthcheck` probes
+`FILEBRARY_LOG_FORMAT` (`text`|`json`), `FILEBRARY_JOB_WORKERS`,
+`FILEBRARY_JOB_RETAIN_DAYS`, `FILEBRARY_FFMPEG`, `FILEBRARY_FFPROBE`,
+`FILEBRARY_SOFFICE`. `filebrary healthcheck` probes
 `/healthz` for container health checks.
+
+## Jobs, conversions and archives
+
+Long-running work runs as background jobs (`/api/jobs`) with progress, cancel
+and retry: archive creation (zip, tar.gz), documents to PDF (LibreOffice),
+video transcode/remux and audio extraction (ffmpeg), and image resize/format
+changes (built in). Administrators can define custom jobs in the config file
+(`[[jobs.custom]]`); they run a program directly with an argument list, never
+through a shell, on a private copy of the file. Archives (zip, tar, tar.gz,
+7z) can be browsed and single files downloaded without extracting
+(`/api/sources/{id}/archive`). Conversions need the `full` Docker image (or
+ffmpeg/LibreOffice installed); everything else works in the small image.

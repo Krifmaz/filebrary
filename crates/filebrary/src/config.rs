@@ -87,6 +87,8 @@ pub struct Config {
     pub log_format: LogFormat,
     /// Storage sources.
     pub sources: Vec<SourceConfig>,
+    /// Background jobs, conversions and custom jobs (`[jobs]`).
+    pub jobs: crate::jobs::JobsConfig,
 }
 
 impl Default for Config {
@@ -105,6 +107,7 @@ impl Default for Config {
             login_window_secs: 300,
             log_format: LogFormat::Text,
             sources: Vec::new(),
+            jobs: crate::jobs::JobsConfig::default(),
         }
     }
 }
@@ -184,6 +187,7 @@ impl Config {
         if let Some(v) = get("FILEBRARY_SOURCES").filter(|v| !v.trim().is_empty()) {
             self.sources = parse_sources(&v)?;
         }
+        self.jobs.apply_env(&get)?;
         Ok(())
     }
 
@@ -219,6 +223,7 @@ impl Config {
         {
             bail!("public_url must start with http:// or https://");
         }
+        self.jobs.validate()?;
         Ok(())
     }
 

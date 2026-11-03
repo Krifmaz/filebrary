@@ -10,12 +10,15 @@
 //! | `/api/auth/...`, `/api/users`, `/api/groups` | [`crate::auth::routes`] | auth |
 //! | `/api/shares`                  | [`crate::shares::api_router`]    | shares  |
 //! | `/api/public/shares/{token}`   | [`crate::shares::public_router`] | shares  |
+//! | `/api/jobs`, `/api/jobs/{id}/...` | [`crate::jobs::api`]   | jobs    |
+//! | `/api/sources/{id}/archive...` | [`archive`]               | jobs    |
 //!
 //! Errors are JSON: `{"error": "<machine code>", "message": "<human text>"}`.
 //! Paths are passed as `path` query parameters (or JSON fields), absolute
 //! within the source and `/`-separated; they are validated by
 //! [`crate::storage::VPath::parse`].
 
+pub mod archive;
 pub mod download;
 pub mod files;
 pub mod uploads;
@@ -32,6 +35,8 @@ pub fn router() -> Router<AppState> {
         .route("/health", get(health))
         .merge(files::routes())
         .merge(uploads::routes())
+        .merge(archive::routes())
+        .merge(crate::jobs::api::routes())
         .merge(crate::auth::routes::routes())
         .nest("/shares", crate::shares::api_router())
         .nest("/public/shares", crate::shares::public_router())

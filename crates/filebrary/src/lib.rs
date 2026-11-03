@@ -12,6 +12,7 @@
 //! * [`auth`]: users, permissions, sessions and extractors.
 //! * [`api`]: JSON endpoints under `/api`.
 //! * [`shares`]: share links.
+//! * [`jobs`]: background job queue, conversions, archives and custom jobs.
 //! * [`web`]: the embedded React UI.
 
 #![warn(missing_docs)]
@@ -22,6 +23,7 @@ pub mod config;
 pub mod crypto;
 pub mod db;
 pub mod error;
+pub mod jobs;
 pub mod shares;
 pub mod state;
 pub use filebrary_storage as storage;
@@ -59,6 +61,7 @@ pub fn spawn_maintenance(state: AppState) -> tokio::task::JoinHandle<()> {
 
 /// Builds the complete application router.
 pub fn app(state: AppState) -> Router {
+    state.jobs.start(&state);
     Router::new()
         .nest("/api", api::router())
         .route("/healthz", get(api::health))
