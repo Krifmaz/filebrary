@@ -1,0 +1,31 @@
+[package]
+name = "filebrary-events"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Event bus and notifications (webhook, ntfy, email) for Filebrary."
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+time = { workspace = true, features = ["parsing"] }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = "0.4.3"
+futures = { version = "0.3.34", default-features = false, features = ["std", "async-await"] }
+metrics = "0.24.3"
+url = "2.5.7"
+# TLS through rustls with the ring provider: no OpenSSL or other system C libraries.
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json", "http2"] }
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "ring", "rustls-platform-verifier", "hostname"] }
+
+[dev-dependencies]
+toml = { version = "1.1.8", default-features = false, features = ["parse", "serde"] }
+axum = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
