@@ -5,6 +5,12 @@ binary (web UI embedded) and one Docker image. Licensed under Apache-2.0.
 
 > Status: Phase 1 in progress (v0.1). This README is expanded as features land.
 
+## Documentation
+
+The full documentation (install, configuration and every setting) is at
+<https://krifmaz.github.io/filebrary/>, built from `docs/` with mdBook.
+Preview it locally with `mdbook serve docs`.
+
 ## Layout
 
 | Path                       | What                                                          |
