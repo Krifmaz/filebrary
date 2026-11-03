@@ -1,0 +1,19 @@
+[book]
+title = "Filebrary"
+description = "Self-hosted file manager: one binary, one Docker image."
+authors = ["Filebrary contributors"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/Krifmaz/filebrary"
+edit-url-template = "https://github.com/Krifmaz/filebrary/edit/main/docs/{path}"
+default-theme = "light"
+preferred-dark-theme = "navy"
+
+[output.html.search]
+enable = true
