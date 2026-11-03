@@ -55,8 +55,22 @@ listed here when it lands.
 ## Memory and resource use
 
 Filebrary aims to stay under 64 MB of memory when idle with no search
-index. Peak use while building the search index will be documented here
-with the search feature.
+index.
+
+Building the search index streams rows to the database in batches, so its
+memory use barely grows with the size of the tree. Measured with
+`cargo run --release --example index_bench -- N` on Linux (ext4), the whole
+process including the server state:
+
+| Files     | First scan | Rescan, nothing changed | Peak memory (RSS) | Database size |
+|-----------|-----------:|------------------------:|------------------:|--------------:|
+| 100 000   | 1.2 s      | 1.5 s                   | 13.3 MiB          | 25 MiB        |
+| 1 000 000 | 12.6 s     | 17.9 s                  | 16.5 MiB          | 251 MiB       |
+
+A name search over a million entries takes about 55 ms. Budget roughly
+250 bytes of database per indexed file or folder. On Linux, watching a
+source costs one inotify watch per folder (about 1 KiB of kernel memory
+each).
 
 ### Content search
 
