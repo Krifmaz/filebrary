@@ -248,7 +248,8 @@ mod tests {
         assert_eq!(p.components(), ["%2e%2e", "%2E%2E", "x"]);
         let p = VPath::parse("%252e%252e").unwrap();
         assert_eq!(p.components(), ["%252e%252e"]);
-        // Dots that are not exactly ".." are ordinary names.
+        // Dots that are not exactly ".." are ordinary names (except on
+        // Windows, where a trailing dot is invalid; see `windows_rules`).
         assert_eq!(VPath::parse("...").is_ok(), !cfg!(windows));
         assert!(VPath::parse("..a").is_ok());
     }
