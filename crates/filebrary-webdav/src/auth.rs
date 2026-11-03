@@ -63,7 +63,8 @@ pub enum AuthError {
     Internal,
 }
 
-/// An authenticated caller.
+/// An authenticated caller. It is `Any` so a [`DavAuth`] can downcast to its
+/// own user type.
 ///
 /// Paths passed in are *user-visible*: relative to the user's scope on the
 /// source. Storage operations run on those paths against the confined backend
@@ -71,21 +72,13 @@ pub enum AuthError {
 /// Locks and dead properties are keyed by the *real* path (the scope joined
 /// with the visible path), so users with different scopes on one source see
 /// each other's locks.
-pub trait DavUser: Send + Sync + 'static {
+pub trait DavUser: std::any::Any + Send + Sync {
     /// A stable identifier, used as the lock owner. Two requests by the same
     /// user may use each other's locks; other users may not.
     fn id(&self) -> String;
 
     /// The sources this user can see, in display order.
     fn sources(&self) -> Vec<String>;
-
-    /// Checks `perm` on a user-visible path.
-    ///
-    /// # Errors
-    ///
-    /// [`Denied::NotFound`] when the user cannot view the source,
-    /// [`Denied::Forbidden`] when `perm` is missing.
-    fn check(&self, source: &str, perm: DavPerm, path: &VPath) -> Result<(), Denied>;
 
     /// The folder of `source` this user is confined to (the root for an
     /// unconfined user), or `None` if the source is not visible.
@@ -118,6 +111,24 @@ pub trait DavAuth: Send + Sync + 'static {
         headers: &HeaderMap,
         client: Option<SocketAddr>,
     ) -> Result<Arc<dyn DavUser>, AuthError>;
+
+    /// Checks that `user` may do `perm` on the user-visible `path`.
+    ///
+    /// Called before every storage operation. Implementations should check
+    /// per-folder rules against the symlink-resolved path, so a link cannot
+    /// reach a folder a rule denies.
+    ///
+    /// # Errors
+    ///
+    /// [`Denied::NotFound`] when the user cannot view the source or path,
+    /// [`Denied::Forbidden`] when `perm` is missing.
+    async fn authorize(
+        &self,
+        user: &dyn DavUser,
+        source: &str,
+        perm: DavPerm,
+        path: &VPath,
+    ) -> Result<(), Denied>;
 
     /// The backend for `source` as `user` sees it: rooted at their scope
     /// (with [`Storage::sub`]) so every path rule, symlinks included, applies

@@ -36,16 +36,6 @@ impl DavUser for TestUser {
         v.sort();
         v
     }
-    fn check(&self, source: &str, perm: DavPerm, _path: &VPath) -> Result<(), Denied> {
-        let (perms, _) = self.grants.get(source).ok_or(Denied::NotFound)?;
-        if !perms.contains(&DavPerm::View) {
-            return Err(Denied::NotFound);
-        }
-        if !perms.contains(&perm) {
-            return Err(Denied::Forbidden);
-        }
-        Ok(())
-    }
     fn scope(&self, source: &str) -> Option<VPath> {
         Some(self.grants.get(source)?.1.clone())
     }
@@ -76,6 +66,24 @@ impl DavAuth for TestAuth {
             None => Err(AuthError::Unauthorized),
         }
     }
+    async fn authorize(
+        &self,
+        user: &dyn DavUser,
+        source: &str,
+        perm: DavPerm,
+        _path: &VPath,
+    ) -> Result<(), Denied> {
+        let grants = &self.users[&user.id()].grants;
+        let (perms, _) = grants.get(source).ok_or(Denied::NotFound)?;
+        if !perms.contains(&DavPerm::View) {
+            return Err(Denied::NotFound);
+        }
+        if !perms.contains(&perm) {
+            return Err(Denied::Forbidden);
+        }
+        Ok(())
+    }
+
     async fn storage(&self, user: &dyn DavUser, source: &str) -> Option<Arc<dyn Storage>> {
         let base = self.sources.get(source)?;
         let scope = user.scope(source)?;

@@ -211,7 +211,11 @@ impl Ctx<'_> {
         visible: &VPath,
         perm: DavPerm,
     ) -> Result<Resolved, Resp> {
-        self.user.check(source, perm, visible).map_err(denied)?;
+        self.srv
+            .auth
+            .authorize(self.user.as_ref(), source, perm, visible)
+            .await
+            .map_err(denied)?;
         let scope = self
             .user
             .scope(source)

@@ -216,6 +216,24 @@ impl DavAuth for FilebraryDavAuth {
         }
     }
 
+    async fn authorize(
+        &self,
+        user: &dyn DavUser,
+        source: &str,
+        p: DavPerm,
+        path: &VPath,
+    ) -> Result<(), Denied> {
+        // Only our own users reach here; anything else is refused.
+        let Some(u) = (user as &dyn std::any::Any).downcast_ref::<FilebraryDavUser>() else {
+            return Err(Denied::NotFound);
+        };
+        match u.user.require(source, perm(p), path) {
+            Ok(_) => Ok(()),
+            Err(AppError::NotFound) => Err(Denied::NotFound),
+            Err(_) => Err(Denied::Forbidden),
+        }
+    }
+
     async fn storage(&self, user: &dyn DavUser, source: &str) -> Option<Arc<dyn Storage>> {
         let src = self.state.source(source)?;
         let scope = user.scope(source)?;
@@ -264,14 +282,6 @@ impl DavUser for FilebraryDavUser {
             .filter(|(_, g)| g.perms.contains(Perms::VIEW))
             .map(|(name, _)| name.clone())
             .collect()
-    }
-
-    fn check(&self, source: &str, p: DavPerm, path: &VPath) -> Result<(), Denied> {
-        match self.user.require(source, perm(p), path) {
-            Ok(_) => Ok(()),
-            Err(AppError::NotFound) => Err(Denied::NotFound),
-            Err(_) => Err(Denied::Forbidden),
-        }
     }
 
     fn scope(&self, source: &str) -> Option<VPath> {
