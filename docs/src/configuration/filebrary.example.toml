@@ -72,3 +72,53 @@ path = "/srv/files"
 [[sources]]
 name = "media"
 path = "/mnt/pool/media"   # a mergerfs or other FUSE mount works too
+
+# Remote sources: uncomment one block and fill it in. They connect on first
+# use, so an unreachable server does not stop Filebrary from starting.
+
+# An S3-compatible bucket (AWS, MinIO, Garage, R2, B2, ...).
+# [[sources]]
+# name = "photos"
+# kind = "s3"
+# [sources.s3]
+# bucket = "family-photos"
+# prefix = ""                    # serve only this part of the bucket
+# endpoint = "http://minio:9000" # omit for AWS
+# region = "us-east-1"
+# access_key_id = "AKIA..."      # unset: AWS_* variables or instance metadata
+# secret_access_key = "..."
+# secret_access_key_file = "/run/secrets/s3_secret"   # wins over the above
+# session_token = "..."
+# virtual_hosted_style = false   # default: false with endpoint, true on AWS
+
+# A directory on an SFTP server. Pin the host key; the error of a first
+# attempt without it names the server's fingerprint.
+# [[sources]]
+# name = "nas"
+# kind = "sftp"
+# [sources.sftp]
+# host = "nas.lan"
+# port = 22
+# username = "filebrary"
+# password = "..."
+# password_file = "/run/secrets/nas_password"
+# private_key = "/run/secrets/nas_ed25519"
+# private_key_passphrase = "..."
+# root = "/volume1/shared"       # empty: the home directory
+# host_key_fingerprint = "SHA256:..."
+# known_hosts = "/data/known_hosts"
+# insecure_accept_any_host_key = false   # tests only
+
+# A folder on an SMB 2/3 share (Windows, Samba, NAS).
+# [[sources]]
+# name = "office"
+# kind = "smb"
+# [sources.smb]
+# host = "fileserver.lan"
+# port = 445
+# share = "Projects"
+# root = ""                      # folder inside the share
+# username = "filebrary"         # empty: guest
+# password = "..."
+# password_file = "/run/secrets/smb"
+# domain = ""

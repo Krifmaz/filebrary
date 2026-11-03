@@ -37,16 +37,8 @@ async fn setup() -> Ctx {
     let config = Config {
         data_dir: dir.path().join("data"),
         sources: vec![
-            SourceConfig {
-                name: "files".into(),
-                kind: Default::default(),
-                path: files,
-            },
-            SourceConfig {
-                name: "media".into(),
-                kind: Default::default(),
-                path: media,
-            },
+            SourceConfig::local("files", files),
+            SourceConfig::local("media", media),
         ],
         ..Config::default()
     };
