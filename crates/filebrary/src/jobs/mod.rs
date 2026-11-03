@@ -178,6 +178,29 @@ impl JobContext {
             .ok_or_else(|| JobError::failed("the user who started this job no longer exists"))
     }
 
+    /// Records in the activity log that this job wrote `path` (a
+    /// user-visible path) for `user`. `action` is an
+    /// [`crate::activity::action`] constant, usually `UPLOAD` for a new
+    /// file or `EDIT` for a replaced one.
+    pub async fn record_write(
+        &self,
+        user: &User,
+        source: &str,
+        path: &crate::storage::VPath,
+        action: &str,
+        kind: &str,
+    ) {
+        let Some(grant) = user.grant(source) else {
+            return;
+        };
+        crate::activity::Activity::new(action)
+            .user(user)
+            .at(source, &grant.scope.join_path(path))
+            .details(serde_json::json!({ "job": self.id, "kind": kind }))
+            .record(&self.state)
+            .await;
+    }
+
     /// Fails with [`JobError::Cancelled`] if the job was cancelled.
     ///
     /// # Errors

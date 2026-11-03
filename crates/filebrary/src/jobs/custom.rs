@@ -178,6 +178,14 @@ impl JobHandler for CustomJob {
             CustomOutput::None => {}
             CustomOutput::Replace => {
                 stage::upload(storage.as_ref(), &real, &input, true).await?;
+                ctx.record_write(
+                    &user,
+                    &p.source,
+                    &real,
+                    crate::activity::action::EDIT,
+                    "custom",
+                )
+                .await;
                 result["path"] = json!(p.path);
             }
             CustomOutput::Files => {
@@ -195,6 +203,14 @@ impl JobHandler for CustomJob {
                     let (stem, fext) = stage::split_name(&fname);
                     let path =
                         stage::upload_new(storage.as_ref(), &parent, stem, fext, &e.path()).await?;
+                    ctx.record_write(
+                        &user,
+                        &p.source,
+                        &path,
+                        crate::activity::action::UPLOAD,
+                        "custom",
+                    )
+                    .await;
                     written.push(path.to_string());
                 }
                 result["files"] = json!(written);

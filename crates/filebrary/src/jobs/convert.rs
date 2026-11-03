@@ -126,6 +126,15 @@ async fn store_output(
     ctx.check_cancel()?;
     ctx.progress(0.97, Some("saving")).await;
     let written = stage::upload_new(r.output_storage.as_ref(), &r.dest, &r.stem, ext, out).await?;
+    let user = ctx.user().await?;
+    ctx.record_write(
+        &user,
+        &t.source,
+        &written,
+        crate::activity::action::UPLOAD,
+        "convert",
+    )
+    .await;
     let size = tokio::fs::metadata(out).await.map(|m| m.len()).unwrap_or(0);
     Ok(json!({
         "source": t.source,

@@ -243,6 +243,15 @@ async fn scoped_users_stay_in_their_folder() {
     assert_eq!(job["status"], "succeeded", "{job}");
     assert_eq!(job["result"]["path"], "/mine.txt.zip");
     assert!(t.root().join("home/bob/mine.txt.zip").is_file());
+    // The activity log records the real path of the new file.
+    let logged: Vec<(String, String)> = sqlx::query_as("SELECT action, path FROM activity")
+        .fetch_all(&t.state.db)
+        .await
+        .unwrap();
+    assert!(
+        logged.contains(&("upload".into(), "/home/bob/mine.txt.zip".into())),
+        "{logged:?}"
+    );
 
     // `..` never gets out.
     let (s, _) = submit(

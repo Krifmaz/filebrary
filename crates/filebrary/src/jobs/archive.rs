@@ -212,6 +212,14 @@ impl JobHandler for CreateArchive {
             CreateFormat::TarGz => (format!("{name}.tar"), "gz"),
         };
         let written = stage::upload_new(out_storage.as_ref(), &dest, &stem, ext, &out_path).await?;
+        ctx.record_write(
+            &user,
+            &p.source,
+            &written,
+            crate::activity::action::UPLOAD,
+            "archive.create",
+        )
+        .await;
         let visible = written.to_string();
         let size = tokio::fs::metadata(&out_path)
             .await
