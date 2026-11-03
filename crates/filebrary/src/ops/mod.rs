@@ -27,6 +27,7 @@
 //! [`filebrary_events::quota_crossed`] with
 //! `config.notifications.quota_warning_percent` so a user is warned once.
 
+pub mod datadir;
 pub mod ftp;
 pub mod health;
 pub mod logging;

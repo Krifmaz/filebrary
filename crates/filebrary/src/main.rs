@@ -38,8 +38,7 @@ async fn main() -> anyhow::Result<()> {
     // ring, which needs no system libraries.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    std::fs::create_dir_all(&config.data_dir)
-        .with_context(|| format!("creating data dir {}", config.data_dir.display()))?;
+    filebrary::ops::datadir::ensure_writable(&config.data_dir)?;
     let pool = db::open(&config.data_dir).await?;
     let secret = crypto::load_or_create_secret(&config.data_dir)?;
     let listen = config.listen;

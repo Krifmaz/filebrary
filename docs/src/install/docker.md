@@ -67,6 +67,43 @@ The image declares a Docker `HEALTHCHECK` that runs `filebrary healthcheck`,
 which calls the `/healthz` endpoint on the local server. `docker ps` shows the
 status, and orchestrators can use `GET /healthz` directly.
 
+## Troubleshooting
+
+### `unable to open database file` or `cannot write to /data`
+
+The container cannot write to its data folder. This almost always means the
+host folder mounted at `/data` belongs to another user. Docker creates a
+missing bind-mount folder as `root`, while Filebrary runs as `65532:65532` (or
+the `user:` you set). On start-up Filebrary checks the folder and prints the
+path, the user it runs as, the folder's owner and the command to fix it:
+
+```text
+Error: cannot write to /data (Permission denied (os error 13)). Filebrary runs as uid 1000, gid 1000 and needs to write to its data directory /data. It is owned by 0:0.
+Fix: make the folder writable by that user, for example
+
+    sudo chown -R 1000:1000 <folder>
+```
+
+Fix it on the host, using the folder from your `volumes:` entry and the ids
+from the message (or from the `user:` line), then restart:
+
+```sh
+sudo mkdir -p /opt/filebrary
+sudo chown -R 1000:1000 /opt/filebrary
+docker restart filebrary
+docker logs --tail 50 filebrary
+```
+
+Creating and owning the folder before the first `docker compose up` avoids the
+problem altogether.
+
+### `unable to find group` when the stack starts
+
+Docker could not resolve the group in a `user:` value. Use numbers on both
+sides (`user: 1000:1000`), and remember that Portainer stacks do not read a
+`.env` file: a `${PGID}` that is not set under the stack's environment
+variables becomes empty.
+
 ## Building the image yourself
 
 ```sh
