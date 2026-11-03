@@ -30,6 +30,8 @@ pub struct Inner {
     pub uploads_in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
     /// Background job queue (conversions, archives, custom jobs).
     pub jobs: crate::jobs::JobQueue,
+    /// Login rate limiter and auth hooks.
+    pub auth: crate::auth::AuthRuntime,
 }
 
 impl Deref for AppState {
@@ -71,8 +73,10 @@ impl AppState {
         std::fs::create_dir_all(&upload_dir)
             .with_context(|| format!("creating {}", upload_dir.display()))?;
         let jobs = crate::jobs::JobQueue::new(&config.jobs);
+        let auth = crate::auth::AuthRuntime::new(&config);
         Ok(Self(Arc::new(Inner {
             jobs,
+            auth,
             config,
             db,
             sources,
