@@ -12,6 +12,7 @@ create-missing = false
 [output.html]
 git-repository-url = "https://github.com/Krifmaz/filebrary"
 edit-url-template = "https://github.com/Krifmaz/filebrary/edit/main/docs/{path}"
+site-url = "/filebrary/"
 default-theme = "light"
 preferred-dark-theme = "navy"
 

@@ -2,7 +2,8 @@
 //!
 //! Configuration comes from an optional TOML file, then environment variables
 //! (which win), then built-in defaults. Every setting is documented in
-//! `docs/src/configuration.md`.
+//! `docs/src/configuration/reference.md` (checked by
+//! `tests/docs_config.rs`).
 //!
 //! ```toml
 //! listen = "0.0.0.0:8080"
