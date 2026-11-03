@@ -126,9 +126,16 @@ fn clean_body(body: &str) -> AppResult<String> {
     Ok(body.to_owned())
 }
 
-/// Maps a user-visible path to the real one after checking `perm`.
-fn resolve(user: &User, source: &str, path: &str, perm: Perms) -> AppResult<VPath> {
-    user.require(source, perm, &VPath::parse(path)?)
+/// Maps a user-visible path to the real one after checking `perm`, folder
+/// rules included (see [`crate::auth::authorize`]).
+async fn resolve(
+    state: &AppState,
+    user: &User,
+    source: &str,
+    path: &str,
+    perm: Perms,
+) -> AppResult<VPath> {
+    crate::auth::authorize(state, user, source, perm, &VPath::parse(path)?).await
 }
 
 #[derive(sqlx::FromRow)]
@@ -169,7 +176,7 @@ async fn list(
     auth: AuthUser,
     Query(t): Query<Target>,
 ) -> AppResult<Json<Vec<Comment>>> {
-    let real = resolve(&auth.user, &t.source, &t.path, Perms::VIEW)?;
+    let real = resolve(&state, &auth.user, &t.source, &t.path, Perms::VIEW).await?;
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT c.id, c.user_id, u.username, c.body, c.created_at, c.edited_at
          FROM comments c LEFT JOIN users u ON u.id = c.user_id
@@ -245,7 +252,7 @@ async fn load_for_change(
     let visible = user
         .visible_path(&source, &real)
         .ok_or(AppError::NotFound)?;
-    user.require(&source, Perms::VIEW, &visible)?;
+    crate::auth::authorize(state, user, &source, Perms::VIEW, &visible).await?;
     Ok((source, real, author))
 }
 
@@ -296,7 +303,7 @@ async fn counts(
     auth: AuthUser,
     Query(q): Query<CountsQuery>,
 ) -> AppResult<Json<BTreeMap<String, i64>>> {
-    let dir = resolve(&auth.user, &q.source, &q.dir, Perms::VIEW)?;
+    let dir = resolve(&state, &auth.user, &q.source, &q.dir, Perms::VIEW).await?;
     let prefix = if dir.is_root() {
         "/".to_owned()
     } else {

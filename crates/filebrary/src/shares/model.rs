@@ -32,6 +32,10 @@ pub struct CreateShareRequest {
     /// Make this an upload-only drop link (requires a single folder).
     #[serde(default)]
     pub upload_only: bool,
+    /// Share a whole collection instead of `source`/`paths` (which must then
+    /// be left out).
+    #[serde(default)]
+    pub collection_id: Option<i64>,
 }
 
 /// Body of `PATCH /api/shares/{id}`. Absent fields stay as they are; `null`
@@ -91,6 +95,8 @@ pub struct ShareResponse {
     pub expired: bool,
     /// RFC 3339 creation time.
     pub created_at: String,
+    /// The shared collection, for collection links.
+    pub collection_id: Option<i64>,
 }
 
 impl ShareResponse {
@@ -111,6 +117,7 @@ impl ShareResponse {
             has_password: s.password_hash.is_some(),
             expired: s.is_expired(now) || s.is_exhausted(),
             created_at: format_ts(s.created_at),
+            collection_id: s.collection_id,
         }
     }
 }

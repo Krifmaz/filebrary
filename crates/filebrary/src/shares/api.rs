@@ -75,6 +75,9 @@ async fn create(
 ) -> ShareResult<(StatusCode, Json<ShareResponse>)> {
     let user = &auth.user;
     let now = now();
+    if let Some(cid) = req.collection_id {
+        return create_for_collection(&st, user, cid, req, now).await;
+    }
     if req.source.is_empty() {
         return Err(ShareError::bad_request("source is required"));
     }
@@ -152,9 +155,73 @@ async fn create(
             expires_at,
             max_downloads,
             upload_only: req.upload_only,
+            collection_id: None,
         })
         .await?;
     tracing::info!(share = share.id, user = user.id, source = %share.source, "share created");
+    Ok((StatusCode::CREATED, Json(view(&share, user, now))))
+}
+
+/// Password, expiry and download limit of a create request, validated.
+async fn link_options(
+    req: &CreateShareRequest,
+    now: i64,
+) -> ShareResult<(Option<String>, Option<i64>, Option<i64>)> {
+    let password_hash = match &req.password {
+        Some(p) => {
+            check_password(p)?;
+            Some(crate::auth::password::hash(p.clone()).await?)
+        }
+        None => None,
+    };
+    let expires_at = req
+        .expires_at
+        .as_deref()
+        .map(|e| parse_expiry(e, now))
+        .transpose()?;
+    let max_downloads = req.max_downloads.map(check_max_downloads).transpose()?;
+    Ok((password_hash, expires_at, max_downloads))
+}
+
+/// `POST /api/shares` with `collection_id`: a link serving a whole collection.
+/// The caller must own it and hold `share` + `download` on every item.
+async fn create_for_collection(
+    st: &AppState,
+    user: &User,
+    cid: i64,
+    req: CreateShareRequest,
+    now: i64,
+) -> ShareResult<(StatusCode, Json<ShareResponse>)> {
+    if !req.source.is_empty() || !req.paths.is_empty() {
+        return Err(ShareError::bad_request(
+            "send either collection_id or source and paths, not both",
+        ));
+    }
+    if req.upload_only {
+        return Err(ShareError::bad_request(
+            "a collection cannot be an upload-only link",
+        ));
+    }
+    crate::collections::check_shareable(st, user, cid).await?;
+    let (password_hash, expires_at, max_downloads) = link_options(&req, now).await?;
+    let share = ShareStore::new(st.db.clone())
+        .create(NewShare {
+            owner_id: user.id,
+            source: String::new(),
+            paths: Vec::new(),
+            password_hash,
+            expires_at,
+            max_downloads,
+            upload_only: false,
+            collection_id: Some(cid),
+        })
+        .await?;
+    tracing::info!(
+        share = share.id,
+        user = user.id,
+        collection = cid,
+        "collection share created"
+    );
     Ok((StatusCode::CREATED, Json(view(&share, user, now))))
 }
 
@@ -203,6 +270,11 @@ async fn update(
     if let Some(u) = req.upload_only
         && u != share.upload_only
     {
+        if u && share.collection_id.is_some() {
+            return Err(ShareError::bad_request(
+                "a collection cannot be an upload-only link",
+            ));
+        }
         if u {
             let [p] = share.paths.as_slice() else {
                 return Err(ShareError::bad_request(

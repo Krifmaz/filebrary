@@ -33,3 +33,15 @@ them with one link. Select items and choose **Add to collection**; the
 **Collections** page lists your collections and creates a share link for a
 whole collection, with the usual password, expiry and download limit. The
 link only serves items its owner may still share. API: `/api/collections`.
+
+A collection link always shows the collection as it is now: items you add
+later appear in it, items you remove disappear, and an item drops out of the
+link as soon as you lose the **share** or **download** right on it. Items with
+the same name get a ` (2)`, ` (3)`… suffix in the link. Downloading the whole
+link gives one zip with every item, even when they come from different
+sources. Collection links cannot be upload-only drop links, and deleting the
+collection deletes its links.
+
+To create one through the API, send `POST /api/shares` with
+`{"collection_id": 7}` (plus the usual `password`, `expires_at` and
+`max_downloads`) instead of `source` and `paths`.
