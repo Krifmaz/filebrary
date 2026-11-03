@@ -8,7 +8,7 @@ use axum::{
 };
 use filebrary::{
     AppState,
-    config::{Config, SourceConfig, SourceKind},
+    config::{Config, SourceConfig},
     db,
 };
 use http_body_util::BodyExt;
@@ -31,12 +31,9 @@ async fn app() -> App {
         login_max_attempts: 3,
         ..Config::default()
     };
-    config.sources.push(SourceConfig {
-        name: "files".into(),
-        kind: SourceKind::Local,
-        path: dir.path().join("files"),
-        content_search: false,
-    });
+    config
+        .sources
+        .push(SourceConfig::local("files", dir.path().join("files")));
     let pool = db::open_memory().await.unwrap();
     let state = AppState::new(config, pool, [7u8; 32]).unwrap();
     assert_eq!(

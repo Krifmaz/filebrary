@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.91"
 license = "Apache-2.0"
 repository = "https://github.com/Krifmaz/filebrary"
 
@@ -29,6 +29,14 @@ thiserror = "2.0.21"
 anyhow = "1.0.104"
 tracing = "0.1.44"
 tempfile = "3.27.0"
+# Remote storage backends (all pure Rust; TLS and signing use ring, not aws-lc).
+object_store = { version = "0.14.2", default-features = false, features = ["aws-base", "reqwest", "ring"] }
+# TLS for the S3 client: rustls with the ring provider (no aws-lc, no OpenSSL).
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "http2"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+russh = { version = "0.65.1", default-features = false, features = ["ring", "rsa", "flate2"] }
+russh-sftp = "3.0.1"
+smb2 = "0.39.0"
 
 [profile.release]
 opt-level = 3

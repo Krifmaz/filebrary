@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use filebrary::{
     AppState,
-    config::{Config, SourceConfig, SourceKind},
+    config::{Config, SourceConfig},
     db,
     search::scan,
 };
@@ -52,12 +52,7 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&data)?;
     let config = Config {
         data_dir: data.clone(),
-        sources: vec![SourceConfig {
-            name: "files".into(),
-            kind: SourceKind::Local,
-            path: root.clone(),
-            content_search: false,
-        }],
+        sources: vec![SourceConfig::local("files", root.clone())],
         ..Config::default()
     };
     let pool = db::open(&data).await?;

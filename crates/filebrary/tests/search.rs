@@ -10,7 +10,7 @@ use axum::{
 use filebrary::{
     AppState,
     auth::{Perms, Subject, permissions, session, users},
-    config::{Config, SourceConfig, SourceKind},
+    config::{Config, SourceConfig},
     db,
     search::scan,
     storage::VPath,
@@ -73,12 +73,7 @@ async fn env(watch: bool) -> Env {
     std::fs::create_dir_all(root.join("empty")).unwrap();
     let mut config = Config {
         data_dir: tmp.path().join("data"),
-        sources: vec![SourceConfig {
-            name: "files".into(),
-            kind: SourceKind::Local,
-            path: root.clone(),
-            content_search: false,
-        }],
+        sources: vec![SourceConfig::local("files", root.clone())],
         ..Config::default()
     };
     config.search.watch = watch;
@@ -402,7 +397,6 @@ async fn bad_filters_are_rejected() {
         "min_size=lots",
         "after=yesterday",
         "path=/docs",
-        "content=hello",
         "unknown=1",
     ] {
         let (status, v) = e.get(&e.admin, &format!("/api/search?{q}")).await;

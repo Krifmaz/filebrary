@@ -32,12 +32,7 @@ async fn setup() -> Ctx {
     std::fs::write(files.join("home/bob/b.txt"), b"bob").unwrap();
     let config = Config {
         data_dir: dir.path().join("data"),
-        sources: vec![SourceConfig {
-            name: "files".into(),
-            kind: Default::default(),
-            path: files,
-            content_search: false,
-        }],
+        sources: vec![SourceConfig::local("files", files)],
         ..Config::default()
     };
     let pool = db::open_memory().await.unwrap();

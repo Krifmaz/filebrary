@@ -12,7 +12,7 @@ use axum::{
 use filebrary::{
     AppState,
     auth::{Perms, Subject, permissions, session, users},
-    config::{Config, SourceConfig, SourceKind},
+    config::{Config, SourceConfig},
     db,
     search::scan,
     storage::VPath,
@@ -74,20 +74,11 @@ impl Env {
         );
         let config = Config {
             data_dir: tmp.path().join("data"),
-            sources: vec![
-                SourceConfig {
-                    name: "files".into(),
-                    kind: SourceKind::Local,
-                    path: files,
-                    content_search: true,
-                },
-                SourceConfig {
-                    name: "other".into(),
-                    kind: SourceKind::Local,
-                    path: other,
-                    content_search: false,
-                },
-            ],
+            sources: vec![SourceConfig::local("files", files), {
+                let mut s = SourceConfig::local("other", other);
+                s.content_search = false;
+                s
+            }],
             ..Config::default()
         };
         let pool = db::open_memory().await.unwrap();
@@ -273,12 +264,7 @@ async fn content_search_switched_off() {
     let tmp = tempfile::tempdir().unwrap();
     let mut config = Config {
         data_dir: tmp.path().join("data"),
-        sources: vec![SourceConfig {
-            name: "files".into(),
-            kind: SourceKind::Local,
-            path: tmp.path().join("files"),
-            content_search: true,
-        }],
+        sources: vec![SourceConfig::local("files", tmp.path().join("files"))],
         ..Config::default()
     };
     config.fulltext.enabled = false;
