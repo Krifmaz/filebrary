@@ -67,3 +67,23 @@ Idle memory of a release build with one local source is about 12 MB RSS
 (`filebrary_process_resident_memory_bytes` and
 `filebrary_process_peak_resident_memory_bytes` report it live).
 
+## Comments, collections, casting, themes
+
+* **Comments**: select a file and press *Comments*. Anyone who can see a file
+  reads its thread; posting needs `download`; authors edit their own, and
+  holders of `edit` (and admins) can delete any comment on the file.
+  API: `/api/comments`.
+* **Collections**: select files or folders from any source and press *Add to
+  collection*; the *Collections* page lists them and creates one share link
+  for a whole collection (password, expiry and download limit as usual). The
+  link only serves items the owner may still share. API: `/api/collections`.
+* **Casting**: video and audio open in a player with a *Cast* button when a
+  Chromecast (Chrome) or AirPlay device (Safari) is nearby. It uses the
+  browser's Remote Playback API, so no third-party script is loaded; the
+  device streams from a signed URL that expires after 6 hours and stops
+  working as soon as the user loses access. Set `public_url` so devices
+  reach the right address.
+* **Themes and branding**: *Appearance* lets each user pick light, dark,
+  system or a custom palette; administrators set the product name, logo,
+  default theme and the colours of each theme, which also brand the login
+  page, share pages and the installed PWA.
