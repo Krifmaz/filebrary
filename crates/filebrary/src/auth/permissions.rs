@@ -125,6 +125,13 @@ impl std::ops::BitOr for Perms {
     }
 }
 
+impl std::ops::BitAnd for Perms {
+    type Output = Perms;
+    fn bitand(self, rhs: Perms) -> Perms {
+        Perms(self.0 & rhs.0)
+    }
+}
+
 impl Serialize for Perms {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         self.names().serialize(s)

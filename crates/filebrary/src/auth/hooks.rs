@@ -7,7 +7,7 @@
 
 use std::{future::Future, pin::Pin};
 
-use super::{User, users::UserRecord};
+use super::{Perms, User, users::UserRecord};
 use crate::{error::AppResult, state::AppState, storage::VPath};
 
 /// A boxed, sendable future, so [`AuthHooks`] stays object-safe.
@@ -43,6 +43,13 @@ pub trait AuthHooks: Send + Sync + 'static {
         _token: &'a str,
     ) -> BoxFuture<'a, AppResult<Option<BearerIdentity>>> {
         Box::pin(async { Ok(None) })
+    }
+
+    /// The most an API key with these scopes may do: every permission check
+    /// for the request is capped by it (see [`super::User::ceiling`]).
+    /// Default: [`Perms::ALL`] (rules alone decide).
+    fn bearer_ceiling(&self, _scopes: &[String]) -> Perms {
+        Perms::ALL
     }
 
     /// Called by [`super::authorize_write`] after the permission check

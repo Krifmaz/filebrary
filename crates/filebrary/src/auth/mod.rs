@@ -141,6 +141,11 @@ pub struct User {
     /// Every permission rule that applies to the user (own and via groups).
     #[serde(skip)]
     pub rules: Vec<Rule>,
+    /// Upper bound on every permission check: [`Perms::ALL`] for browser
+    /// sessions, narrower for API keys (from
+    /// [`hooks::AuthHooks::bearer_ceiling`]).
+    #[serde(skip)]
+    pub ceiling: Perms,
 }
 
 impl User {
@@ -157,11 +162,27 @@ impl User {
     }
 
     /// Effective permissions at a *real* path in `source`.
+    /// Capped by [`User::ceiling`].
     pub fn perms_at(&self, source: &str, real: &VPath) -> Perms {
-        if self.is_admin {
-            return Perms::ALL;
+        let p = if self.is_admin {
+            Perms::ALL
+        } else {
+            permissions::resolve(self.rules.iter().filter(|r| r.source == source), real)
+        };
+        p & self.ceiling
+    }
+
+    /// Lowers the ceiling (for an API key) and recomputes the grants.
+    pub fn apply_ceiling(&mut self, ceiling: Perms) {
+        self.ceiling = ceiling;
+        let names: Vec<String> = self.grants.keys().cloned().collect();
+        for name in names {
+            let scope = self.scope(&name);
+            let perms = self.perms_at(&name, &scope);
+            if let Some(g) = self.grants.get_mut(&name) {
+                g.perms = perms;
+            }
         }
-        permissions::resolve(self.rules.iter().filter(|r| r.source == source), real)
     }
 
     /// Effective permissions at a *user-visible* path in `source`.
@@ -247,6 +268,7 @@ pub async fn load_user(state: &AppState, id: i64) -> AppResult<Option<User>> {
         is_admin: rec.is_admin,
         grants: BTreeMap::new(),
         rules,
+        ceiling: Perms::ALL,
     };
     for name in state.sources.keys() {
         let scope = scopes.get(name).cloned().unwrap_or_default();
@@ -450,7 +472,8 @@ impl AuthUser {
                 .resolve_bearer(state, &token)
                 .await?
                 .ok_or(AppError::Unauthorized)?;
-            let user = load_user(state, uid).await?.ok_or(AppError::Unauthorized)?;
+            let mut user = load_user(state, uid).await?.ok_or(AppError::Unauthorized)?;
+            user.apply_ceiling(state.auth.hooks().bearer_ceiling(&scopes));
             AuthUser {
                 user,
                 session_hash: Vec::new(),
@@ -562,6 +585,7 @@ mod tests {
             is_admin: false,
             grants,
             rules,
+            ceiling: Perms::ALL,
         }
     }
 
@@ -624,6 +648,18 @@ mod tests {
         // A link into a hidden subfolder.
         assert!(check_resolved(&u, "s", Perms::DOWNLOAD, &vp("home/bob/hidden/x")).is_err());
         assert!(check_resolved(&u, "s", Perms::EDIT, &vp("home/bob/real.txt")).is_err());
+    }
+
+    #[test]
+    fn ceiling_caps_every_check() {
+        let mut u = user(vec![rule("/", Perms::ALL)], "/");
+        assert!(u.require("s", Perms::DELETE, &VPath::root()).is_ok());
+        u.apply_ceiling(Perms::VIEW | Perms::DOWNLOAD);
+        assert!(u.require("s", Perms::DOWNLOAD, &VPath::root()).is_ok());
+        assert!(u.require("s", Perms::DELETE, &VPath::root()).is_err());
+        assert_eq!(u.grant("s").unwrap().perms, Perms::VIEW | Perms::DOWNLOAD);
+        u.is_admin = true;
+        assert!(!u.perms_at("s", &VPath::root()).contains(Perms::DELETE));
     }
 
     #[test]
