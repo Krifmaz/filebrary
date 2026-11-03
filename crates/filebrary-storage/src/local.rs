@@ -226,6 +226,51 @@ impl LocalStorage {
 
 #[async_trait]
 impl Storage for LocalStorage {
+    async fn resolve(&self, vp: &VPath) -> StorageResult<VPath> {
+        // Walk up to the nearest existing ancestor, canonicalise it, re-append the rest.
+        let parts = vp.components();
+        let mut n = parts.len();
+        loop {
+            let prefix = VPath::parse(&parts[..n].join("/"))?;
+            match self.resolve_follow(&prefix).await {
+                Ok(canon) => {
+                    let rel = canon
+                        .strip_prefix(&self.root)
+                        .map_err(|_| StorageError::OutsideRoot)?;
+                    let mut out = VPath::root();
+                    for c in rel.components() {
+                        let s = c
+                            .as_os_str()
+                            .to_str()
+                            .ok_or_else(|| StorageError::InvalidPath("non-UTF-8 path".into()))?;
+                        out = out.join(s)?;
+                    }
+                    for c in &parts[n..] {
+                        out = out.join(c)?;
+                    }
+                    return Ok(out);
+                }
+                Err(StorageError::NotFound) if n > 0 => {
+                    // A dangling symlink must not be treated as a missing name.
+                    let p = self.join(&prefix);
+                    if fs::symlink_metadata(&p).await.is_ok() {
+                        return Err(StorageError::OutsideRoot);
+                    }
+                    n -= 1;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    async fn sub(&self, scope: &VPath) -> StorageResult<std::sync::Arc<dyn Storage>> {
+        let root = self.resolve_follow(scope).await?;
+        if !fs::metadata(&root).await?.is_dir() {
+            return Err(StorageError::NotADirectory);
+        }
+        Ok(std::sync::Arc::new(Self { root }))
+    }
+
     async fn list(&self, vp: &VPath) -> StorageResult<Vec<Entry>> {
         let dir = self.resolve_follow(vp).await?;
         if !fs::metadata(&dir).await?.is_dir() {
@@ -611,6 +656,85 @@ mod tests {
         // Deleting a link removes the link only.
         s.delete(&vp("good-link")).await.unwrap();
         assert!(root.join("ok.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn sub_scope_refuses_links_out_of_scope() {
+        use std::os::unix::fs::symlink;
+        let (d, s) = setup();
+        let root = d.path().join("root");
+        std::fs::create_dir_all(root.join("home/bob")).unwrap();
+        std::fs::create_dir_all(root.join("home/alice")).unwrap();
+        std::fs::write(root.join("home/alice/private.txt"), b"alice").unwrap();
+        symlink(root.join("home/alice"), root.join("home/bob/peek")).unwrap();
+        symlink(
+            root.join("home/alice/private.txt"),
+            root.join("home/bob/file"),
+        )
+        .unwrap();
+        let bob = s.sub(&vp("home/bob")).await.unwrap();
+        assert!(matches!(
+            bob.read(&vp("peek/private.txt"), None).await.err(),
+            Some(StorageError::OutsideRoot)
+        ));
+        assert!(matches!(
+            bob.read(&vp("file"), None).await.err(),
+            Some(StorageError::OutsideRoot)
+        ));
+        assert!(matches!(
+            bob.write(&vp("peek/new"), reader(b"x"), false).await,
+            Err(StorageError::OutsideRoot)
+        ));
+        assert!(matches!(
+            bob.write(&vp("file"), reader(b"x"), true).await,
+            Err(StorageError::OutsideRoot)
+        ));
+        assert!(bob.list(&VPath::root()).await.unwrap().is_empty());
+        assert_eq!(
+            std::fs::read(root.join("home/alice/private.txt")).unwrap(),
+            b"alice"
+        );
+        // A scope that is itself a link out of the source is refused.
+        symlink(d.path(), root.join("out")).unwrap();
+        assert!(matches!(
+            s.sub(&vp("out")).await.err(),
+            Some(StorageError::OutsideRoot)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn resolve_follows_links_inside_root() {
+        use std::os::unix::fs::symlink;
+        let (d, s) = setup();
+        let root = d.path().join("root");
+        std::fs::create_dir_all(root.join("private/x")).unwrap();
+        std::fs::create_dir(root.join("public")).unwrap();
+        symlink(root.join("private"), root.join("public/door")).unwrap();
+        symlink(d.path(), root.join("out")).unwrap();
+        symlink(root.join("gone"), root.join("dangling")).unwrap();
+        assert_eq!(
+            s.resolve(&vp("public/door/x")).await.unwrap(),
+            vp("private/x")
+        );
+        assert_eq!(
+            s.resolve(&vp("public/door/new/f")).await.unwrap(),
+            vp("private/new/f")
+        );
+        assert_eq!(
+            s.resolve(&vp("public/plain")).await.unwrap(),
+            vp("public/plain")
+        );
+        assert_eq!(s.resolve(&VPath::root()).await.unwrap(), VPath::root());
+        assert!(matches!(
+            s.resolve(&vp("out/x")).await,
+            Err(StorageError::OutsideRoot)
+        ));
+        assert!(matches!(
+            s.resolve(&vp("dangling/x")).await,
+            Err(StorageError::OutsideRoot)
+        ));
     }
 
     #[cfg(unix)]
