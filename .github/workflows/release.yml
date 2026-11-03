@@ -65,6 +65,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97
         with:
           targets: ${{ matrix.target }}
+      # rust-toolchain.toml picks the toolchain; add the target to that one.
+      - run: rustup target add ${{ matrix.target }}
       - name: Install musl tools
         if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
