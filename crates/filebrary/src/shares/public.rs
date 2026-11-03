@@ -44,10 +44,10 @@ use super::{
         format_ts,
     },
     ratelimit,
-    serve::{self, ZipItem},
     store::{ACCESS_TTL_SECS, Share, ShareStore, now},
 };
 use crate::{
+    api::{download, zip},
     auth::{self, Perms},
     error::AppError,
     state::AppState,
@@ -72,16 +72,25 @@ pub fn cookie_name(token: &str) -> String {
 }
 
 /// One shared item, resolved to the storage that holds it.
+///
+/// Storage is always *confined*: `scoped` is the source as the share's owner
+/// sees it (rooted at their scope), and `storage` is, for a shared folder, a
+/// backend rooted at that folder. The backend checks symlinks against its own
+/// root, so a link inside a shared folder cannot reach anything outside it.
 #[derive(Clone)]
 pub struct ShareItem {
     /// Source name.
     pub source: String,
-    /// Backend of that source.
-    pub storage: Arc<dyn Storage>,
-    /// Path of the item inside the source.
-    pub path: VPath,
     /// The item's name, used as its top-level name in multi-item shares.
     pub name: String,
+    /// Backend confined to the item (folders) or to the owner's scope (files).
+    pub storage: Arc<dyn Storage>,
+    /// Path of the item inside `storage` (the root for folders).
+    pub path: VPath,
+    /// Backend confined to the owner's scope.
+    pub scoped: Arc<dyn Storage>,
+    /// Path of the item inside `scoped`.
+    pub visible: VPath,
 }
 
 /// A share that is alive and usable right now.
@@ -138,25 +147,9 @@ impl LiveShare {
     }
 }
 
-/// Builds the items of a share. (Collections hook in here.)
-fn load_items(state: &AppState, share: &Share) -> ShareResult<Vec<ShareItem>> {
-    let source = state
-        .source(&share.source)
-        .ok_or_else(ShareError::not_found)?;
-    Ok(share
-        .paths
-        .iter()
-        .map(|p| ShareItem {
-            source: share.source.clone(),
-            storage: source.storage.clone(),
-            path: p.clone(),
-            name: p.name().unwrap_or(&source.name).to_owned(),
-        })
-        .collect())
-}
-
 /// Loads a share by token and checks it is still alive: not expired, owner
-/// still enabled and still holding the rights the share hands out.
+/// still enabled and still holding the rights the share hands out. Builds the
+/// confined storage for each item. (Collections hook in here.)
 pub async fn resolve(state: &AppState, token: &str) -> ShareResult<LiveShare> {
     let share = ShareStore::new(state.db.clone())
         .get_by_token(token)
@@ -174,14 +167,48 @@ pub async fn resolve(state: &AppState, token: &str) -> ShareResult<LiveShare> {
         } else {
             Perms::DOWNLOAD
         };
-    let items = load_items(state, &share)?;
-    for item in &items {
+    let source = state
+        .source(&share.source)
+        .ok_or_else(ShareError::not_found)?;
+    let grant = owner
+        .grant(&share.source)
+        .ok_or_else(ShareError::not_found)?;
+    let scoped: Arc<dyn Storage> = if grant.scope.is_root() {
+        source.storage.clone()
+    } else {
+        match source.storage.sub(&grant.scope).await {
+            Ok(s) => s,
+            Err(StorageError::NotFound | StorageError::NotADirectory) => {
+                return Err(ShareError::not_found());
+            }
+            Err(e) => return Err(e.into()),
+        }
+    };
+    let mut items = Vec::with_capacity(share.paths.len());
+    for real in &share.paths {
         let visible = owner
-            .visible_path(&item.source, &item.path)
+            .visible_path(&share.source, real)
             .ok_or_else(ShareError::not_found)?;
-        if owner.require(&item.source, needed, &visible).is_err() {
+        if owner.require(&share.source, needed, &visible).is_err() {
             return Err(ShareError::not_found());
         }
+        // Folders get their own root; files (and vanished items, which will
+        // answer 404 when used) are reached through the owner's scope.
+        let (storage, path) = match scoped.sub(&visible).await {
+            Ok(sub) => (sub, VPath::root()),
+            Err(StorageError::NotADirectory | StorageError::NotFound) => {
+                (scoped.clone(), visible.clone())
+            }
+            Err(e) => return Err(e.into()),
+        };
+        items.push(ShareItem {
+            source: share.source.clone(),
+            name: real.name().unwrap_or(&source.name).to_owned(),
+            storage,
+            path,
+            scoped: scoped.clone(),
+            visible,
+        });
     }
     Ok(LiveShare { share, items })
 }
@@ -392,7 +419,7 @@ async fn download(
         }
         Target::Root => None,
     };
-    let counts = live.share.max_downloads.is_some() || !serve::is_continuation(&headers);
+    let counts = live.share.max_downloads.is_some() || !is_continuation(&headers);
     if counts
         && !ShareStore::new(st.db.clone())
             .record_download(live.share.id)
@@ -402,8 +429,8 @@ async fn download(
     }
 
     match (target, file) {
-        (Target::Item { item, .. }, Some(entry)) => {
-            Ok(serve::file_response(item.storage.as_ref(), &entry, &headers, q.inline).await?)
+        (Target::Item { item, path }, Some(_)) => {
+            Ok(download::file_response(item.storage.as_ref(), &path, &headers, q.inline).await?)
         }
         (Target::Item { item, path }, None) => {
             let name = if rel.is_root() {
@@ -411,29 +438,37 @@ async fn download(
             } else {
                 path.name().unwrap_or("download").to_owned()
             };
-            let zip_name = format!("{name}.zip");
-            Ok(serve::zip_response(
-                vec![ZipItem {
-                    storage: item.storage,
-                    path,
-                    name,
-                }],
-                &zip_name,
-            ))
+            if path.is_root() {
+                // The whole shared folder: archive its children under its name.
+                let children = item.storage.list(&path).await?;
+                let mut paths: Vec<VPath> = children.into_iter().map(|c| c.path).collect();
+                paths.sort();
+                if paths.is_empty() {
+                    // An empty folder: archive it through the owner's scope.
+                    return Ok(zip::zip_response(item.scoped, vec![item.visible], &name).await?);
+                }
+                Ok(zip::zip_response(item.storage, paths, &name).await?)
+            } else {
+                Ok(zip::zip_response(item.storage, vec![path], &name).await?)
+            }
         }
         (Target::Root, _) => {
-            let items = live
-                .items
-                .iter()
-                .map(|i| ZipItem {
-                    storage: i.storage.clone(),
-                    path: i.path.clone(),
-                    name: i.name.clone(),
-                })
-                .collect();
-            Ok(serve::zip_response(items, "shared-files.zip"))
+            let Some(first) = live.items.first() else {
+                return Err(ShareError::not_found());
+            };
+            let paths = live.items.iter().map(|i| i.visible.clone()).collect();
+            Ok(zip::zip_response(first.scoped.clone(), paths, "shared-files").await?)
         }
     }
+}
+
+/// Returns whether a request asks for a range that does not start at byte 0.
+fn is_continuation(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("bytes="))
+        .is_some_and(|s| !s.trim_start().starts_with("0-"))
 }
 
 /// Splits `name.ext` into (`name`, `.ext`) for numbering duplicates.

@@ -35,7 +35,6 @@ pub mod error;
 pub mod model;
 pub mod public;
 mod ratelimit;
-mod serve;
 pub mod store;
 
 use axum::Router;

@@ -8,7 +8,7 @@ use super::{error::ShareError, store::Share};
 /// Longest password accepted, to keep argon2 work bounded.
 pub const MAX_PASSWORD_LEN: usize = 1024;
 /// Most paths a single share may hold.
-pub const MAX_PATHS: usize = 1000;
+pub const MAX_PATHS: usize = 100;
 
 /// Body of `POST /api/shares`.
 #[derive(Debug, Deserialize)]

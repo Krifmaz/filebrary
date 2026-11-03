@@ -226,11 +226,9 @@ async fn folder_share_browse_and_download() {
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(b)).unwrap();
     let mut names: Vec<_> = zip.file_names().map(|n| n.unwrap().into_owned()).collect();
     names.sort();
-    assert_eq!(
-        names,
-        ["docs/", "docs/a.txt", "docs/sub/", "docs/sub/b.txt"]
-    );
-    let mut f = zip.by_name("docs/sub/b.txt").unwrap();
+    // The folder's contents sit at the top of the archive.
+    assert_eq!(names, ["a.txt", "sub/", "sub/b.txt"]);
+    let mut f = zip.by_name("sub/b.txt").unwrap();
     let mut out = String::new();
     std::io::Read::read_to_string(&mut f, &mut out).unwrap();
     assert_eq!(out, "bbb");
@@ -279,6 +277,21 @@ async fn traversal_is_refused() {
             !b.windows(10).any(|w| w == b"top secret"),
             "zip must skip escaping links"
         );
+
+        // So is a symlink to another folder of the same source: a share
+        // exposes its folder and nothing else.
+        std::os::unix::fs::symlink(env.root.join("private"), env.root.join("docs/peek")).unwrap();
+        let (s, _, b) = env
+            .get(&format!(
+                "/api/public/shares/{token}/download?path=peek/secret.txt"
+            ))
+            .await;
+        assert!(s.is_client_error(), "{s}");
+        assert!(!String::from_utf8_lossy(&b).contains("top secret"));
+        let (_, _, b) = env
+            .get(&format!("/api/public/shares/{token}/download"))
+            .await;
+        assert!(!b.windows(10).any(|w| w == b"top secret"));
     }
 }
 

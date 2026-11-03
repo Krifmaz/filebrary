@@ -34,3 +34,17 @@ cargo build --release
 `FILEBRARY_SECURE_COOKIES`, `FILEBRARY_LOG` (filter, e.g. `debug`),
 `FILEBRARY_LOG_FORMAT` (`text`|`json`). `filebrary healthcheck` probes
 `/healthz` for container health checks.
+
+## Share links
+
+Users with the `share` permission can create public links to a file, a
+folder, or several items at once (`POST /api/shares`). A link can have a
+password (argon2id), an expiry time, a download limit, or be an
+upload-only *drop link* where visitors add files to a folder without seeing
+its contents. Links are served at `/s/{token}` (API: `/api/public/shares/{token}`).
+
+A link never grants more than its creator holds: if the creator is disabled
+or loses the rights on the shared path, the link stops working at once.
+Shared folders are confined, so symlinks inside them cannot reach other
+files. Wrong share passwords are rate limited with the login limits, and
+drop-link uploads are capped by `max_drop_upload_mib` and never overwrite.
