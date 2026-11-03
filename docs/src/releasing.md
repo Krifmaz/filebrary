@@ -37,6 +37,13 @@ commit, run **Tag release** by hand from the Actions tab (or with
 `gh workflow run tag-release.yml -f tag=v0.1.0 -f sha=09b23d9`). It takes the
 tag and a commit SHA (short or full) or branch name.
 
+GitHub only offers a manual run once it has seen the workflow run at least
+once. If the dispatch answers "Not Found" in a fresh fork, push any branch
+that starts with `release/v` but is not a version (for example
+`release/v-register`) once. That run fails at the first check without tagging
+anything, and the manual run is available after it. Delete the branch
+afterwards.
+
 ## Rules and safety
 
 * If the tag already exists on the same commit, the run does nothing, so
