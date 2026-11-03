@@ -1,4 +1,4 @@
-//! Keeping per-path metadata (tags and stars) attached to files as they move.
+//! Keeping per-path metadata (tags, stars and comments) attached to files as they move.
 //!
 //! Tags and stars are stored by `(source, path)` with the *real* path inside
 //! the source. Whenever a file or folder is renamed, moved, copied or deleted,
@@ -35,7 +35,8 @@ pub(crate) fn key(p: &VPath) -> String {
 pub(crate) const UNDER: &str = "(path = ? OR substr(path, 1, length(?) + 1) = ? || '/')";
 
 /// Tables whose rows are keyed by `(source, path)` and follow the file.
-const TABLES: [&str; 2] = ["file_tags", "stars"];
+/// (`comments` threads follow their file too.)
+const TABLES: [&str; 3] = ["file_tags", "stars", "comments"];
 
 /// Moves tags and stars from `from` (and below) to `to` (possibly in another
 /// source). Rows already at `to` are replaced, matching an overwriting move.
