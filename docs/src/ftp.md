@@ -23,6 +23,12 @@ Failed logins block the client address after `max_login_attempts` (5) for
 `FILEBRARY_FTP_LISTEN`, `FILEBRARY_FTP_PASSIVE_PORTS` (`50000-50100`),
 `FILEBRARY_FTP_PASSIVE_HOST`. Permission changes apply from the next login.
 
+FTP logins also count against the web login rate limit. Only local
+(password) accounts can use FTP: accounts that sign in through OIDC or LDAP
+have no FTP password, and accounts with two-factor login are refused because
+FTP cannot ask for a code. Uploads go through the same write checks as the
+web UI, so storage quotas apply.
+
 ## Settings
 
 | TOML key | Environment | Default | Description |

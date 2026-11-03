@@ -345,7 +345,10 @@ impl StorageBackend<FtpUser> for Backend {
             .resolve(&source, op, &vp)
             .await
             .map_err(denied)?;
-        user.account.before_write(&source).await.map_err(denied)?;
+        user.account
+            .before_write(&source, op, &vp, None)
+            .await
+            .map_err(denied)?;
 
         let data: ByteReader = if start_pos > 0 {
             // Resumed upload (REST + STOR): keep the first `start_pos` bytes
@@ -418,7 +421,7 @@ impl StorageBackend<FtpUser> for Backend {
         from: P,
         to: P,
     ) -> unftp_core::storage::Result<()> {
-        let (from_source, from_vp, storage) = resolve_inner(user, from.as_ref(), Op::Edit).await?;
+        let (from_source, from_vp, storage) = resolve_inner(user, from.as_ref(), Op::Move).await?;
         let (to_source, to_vp, _) = resolve_inner(user, to.as_ref(), Op::View).await?;
         if from_source != to_source {
             // Moving between sources would need a copy across backends.

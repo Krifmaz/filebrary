@@ -1,8 +1,11 @@
 //! Connects the optional FTP server to Filebrary's users and sources.
 //!
-//! * Login checks the same argon2id password hash as the web login. Unknown
-//!   users are checked against a dummy hash so timing does not reveal which
-//!   names exist. Disabled accounts cannot log in.
+//! * Login checks the same argon2id password hash as the web login and
+//!   shares its rate limiter. Unknown users are checked against a dummy hash
+//!   so timing does not reveal which names exist. Disabled accounts and
+//!   accounts from external sign-in (OIDC, LDAP) cannot log in, and neither
+//!   can accounts that need a second factor, since FTP cannot ask for one.
+//! * Writes go through [`auth::authorize_write`], so quotas apply.
 //! * Each command maps to a permission (`view`, `download`, `upload`,
 //!   `edit`, `delete`) and gets its backend from [`api::files::scoped`], so
 //!   the user is confined to their scope by [`Storage::sub`] exactly as in
@@ -19,12 +22,11 @@ use std::{net::IpAddr, sync::Arc};
 
 use async_trait::async_trait;
 use filebrary_ftp::{Change, Denied, FtpAccess, FtpAccount, Op, RemoveError};
-use tokio::sync::OnceCell;
 
 use crate::{
     activity::{Activity, action},
     api,
-    auth::{self, Perms, User, password},
+    auth::{self, Perms, User, password, users},
     error::AppError,
     organize::{
         self, meta,
@@ -53,41 +55,57 @@ impl Access {
     }
 }
 
-/// A valid argon2id hash nobody knows the password of, for unknown users.
-static DUMMY_HASH: OnceCell<String> = OnceCell::const_new();
-
 #[async_trait]
 impl FtpAccess for Access {
     async fn login(
         &self,
         username: &str,
         password_text: &str,
-        _ip: IpAddr,
+        ip: IpAddr,
     ) -> Option<Arc<dyn FtpAccount>> {
-        let row: Option<(i64, String)> = sqlx::query_as(
-            "SELECT id, password_hash FROM users WHERE username = ? AND disabled = 0",
-        )
-        .bind(username)
-        .fetch_optional(&self.state.db)
-        .await
-        .inspect_err(|e| tracing::warn!(error = %e, "ftp login lookup failed"))
-        .ok()?;
-        let (id, hash) = match row {
-            Some(r) => r,
-            None => {
-                let dummy = DUMMY_HASH
-                    .get_or_try_init(|| password::hash(crate::crypto::random_token::<16>()))
-                    .await
-                    .ok()?;
-                (-1, dummy.clone())
-            }
+        // Same checks as the web login, sharing its rate limiter.
+        let state = &self.state;
+        let ip = ip.to_string();
+        let limiter = &state.auth.limiter;
+        limiter.check(username, &ip).ok()?;
+        let fail = || {
+            limiter.record_failure(username, &ip);
+            tracing::info!(username, ip, "failed ftp login");
         };
-        if !password::verify(password_text.to_owned(), hash).await || id < 0 {
+        if username.len() > users::MAX_USERNAME_LEN || password_text.len() > password::MAX_LEN {
+            fail();
             return None;
         }
-        let user = auth::load_user(&self.state, id).await.ok()??;
+        let found = users::get_with_hash(&state.db, username)
+            .await
+            .inspect_err(|e| tracing::warn!(error = %e, "ftp login lookup failed"))
+            .ok()?;
+        let (rec, hash) = match found {
+            Some((rec, Some(hash))) if rec.auth_source == "local" => (Some(rec), hash),
+            _ => (None, password::dummy_hash().await),
+        };
+        let ok = password::verify(password_text.to_owned(), hash).await;
+        let Some(rec) = rec.filter(|r| ok && !r.disabled) else {
+            fail();
+            return None;
+        };
+        // FTP has no way to ask for a second factor: accounts the hooks do
+        // not let in without one (two-factor login) cannot use FTP.
+        if state
+            .auth
+            .hooks()
+            .after_password(state, &rec, None)
+            .await
+            .is_err()
+        {
+            fail();
+            return None;
+        }
+        limiter.record_success(username);
+        let user = auth::load_user(state, rec.id).await.ok()??;
+        tracing::info!(user = rec.id, ip, "ftp login");
         Some(Arc::new(Account {
-            state: self.state.clone(),
+            state: state.clone(),
             user,
         }))
     }
@@ -113,7 +131,7 @@ fn perm_for(op: Op) -> Perms {
         Op::View => Perms::VIEW,
         Op::Download => Perms::DOWNLOAD,
         Op::Upload => Perms::UPLOAD,
-        Op::Edit => Perms::EDIT,
+        Op::Edit | Op::Move => Perms::EDIT,
         Op::Delete => Perms::DELETE,
     }
 }
@@ -139,8 +157,28 @@ impl FtpAccount for Account {
         op: Op,
         path: &VPath,
     ) -> Result<Arc<dyn Storage>, Denied> {
-        api::files::scoped(&self.state, &self.user, source, perm_for(op), path)
+        let perm = perm_for(op);
+        let scoped = if matches!(op, Op::Move | Op::Delete) {
+            // Operations on the entry itself do not follow a final symlink.
+            api::files::scoped_entry(&self.state, &self.user, source, perm, path).await
+        } else {
+            api::files::scoped(&self.state, &self.user, source, perm, path).await
+        };
+        scoped.map_err(denied)
+    }
+
+    async fn before_write(
+        &self,
+        source: &str,
+        op: Op,
+        path: &VPath,
+        bytes: Option<u64>,
+    ) -> Result<(), Denied> {
+        // The permission check again plus the write hook (quotas), as for
+        // every web upload.
+        auth::authorize_write(&self.state, &self.user, source, perm_for(op), path, bytes)
             .await
+            .map(drop)
             .map_err(denied)
     }
 
@@ -247,6 +285,7 @@ fn denied(e: AppError) -> Denied {
     match e {
         AppError::Forbidden(_) | AppError::BadRequest(_) => Denied::Forbidden,
         AppError::NotFound => Denied::NotFound,
+        AppError::PayloadTooLarge => Denied::QuotaExceeded,
         other => {
             tracing::warn!(error = %other, "ftp operation failed");
             Denied::NotFound

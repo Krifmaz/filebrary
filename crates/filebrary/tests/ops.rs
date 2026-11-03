@@ -16,7 +16,7 @@ use axum::{
 };
 use filebrary::{
     AppState,
-    auth::{Perms, password, session},
+    auth::{Perms, session},
     config::{Config, SourceConfig, SourceKind},
     db,
 };
@@ -66,22 +66,22 @@ impl App {
         perms: Perms,
         scope: &str,
     ) -> (String, String) {
-        let hash = password::hash(pass.into()).await.unwrap();
-        let id: i64 = sqlx::query_scalar(
-            "INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, 0) RETURNING id",
-        )
-        .bind(name)
-        .bind(hash)
-        .bind(admin)
-        .fetch_one(&self.state.db)
-        .await
-        .unwrap();
+        let id = filebrary::auth::users::create(&self.state.db, name, pass, admin)
+            .await
+            .unwrap()
+            .id;
         if !admin {
-            sqlx::query("INSERT INTO user_sources (user_id, source, perms, scope) VALUES (?, 'files', ?, ?)")
-                .bind(id)
-                .bind(perms.bits())
-                .bind(scope)
-                .execute(&self.state.db)
+            let scope = filebrary::storage::VPath::parse(scope).unwrap();
+            filebrary::auth::permissions::set(
+                &self.state.db,
+                "files",
+                &scope,
+                filebrary::auth::Subject::User(id),
+                perms,
+            )
+            .await
+            .unwrap();
+            filebrary::auth::users::set_scope(&self.state.db, id, "files", &scope)
                 .await
                 .unwrap();
         }
@@ -547,4 +547,92 @@ async fn ftp_deletes_go_to_the_trash_and_are_logged() {
         .await
         .unwrap();
     assert_eq!(actions, ["trash", "mkdir"]);
+}
+
+/// Hooks standing in for two-factor login and quotas.
+struct StrictHooks;
+
+impl filebrary::auth::hooks::AuthHooks for StrictHooks {
+    fn after_password<'a>(
+        &'a self,
+        _state: &'a AppState,
+        user: &'a filebrary::auth::users::UserRecord,
+        totp: Option<&'a str>,
+    ) -> filebrary::auth::hooks::BoxFuture<'a, filebrary::error::AppResult<()>> {
+        Box::pin(async move {
+            if user.username == "twofa" && totp.is_none() {
+                return Err(filebrary::error::AppError::TotpRequired);
+            }
+            Ok(())
+        })
+    }
+
+    fn before_write<'a>(
+        &'a self,
+        _state: &'a AppState,
+        _user: &'a filebrary::auth::User,
+        _source: &'a str,
+        path: &'a filebrary::storage::VPath,
+        _bytes: Option<u64>,
+    ) -> filebrary::auth::hooks::BoxFuture<'a, filebrary::error::AppResult<()>> {
+        Box::pin(async move {
+            if path.to_string().ends_with("big.bin") {
+                return Err(filebrary::error::AppError::PayloadTooLarge);
+            }
+            Ok(())
+        })
+    }
+}
+
+#[tokio::test]
+async fn ftp_respects_two_factor_and_write_hooks() {
+    use suppaftp::tokio::AsyncFtpStream;
+
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let pasv = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let t = app_with(|c| {
+        c.ftp.enabled = true;
+        c.ftp.listen = SocketAddr::from(([127, 0, 0, 1], port));
+        c.ftp.passive_ports = [pasv, pasv.saturating_add(20)];
+    })
+    .await;
+    assert!(t.state.auth.set_hooks(Arc::new(StrictHooks)).is_ok());
+    t.user("root", "root-pass", true, Perms::ALL, "/").await;
+    t.user("twofa", "twofa-pass", true, Perms::ALL, "/").await;
+    filebrary::ops::ftp::spawn(&t.state, std::future::pending())
+        .unwrap()
+        .unwrap();
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    for _ in 0..100 {
+        if tokio::net::TcpStream::connect(addr).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    // An account that needs a second factor cannot use FTP.
+    let mut c = AsyncFtpStream::connect(addr).await.unwrap();
+    assert!(c.login("twofa", "twofa-pass").await.is_err());
+
+    // The write hook (quotas) refuses before any bytes land on disk.
+    let mut c = AsyncFtpStream::connect(addr).await.unwrap();
+    c.login("root", "root-pass").await.unwrap();
+    c.put_file("/files/ok.bin", &mut &b"fine"[..])
+        .await
+        .unwrap();
+    assert!(
+        c.put_file("/files/big.bin", &mut &b"too much"[..])
+            .await
+            .is_err()
+    );
+    assert!(t.dir.path().join("files/ok.bin").exists());
+    assert!(!t.dir.path().join("files/big.bin").exists());
 }

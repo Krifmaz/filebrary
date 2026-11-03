@@ -17,9 +17,14 @@ pub enum Op {
     /// Create a new file or folder (`STOR` of a new name, `MKD`).
     Upload,
     /// Change an existing file (`STOR` over an existing file, resumed
-    /// uploads, `RNFR`/`RNTO`).
+    /// uploads, or replacing the target of `RNFR`/`RNTO`).
     Edit,
-    /// Remove a file or folder (`DELE`, `RMD`).
+    /// Move or rename an entry away from its path (the `RNFR` side of a
+    /// rename). Needs the same permission as [`Op::Edit`], but acts on the
+    /// entry itself: a final symlink is not followed.
+    Move,
+    /// Remove a file or folder (`DELE`, `RMD`). Acts on the entry itself:
+    /// a final symlink is not followed.
     Delete,
 }
 
@@ -103,13 +108,23 @@ pub trait FtpAccount: Send + Sync + Debug + 'static {
     async fn resolve(&self, source: &str, op: Op, path: &VPath)
     -> Result<Arc<dyn Storage>, Denied>;
 
-    /// Called before a file is written, so quotas can be enforced.
-    /// The default allows every write.
+    /// Called after [`resolve`](Self::resolve) allowed a write and before
+    /// any bytes are written, so quotas can be enforced. `op` is the
+    /// operation that was allowed ([`Op::Upload`] or [`Op::Edit`]), `path`
+    /// the user-visible file, and `bytes` the size about to be written when
+    /// the client announced it (FTP usually does not). The default allows
+    /// every write.
     ///
     /// # Errors
     ///
     /// [`Denied::QuotaExceeded`] to refuse the upload.
-    async fn before_write(&self, _source: &str) -> Result<(), Denied> {
+    async fn before_write(
+        &self,
+        _source: &str,
+        _op: Op,
+        _path: &VPath,
+        _bytes: Option<u64>,
+    ) -> Result<(), Denied> {
         Ok(())
     }
 

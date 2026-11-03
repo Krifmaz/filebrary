@@ -38,6 +38,8 @@ pub struct Inner {
     pub metrics: crate::ops::metrics::Metrics,
     /// When the server started, for the uptime metric.
     pub started_at: std::time::Instant,
+    /// Login rate limiter and auth hooks.
+    pub auth: crate::auth::AuthRuntime,
 }
 
 impl Deref for AppState {
@@ -89,7 +91,9 @@ impl AppState {
             Some(dispatcher.spawn(&events))
         };
         let metrics = crate::ops::metrics::Metrics::install();
+        let auth = crate::auth::AuthRuntime::new(&config);
         Ok(Self(Arc::new(Inner {
+            auth,
             config,
             db,
             sources,
