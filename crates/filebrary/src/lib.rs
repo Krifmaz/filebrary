@@ -11,6 +11,7 @@
 //! * [`state`]: [`state::AppState`], shared by all handlers.
 //! * [`auth`]: users, permissions, sessions and extractors.
 //! * [`api`]: JSON endpoints under `/api`.
+//! * [`dav`]: WebDAV at `/dav`, on the `filebrary-webdav` crate.
 //! * [`shares`]: share links.
 //! * [`web`]: the embedded React UI.
 
@@ -20,6 +21,7 @@ pub mod api;
 pub mod auth;
 pub mod config;
 pub mod crypto;
+pub mod dav;
 pub mod db;
 pub mod error;
 pub mod shares;
@@ -59,7 +61,11 @@ pub fn spawn_maintenance(state: AppState) -> tokio::task::JoinHandle<()> {
 
 /// Builds the complete application router.
 pub fn app(state: AppState) -> Router {
-    Router::new()
+    let mut router = Router::new();
+    if state.config.webdav {
+        router = router.merge(dav::router(&state));
+    }
+    router
         .nest("/api", api::router())
         .route("/healthz", get(api::health))
         .route("/health", get(api::health))

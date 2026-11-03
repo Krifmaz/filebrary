@@ -83,6 +83,8 @@ pub struct Config {
     pub login_max_attempts: u32,
     /// Window for login rate limiting, in seconds.
     pub login_window_secs: u64,
+    /// Serve WebDAV at `/dav` (Windows Explorer, macOS Finder, rclone, ...).
+    pub webdav: bool,
     /// Log format.
     pub log_format: LogFormat,
     /// Storage sources.
@@ -103,6 +105,7 @@ impl Default for Config {
             upload_expiry_hours: 24,
             login_max_attempts: 5,
             login_window_secs: 300,
+            webdav: true,
             log_format: LogFormat::Text,
             sources: Vec::new(),
         }
@@ -172,6 +175,9 @@ impl Config {
         }
         if let Some(v) = get("FILEBRARY_SESSION_TTL_HOURS") {
             self.session_ttl_hours = parse("FILEBRARY_SESSION_TTL_HOURS", &v)?;
+        }
+        if let Some(v) = get("FILEBRARY_WEBDAV") {
+            self.webdav = parse_bool("FILEBRARY_WEBDAV", &v)?;
         }
         if let Some(v) = get("FILEBRARY_LOG_FORMAT") {
             self.log_format = match v.as_str() {

@@ -20,6 +20,7 @@ path = "src/main.rs"
 
 [dependencies]
 filebrary-storage = { path = "../filebrary-storage" }
+filebrary-webdav = { path = "../filebrary-webdav" }
 
 # Web
 axum = { workspace = true }
