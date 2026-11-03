@@ -13,6 +13,10 @@
 //! | `/api/public/shares/{token}`   | [`crate::shares::public_router`] | shares  |
 //! | `/api/trash`, `/api/tags`, `/api/stars`, `/api/annotations` | [`crate::organize::api`] | organize |
 //! | `/api/activity`                | [`crate::activity`]       | organize |
+//! | `/api/comments`                | [`crate::comments`]       | social  |
+//! | `/api/collections`             | [`crate::collections`]    | social  |
+//! | `/api/cast`, `/api/public/cast/{token}/{name}` | [`crate::cast`] | social |
+//! | `/api/branding`, `/api/admin/branding`, `/api/me/theme` | [`crate::branding`] | social |
 //!
 //! Errors are JSON: `{"error": "<machine code>", "message": "<human text>"}`.
 //! Paths are passed as `path` query parameters (or JSON fields), absolute
@@ -42,6 +46,11 @@ pub fn router() -> Router<AppState> {
         .nest("/public/shares", crate::shares::public_router())
         .merge(crate::organize::api::routes())
         .nest("/activity", crate::activity::routes())
+        .nest("/comments", crate::comments::router())
+        .nest("/collections", crate::collections::router())
+        .merge(crate::cast::router())
+        .nest("/public/cast", crate::cast::public_router())
+        .merge(crate::branding::router())
 }
 
 /// `GET /api/health`: liveness probe, also served at `/healthz`.

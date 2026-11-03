@@ -18,6 +18,7 @@ import { FolderPicker } from "./FolderPicker";
 import { ShareDialog } from "./ShareDialog";
 import { Suspense } from "react";
 import { viewerFor, type Viewer } from "../viewers";
+import { fileActions, type FileAction } from "../actions";
 
 /** Props for {@link Browser}. */
 export interface BrowserProps {
@@ -37,6 +38,7 @@ type Modal =
   | { kind: "delete"; paths: string[] }
   | { kind: "share"; paths: string[]; singleFolder: boolean }
   | { kind: "view"; entry: Entry; viewer: Viewer }
+  | { kind: "action"; action: FileAction }
   | null;
 
 /** Sorts entries with folders first, then by the chosen key. */
@@ -270,6 +272,11 @@ export function Browser({ source, path, uploads, refreshKey }: BrowserProps) {
         <button className="danger" disabled={!perms.delete || !selectedEntries.length} onClick={() => setModal({ kind: "delete", paths: selectedPaths })}>
           Delete
         </button>
+        {fileActions().map((a) => (
+          <button key={a.id} disabled={!a.enabled({ source, path, selected: selectedEntries })} onClick={() => setModal({ kind: "action", action: a })}>
+            {a.label}
+          </button>
+        ))}
         <input className="filter" type="search" placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter this folder" />
       </div>
 
@@ -457,6 +464,11 @@ export function Browser({ source, path, uploads, refreshKey }: BrowserProps) {
             <modal.viewer.component source={source} entry={modal.entry} onClose={() => setModal(null)} onChanged={refresh} />
           </Suspense>
         </div>
+      )}
+      {modal?.kind === "action" && (
+        <Suspense fallback={null}>
+          <modal.action.dialog source={source} path={path} selected={selectedEntries} onClose={() => setModal(null)} onChanged={refresh} />
+        </Suspense>
       )}
       {modal?.kind === "share" && (
         <ShareDialog source={source.id} paths={modal.paths} singleFolder={modal.singleFolder} onClose={() => setModal(null)} />
