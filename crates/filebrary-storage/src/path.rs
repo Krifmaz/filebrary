@@ -250,7 +250,7 @@ mod tests {
         assert_eq!(p.components(), ["%252e%252e"]);
         // Dots that are not exactly ".." are ordinary names.
         assert_eq!(VPath::parse("...").is_ok(), !cfg!(windows));
-        assert_eq!(VPath::parse("...").is_ok(), !cfg!(windows));
+        assert!(VPath::parse("..a").is_ok());
     }
 
     #[test]
