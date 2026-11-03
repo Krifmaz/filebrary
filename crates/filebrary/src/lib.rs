@@ -13,6 +13,7 @@
 //! * [`api`]: JSON endpoints under `/api`.
 //! * [`dav`]: WebDAV at `/dav`, on the `filebrary-webdav` crate.
 //! * [`shares`]: share links.
+//! * [`ops`]: health, metrics, logging, OpenAPI, notifications admin, FTP glue.
 //! * [`organize`]: trash bin, tags and stars.
 //! * [`activity`]: the activity log.
 //! * [`comments`]: comments on files.
@@ -43,6 +44,7 @@ pub mod crypto;
 pub mod dav;
 pub mod db;
 pub mod error;
+pub mod ops;
 pub mod organize;
 pub mod shares;
 pub mod state;
@@ -54,9 +56,7 @@ use axum::{
     http::{HeaderName, HeaderValue, header},
     routing::get,
 };
-use tower_http::{
-    catch_panic::CatchPanicLayer, set_header::SetResponseHeaderLayer, trace::TraceLayer,
-};
+use tower_http::{catch_panic::CatchPanicLayer, set_header::SetResponseHeaderLayer};
 
 pub use state::AppState;
 
@@ -83,15 +83,18 @@ pub fn spawn_maintenance(state: AppState) -> tokio::task::JoinHandle<()> {
 /// Builds the complete application router.
 pub fn app(state: AppState) -> Router {
     let mut router = Router::new();
+    // WebDAV at /dav (see `dav`), kept in its own block.
     if state.config.webdav {
         router = router.merge(dav::router(&state));
     }
-    router
-        .nest("/api", api::router())
+    let router = router
+        .nest("/api", api::router().merge(ops::api_routes()))
         .route("/healthz", get(api::health))
         .route("/health", get(api::health))
+        .merge(ops::root_routes())
         .route("/manifest.webmanifest", get(branding::manifest))
         .fallback(web::serve)
+        .layer(axum::middleware::from_fn(ops::metrics::track))
         .with_state(state)
         .layer(SetResponseHeaderLayer::if_not_present(
             header::X_CONTENT_TYPE_OPTIONS,
@@ -112,6 +115,6 @@ pub fn app(state: AppState) -> Router {
                  style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
             ),
         ))
-        .layer(CatchPanicLayer::new())
-        .layer(TraceLayer::new_for_http())
+        .layer(CatchPanicLayer::new());
+    ops::logging::layer(router)
 }

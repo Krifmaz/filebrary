@@ -16,6 +16,8 @@ Preview it locally with `mdbook serve docs`.
 | Path                       | What                                                          |
 |----------------------------|---------------------------------------------------------------|
 | `crates/filebrary`         | The server: axum app, config, auth, API, shares, embedded UI. |
+| `crates/filebrary-events`  | Event bus and notifications (webhook, ntfy, email).           |
+| `crates/filebrary-ftp`     | Optional FTP/FTPS server over the storage trait.              |
 | `crates/filebrary-storage` | `Storage` trait, `VPath` path validation; local, S3, SFTP and SMB backends. |
 | `crates/filebrary-webdav`  | WebDAV class 1 and 2 server over the `Storage` trait.         |
 | `migrations/`              | SQLite migrations for the whole workspace (one history).      |
@@ -100,6 +102,23 @@ activity log (who, what, where, when, from which address) that admins see in
 full and other users see for the folders they can view. Endpoints:
 `/api/trash`, `/api/tags`, `/api/stars`, `/api/annotations`, `/api/activity`;
 see [docs/src/organize.md](docs/src/organize.md).
+
+## Monitoring, notifications and FTP
+
+- `/healthz` (liveness), `/readyz` (database and sources), `/metrics`
+  (Prometheus, optional `metrics.token`), `/api/openapi.json` and the
+  built-in API reference at `/api/docs`.
+- `FILEBRARY_LOG_FORMAT=json` gives one JSON object per line; every request
+  carries an `X-Request-Id` and is logged by route pattern, status and latency.
+- Upload, share-opened, quota-near-full and job-failed events go to webhooks
+  (HMAC-signed), ntfy and email: see `docs/src/guide/notifications.md`.
+- An FTP/FTPS server using the same users and permissions is built in and
+  off by default (`[ftp] enabled = true`): see `docs/src/guide/ftp.md`.
+
+Idle memory of a release build with one local source is about 12 MB RSS
+(`filebrary_process_resident_memory_bytes` and
+`filebrary_process_peak_resident_memory_bytes` report it live).
+
 ## Comments, collections, casting, themes
 
 * **Comments**: select a file and press *Comments*. Anyone who can see a file

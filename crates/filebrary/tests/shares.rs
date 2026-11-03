@@ -975,3 +975,73 @@ async fn folders_hidden_from_the_creator_stay_hidden() {
     assert_eq!(s, StatusCode::NOT_FOUND);
     assert!(!env.root.join("drop/x.txt").exists());
 }
+
+#[tokio::test]
+async fn opening_and_dropping_publish_events() {
+    use filebrary_events::Event;
+
+    let env = setup().await;
+    let mut rx = env.state.events.subscribe();
+    let (_, admin) = env.user("alice", true, Perms::ALL, "/").await;
+    let share = env
+        .create(&admin, json!({"source": "files", "paths": ["/docs"]}))
+        .await;
+    let token = share["token"].as_str().unwrap();
+    // Opening the link is reported once; browsing deeper is not.
+    env.get(&format!("/api/public/shares/{token}")).await;
+    env.get(&format!("/api/public/shares/{token}?path=sub"))
+        .await;
+    let notice = rx.try_recv().unwrap();
+    match notice.event {
+        Event::ShareOpened {
+            share_id,
+            owner,
+            source,
+            path,
+            ..
+        } => {
+            assert_eq!(share_id, share["id"].to_string());
+            assert_eq!(owner, "alice");
+            assert_eq!(source, "files");
+            assert_eq!(path, "/docs");
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert!(rx.try_recv().is_err());
+
+    // A password-protected link is reported only once it is unlocked.
+    let locked = env
+        .create(
+            &admin,
+            json!({"source": "files", "paths": ["/docs"], "password": "hunter22hunter"}),
+        )
+        .await;
+    let locked = locked["token"].as_str().unwrap();
+    env.get(&format!("/api/public/shares/{locked}")).await;
+    assert!(rx.try_recv().is_err());
+
+    // Drop-link uploads are upload events of the link owner.
+    let drop = env
+        .create(
+            &admin,
+            json!({"source": "files", "paths": ["/drop"], "upload_only": true}),
+        )
+        .await;
+    let drop = drop["token"].as_str().unwrap();
+    let (s, _, _) = env
+        .send(
+            Request::post(format!("/api/public/shares/{drop}/uploads?path=n.txt"))
+                .body(Body::from("hi"))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED);
+    let mut events = Vec::new();
+    while let Ok(n) = rx.try_recv() {
+        events.push(n.event);
+    }
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::Upload { user, path, size: 2, .. } if user == "alice" && path == "/drop/n.txt"
+    )));
+}
