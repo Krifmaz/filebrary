@@ -332,6 +332,7 @@ async fn image_conversion() {
 
     // A broken image fails with a readable error, and can be retried.
     std::fs::write(t.root().join("broken.png"), b"nope").unwrap();
+    let mut events = t.state.events.subscribe();
     let (_, v) = submit(
         &t,
         &c,
@@ -342,6 +343,21 @@ async fn image_conversion() {
     let id = v["id"].as_i64().unwrap();
     let job = finished(&t, &c, id).await;
     assert_eq!(job["status"], "failed");
+    // A failed job publishes a notification event.
+    let notice = tokio::time::timeout(Duration::from_secs(5), events.recv())
+        .await
+        .expect("event published")
+        .unwrap();
+    match notice.event {
+        filebrary_events::Event::JobFailed {
+            job_id, kind, user, ..
+        } => {
+            assert_eq!(job_id, id.to_string());
+            assert_eq!(kind, "convert.image");
+            assert_eq!(user.as_deref(), Some("admin"));
+        }
+        other => panic!("unexpected event {other:?}"),
+    }
     assert!(!job["error"].as_str().unwrap().is_empty());
     image::RgbImage::from_pixel(8, 8, image::Rgb([0, 0, 0]))
         .save_with_format(t.root().join("broken.png"), image::ImageFormat::Png)

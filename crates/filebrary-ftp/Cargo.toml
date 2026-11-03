@@ -1,0 +1,33 @@
+[package]
+name = "filebrary-ftp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Optional FTP/FTPS server for Filebrary, backed by the Filebrary storage trait."
+
+[dependencies]
+filebrary-storage = { path = "../filebrary-storage" }
+# FTPS through rustls with the ring provider: no OpenSSL or other system C libraries.
+libunftp = { version = "0.24.0", default-features = false, features = ["ring"] }
+unftp-core = "0.1.0"
+async-trait = "0.1.92"
+bytes = "1.12.1"
+futures = { version = "0.3.34", default-features = false, features = ["std", "async-await"] }
+serde = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { version = "0.7.20", features = ["io"] }
+sync_wrapper = { version = "1.0.2", features = ["futures"] }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+metrics = "0.24.3"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+toml = { version = "1.1.8", default-features = false, features = ["parse", "serde"] }
+suppaftp = { version = "8", default-features = false, features = ["tokio", "tokio-rustls-ring"] }
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

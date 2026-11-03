@@ -793,5 +793,30 @@ impl JobQueue {
         if let Err(e) = r {
             tracing::error!(job = id, error = %e, "could not save job outcome");
         }
+        let status = match &outcome {
+            Ok(_) => "succeeded",
+            Err(JobError::Cancelled) => "cancelled",
+            Err(JobError::Failed(_)) => "failed",
+        };
+        metrics::counter!("filebrary_jobs_finished_total", "kind" => kind.to_owned(), "status" => status)
+            .increment(1);
+        if let Err(JobError::Failed(msg)) = outcome {
+            // Retries are manual, so every failure is the job's last attempt.
+            let user = match user_id {
+                Some(uid) => sqlx::query_scalar("SELECT username FROM users WHERE id = ?")
+                    .bind(uid)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten(),
+                None => None,
+            };
+            state.events.publish(filebrary_events::Event::JobFailed {
+                job_id: id.to_string(),
+                kind: kind.to_owned(),
+                user,
+                error: msg,
+            });
+        }
     }
 }
