@@ -19,7 +19,25 @@ tokio = { workspace = true }
 tokio-util = { version = "0.7.20", features = ["io", "io-util"] }
 tracing = { workspace = true }
 uuid = { version = "1.29.0", features = ["v4"] }
+object_store = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+russh = { workspace = true, optional = true }
+russh-sftp = { workspace = true, optional = true }
+smb2 = { workspace = true, optional = true }
+
+[features]
+default = ["s3", "sftp", "smb"]
+## S3-compatible object storage (AWS, MinIO, Garage, R2, Backblaze B2, ...).
+s3 = ["dep:object_store", "dep:reqwest", "dep:rustls"]
+## SFTP servers over SSH.
+sftp = ["dep:russh", "dep:russh-sftp"]
+## SMB2/3 shares (Windows, Samba, NAS appliances).
+smb = ["dep:smb2"]
+## The backend conformance test suite, for integration tests.
+conformance = []
 
 [dev-dependencies]
+filebrary-storage = { path = ".", default-features = false, features = ["conformance"] }
 serde_json = { workspace = true }
 tempfile = { workspace = true }

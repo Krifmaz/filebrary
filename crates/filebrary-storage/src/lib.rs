@@ -1,14 +1,23 @@
 //! The storage abstraction every Filebrary backend implements.
 //!
-//! A *source* is a named storage location (a local folder today; S3, SFTP and
-//! SMB later) exposed to users. The rest of the server only talks to sources
+//! A *source* is a named storage location (a local folder, an S3-compatible
+//! bucket, an SFTP server or an SMB share) exposed to users. The rest of the server only talks to sources
 //! through the [`Storage`] trait, using validated [`VPath`]s, so that path
 //! safety is enforced in one place per backend.
 
 #![warn(missing_docs)]
 
+#[cfg(feature = "conformance")]
+pub mod conformance;
 pub mod local;
 pub mod path;
+#[cfg(feature = "s3")]
+pub mod s3;
+#[cfg(feature = "sftp")]
+pub mod sftp;
+#[cfg(feature = "smb")]
+pub mod smb;
+mod util;
 
 use std::{io, ops::Range, path::PathBuf, pin::Pin, sync::Arc};
 

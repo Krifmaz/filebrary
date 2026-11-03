@@ -16,7 +16,7 @@ Preview it locally with `mdbook serve docs`.
 | Path                       | What                                                          |
 |----------------------------|---------------------------------------------------------------|
 | `crates/filebrary`         | The server: axum app, config, auth, API, shares, embedded UI. |
-| `crates/filebrary-storage` | `Storage` trait, `VPath` path validation, local backend.      |
+| `crates/filebrary-storage` | `Storage` trait, `VPath` path validation; local, S3, SFTP and SMB backends. |
 | `crates/filebrary-preview` | Thumbnails, previews, media info, transcoding, preview cache. |
 | `migrations/`              | SQLite migrations for the whole workspace (one history).      |
 | `web/`                     | React + TypeScript + Vite PWA, built into `web/dist`.         |
@@ -44,6 +44,10 @@ cargo build --release
 (`365`; `0` keeps events forever), `FILEBRARY_PREVIEWS` (`true`|`false`),
 `FILEBRARY_PREVIEW_CACHE_MIB` (default `2048`). `filebrary healthcheck` probes
 `/healthz` for container health checks.
+
+`FILEBRARY_SOURCES` makes local sources only; S3, SFTP and SMB sources are set
+in the config file (`kind = "s3"` with a `[sources.s3]` table, and so on). See
+[Storage sources](docs/src/configuration/sources.md).
 
 ## Users and permissions
 

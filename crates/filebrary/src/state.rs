@@ -8,7 +8,9 @@ use sqlx::SqlitePool;
 
 use crate::{
     config::{Config, SourceKind},
-    storage::{Source, local::LocalStorage},
+    storage::{
+        Source, Storage, local::LocalStorage, s3::S3Storage, sftp::SftpStorage, smb::SmbStorage,
+    },
 };
 
 /// Cheaply cloneable handle to the server state.
@@ -52,21 +54,12 @@ impl AppState {
     pub fn new(config: Config, db: SqlitePool, secret: [u8; 32]) -> anyhow::Result<Self> {
         let mut sources = BTreeMap::new();
         for sc in &config.sources {
-            let storage = match sc.kind {
-                SourceKind::Local => {
-                    std::fs::create_dir_all(&sc.path).with_context(|| {
-                        format!("creating source {} at {}", sc.name, sc.path.display())
-                    })?;
-                    LocalStorage::new(&sc.path).with_context(|| {
-                        format!("opening source {} at {}", sc.name, sc.path.display())
-                    })?
-                }
-            };
+            let storage = open_source(sc)?;
             sources.insert(
                 sc.name.clone(),
                 Source {
                     name: sc.name.clone(),
-                    storage: Arc::new(storage),
+                    storage,
                 },
             );
         }
@@ -95,6 +88,36 @@ impl AppState {
     pub fn source(&self, name: &str) -> Option<&Source> {
         self.sources.get(name)
     }
+}
+
+/// Opens the backend for one source. Remote backends only check their
+/// settings here and connect on first use, so an unreachable server does not
+/// stop the others from starting.
+fn open_source(sc: &crate::config::SourceConfig) -> anyhow::Result<Arc<dyn Storage>> {
+    let what = |kind: &str| format!("opening {kind} source {}", sc.name);
+    // `Config::validate` guarantees the table for the kind is present.
+    let missing = || anyhow::anyhow!("source {}: backend settings missing", sc.name);
+    Ok(match sc.kind {
+        SourceKind::Local => {
+            std::fs::create_dir_all(&sc.path)
+                .with_context(|| format!("creating source {} at {}", sc.name, sc.path.display()))?;
+            Arc::new(
+                LocalStorage::new(&sc.path).with_context(|| {
+                    format!("opening source {} at {}", sc.name, sc.path.display())
+                })?,
+            )
+        }
+        SourceKind::S3 => Arc::new(
+            S3Storage::new(sc.s3.as_ref().ok_or_else(missing)?).with_context(|| what("S3"))?,
+        ),
+        SourceKind::Sftp => Arc::new(
+            SftpStorage::new(sc.sftp.as_ref().ok_or_else(missing)?)
+                .with_context(|| what("SFTP"))?,
+        ),
+        SourceKind::Smb => Arc::new(
+            SmbStorage::new(sc.smb.as_ref().ok_or_else(missing)?).with_context(|| what("SMB"))?,
+        ),
+    })
 }
 
 /// Sets up the preview service: finds the external tools on `PATH` and opens
