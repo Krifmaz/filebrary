@@ -40,6 +40,7 @@ impl TestApp {
                 name: "files".into(),
                 kind: SourceKind::Local,
                 path: files,
+                content_search: false,
             }],
             max_chunk_mib: 1,
             ..Config::default()

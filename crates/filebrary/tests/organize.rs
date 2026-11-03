@@ -46,6 +46,7 @@ async fn env_with(trash_days: u64) -> Env {
             name: "files".into(),
             kind: SourceKind::Local,
             path: root.clone(),
+            content_search: false,
         }],
         ..Config::default()
     };

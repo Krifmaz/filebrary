@@ -56,6 +56,7 @@ async fn main() -> anyhow::Result<()> {
             name: "files".into(),
             kind: SourceKind::Local,
             path: root.clone(),
+            content_search: false,
         }],
         ..Config::default()
     };

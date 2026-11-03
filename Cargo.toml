@@ -34,5 +34,8 @@ tempfile = "3.27.0"
 opt-level = 3
 lto = "fat"
 codegen-units = 1
-panic = "abort"
+# Unwind (not abort) so a panic inside a third-party parser (PDF and Office
+# text extraction, tower-http's CatchPanic) is contained to that one file or
+# request instead of taking down the whole server.
+panic = "unwind"
 strip = true

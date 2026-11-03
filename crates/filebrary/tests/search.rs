@@ -73,6 +73,7 @@ async fn env(watch: bool) -> Env {
             name: "files".into(),
             kind: SourceKind::Local,
             path: root.clone(),
+            content_search: false,
         }],
         ..Config::default()
     };

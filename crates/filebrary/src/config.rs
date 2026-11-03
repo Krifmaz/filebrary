@@ -53,6 +53,16 @@ pub struct SourceConfig {
     pub kind: SourceKind,
     /// Root directory (for `local`).
     pub path: PathBuf,
+    /// Index the text inside documents (text, PDF, Office) of this source
+    /// for content search. On by default; turn it off for sources with
+    /// little text or slow network storage. Ignored when `[fulltext]
+    /// enabled = false`.
+    #[serde(default = "default_true")]
+    pub content_search: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// The full server configuration.
@@ -94,6 +104,8 @@ pub struct Config {
     pub sources: Vec<SourceConfig>,
     /// Indexed search (see [`crate::search::SearchSettings`]).
     pub search: crate::search::SearchSettings,
+    /// Full-text content search settings (`[fulltext]` section).
+    pub fulltext: filebrary_fulltext::FulltextConfig,
 }
 
 impl Default for Config {
@@ -115,6 +127,7 @@ impl Default for Config {
             activity_retention_days: 365,
             sources: Vec::new(),
             search: crate::search::SearchSettings::default(),
+            fulltext: filebrary_fulltext::FulltextConfig::default(),
         }
     }
 }
@@ -142,6 +155,7 @@ impl Config {
                 name: "files".into(),
                 kind: SourceKind::Local,
                 path: cfg.data_dir.join("files"),
+                content_search: true,
             });
         }
         cfg.validate()?;
@@ -204,6 +218,9 @@ impl Config {
         }
         if let Some(v) = get("FILEBRARY_ACTIVITY_RETENTION_DAYS") {
             self.activity_retention_days = parse("FILEBRARY_ACTIVITY_RETENTION_DAYS", &v)?;
+        }
+        if let Some(v) = get("FILEBRARY_FULLTEXT") {
+            self.fulltext.enabled = parse_bool("FILEBRARY_FULLTEXT", &v)?;
         }
         // An empty value counts as unset, so a mounted config file's [[sources]] can win.
         if let Some(v) = get("FILEBRARY_SOURCES").filter(|v| !v.trim().is_empty()) {
@@ -283,6 +300,7 @@ fn parse_sources(v: &str) -> anyhow::Result<Vec<SourceConfig>> {
                 name: name.trim().to_owned(),
                 kind: SourceKind::Local,
                 path: PathBuf::from(path.trim()),
+                content_search: true,
             })
         })
         .collect()

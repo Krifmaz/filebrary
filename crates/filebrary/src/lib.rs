@@ -31,6 +31,7 @@ pub mod activity;
 pub mod api;
 pub mod auth;
 pub mod config;
+pub mod content;
 pub mod crypto;
 pub mod db;
 pub mod error;

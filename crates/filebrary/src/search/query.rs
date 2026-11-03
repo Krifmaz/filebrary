@@ -99,6 +99,10 @@ pub struct SearchHit {
     pub modified: Option<OffsetDateTime>,
     /// Best-guess MIME type for files.
     pub mime: Option<String>,
+    /// For `content=` queries: an HTML-escaped excerpt of the file's text
+    /// with matched terms in `<b>…</b>`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
 }
 
 /// The response of `GET /api/search`.
@@ -145,6 +149,11 @@ pub struct Filters {
     pub limit: u32,
     /// Page start.
     pub offset: u32,
+    /// Files matching the `content=` query (see [`crate::content::candidates`]);
+    /// when set, only these files can match. `None` means no content filter.
+    pub content: Option<Vec<crate::content::ContentMatch>>,
+    /// Order by content relevance (a `content=` query without `sort=`).
+    pub by_relevance: bool,
 }
 
 fn list(v: Option<&str>, what: &str) -> AppResult<Vec<String>> {
@@ -490,13 +499,54 @@ pub async fn run(
         qb.push(")) = ")
             .push_bind(i64::try_from(f.tags.len()).unwrap_or(i64::MAX));
     }
+    if let Some(content) = &f.content {
+        if content.is_empty() {
+            return Ok((Vec::new(), false));
+        }
+        // Row-value IN: at most MAX_CANDIDATES pairs, well under SQLite's
+        // bound-parameter limit.
+        qb.push(" AND (f.source, f.path) IN (VALUES ");
+        let mut sep = qb.separated(", ");
+        for m in content {
+            sep.push("(")
+                .push_bind_unseparated(m.source.clone())
+                .push_unseparated(", ")
+                .push_bind_unseparated(m.path.clone())
+                .push_unseparated(")");
+        }
+        qb.push(")");
+    }
     qb.push(" ORDER BY ").push(f.order_by);
-    qb.push(" LIMIT ")
-        .push_bind(i64::from(f.limit) + 1)
-        .push(" OFFSET ")
-        .push_bind(i64::from(f.offset));
+    if !f.by_relevance {
+        qb.push(" LIMIT ")
+            .push_bind(i64::from(f.limit) + 1)
+            .push(" OFFSET ")
+            .push_bind(i64::from(f.offset));
+    }
 
-    let rows: Vec<HitRow> = qb.build_query_as().fetch_all(db).await?;
+    let mut rows: Vec<HitRow> = qb.build_query_as().fetch_all(db).await?;
+    let content_of = |r: &HitRow| {
+        f.content
+            .as_ref()?
+            .iter()
+            .find(|m| m.source == r.source && m.path == r.path)
+    };
+    if f.by_relevance {
+        // The candidates are already in relevance order; keep that order and
+        // page here (there are at most MAX_CANDIDATES rows).
+        let rank = |r: &HitRow| {
+            f.content
+                .as_ref()
+                .and_then(|c| {
+                    c.iter()
+                        .position(|m| m.source == r.source && m.path == r.path)
+                })
+                .unwrap_or(usize::MAX)
+        };
+        rows.sort_by_key(|r| rank(r));
+        rows.drain(..(f.offset as usize).min(rows.len()));
+        rows.truncate(f.limit as usize + 1);
+    }
     let has_more = rows.len() > f.limit as usize;
     let hits = rows
         .into_iter()
@@ -504,7 +554,9 @@ pub async fn run(
         .filter_map(|r| {
             let scope = &areas.iter().find(|a| a.source == r.source)?.scope;
             let visible = VPath::parse(&r.path).ok()?.strip_prefix(scope)?;
+            let snippet = content_of(&r).map(|m| m.snippet.clone());
             Some(SearchHit {
+                snippet,
                 mime: (!r.is_dir).then(|| guess_mime(&r.name)),
                 source: r.source,
                 path: visible.to_string(),
