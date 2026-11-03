@@ -7,6 +7,7 @@
 //! | `/api/health`                  | here                      | core    |
 //! | `/api/sources`, `/api/sources/{id}/...` | [`files`]        | files   |
 //! | `/api/sources/{id}/uploads`, `/api/uploads/{uid}` | [`uploads`] | files |
+//! | `/api/sources/{id}/text`      | [`text`] (editor load/save) | editor |
 //! | `/api/auth/...`, `/api/users`, `/api/groups` | [`crate::auth::routes`] | auth |
 //! | `/api/shares`                  | [`crate::shares::api_router`]    | shares  |
 //! | `/api/public/shares/{token}`   | [`crate::shares::public_router`] | shares  |
@@ -18,6 +19,7 @@
 
 pub mod download;
 pub mod files;
+pub mod text;
 pub mod uploads;
 pub mod zip;
 
@@ -32,6 +34,7 @@ pub fn router() -> Router<AppState> {
         .route("/health", get(health))
         .merge(files::routes())
         .merge(uploads::routes())
+        .merge(text::routes())
         .merge(crate::auth::routes::routes())
         .nest("/shares", crate::shares::api_router())
         .nest("/public/shares", crate::shares::public_router())
