@@ -44,6 +44,8 @@ async fn main() -> anyhow::Result<()> {
     let secret = crypto::load_or_create_secret(&config.data_dir)?;
     let listen = config.listen;
     let state = AppState::new(config, pool, secret)?;
+    // Subscribe the content indexer before the file indexer starts publishing.
+    filebrary::content::start(&state);
     filebrary::spawn_maintenance(state.clone());
     filebrary::identity::install(&state);
     filebrary::identity::spawn_maintenance(state.clone());

@@ -34,6 +34,9 @@ pub struct Inner {
     pub search: Search,
     /// Upload ids with a chunk currently being written (one writer at a time).
     pub uploads_in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// The full-text content index, or `None` when `[fulltext] enabled =
+    /// false` or no source has `content_search` switched on.
+    pub content_index: Option<Arc<filebrary_fulltext::ContentIndex>>,
     /// Event bus: publish upload, share, quota and job events here; the
     /// notification dispatcher delivers them to webhooks, ntfy and email.
     pub events: filebrary_events::EventBus,
@@ -94,6 +97,7 @@ impl AppState {
         let metrics = crate::ops::metrics::Metrics::install();
         let names: Vec<String> = sources.keys().cloned().collect();
         let search = Search::new(db.clone(), config.search.clone(), &names);
+        let content_index = crate::content::open_index(&config)?;
         let auth = crate::auth::AuthRuntime::new(&config);
         let identity = crate::identity::Identity::new(&config);
         let previews = if config.previews.enabled {
@@ -111,6 +115,7 @@ impl AppState {
             secret,
             upload_dir,
             uploads_in_flight: Default::default(),
+            content_index,
             events,
             notifier,
             metrics,

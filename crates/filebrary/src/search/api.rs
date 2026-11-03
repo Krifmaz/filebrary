@@ -41,16 +41,11 @@ async fn search(
     if !state.search.settings().enabled {
         return Err(AppError::bad_request("search is disabled on this server"));
     }
-    if params
-        .content
-        .as_deref()
-        .is_some_and(|c| !c.trim().is_empty())
-    {
-        return Err(AppError::bad_request(
-            "content search is not enabled on this server",
-        ));
+    let mut filters = Filters::from_params(&params)?;
+    if let Some(content) = params.content.as_deref().filter(|c| !c.trim().is_empty()) {
+        filters.content = Some(crate::content::candidates(&state, &auth.user, content).await?);
+        filters.by_relevance = params.sort.is_none();
     }
-    let filters = Filters::from_params(&params)?;
     let (hits, has_more) =
         query::run(&state.db, &auth.user, &filters, |s| state.search.indexes(s)).await?;
     let indexing = state

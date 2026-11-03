@@ -234,6 +234,37 @@ million entries takes about 55 ms. On Linux each watched folder uses one
 inotify watch: raise `fs.inotify.max_user_watches` for very large trees (if
 the watcher cannot start, the source falls back to periodic rescans).
 
+## Content search
+
+Filebrary indexes the text inside documents (plain text and source code,
+PDF, Word, PowerPoint, Excel/ODS and OpenDocument) with
+[tantivy](https://github.com/quickwit-oss/tantivy), stored in
+`<data_dir>/fulltext`. Extraction is pure Rust, in-process, size-limited and
+panic-contained; nothing runs through a shell.
+
+* Per source: `content_search = false` in a `[[sources]]` table turns it off
+  (it is on by default). Globally: `[fulltext] enabled = false` or
+  `FILEBRARY_FULLTEXT=false`.
+* `GET /api/search?content=…` searches inside documents. It combines with
+  every other search filter (`q`, `type`, `ext`, size, date, tag, folder),
+  only returns what the caller may view, orders by relevance unless `sort=`
+  is given, and adds an HTML-escaped `snippet` to each hit. Words must all
+  match; `"quoted phrases"` match in order; `-word` excludes.
+* The content worker follows the file indexer's events and, after each
+  source's first scan (and after it ever falls behind), walks the source's
+  file list to catch up on anything it missed.
+* Tuning: `[fulltext] max_file_mib` (32), `max_chars` (1 000 000),
+  `writer_memory_mib` (24), `commit_every_docs` (500),
+  `commit_interval_secs` (5).
+
+Measured on Linux (release build, 12 632 files / 157 MiB of source code,
+indexed in 6.9 s, queries in ~4 ms): peak anonymous memory while indexing
+is about 77 MB with `MALLOC_ARENA_MAX=2` (or musl), 154 MB with glibc's
+default allocator arenas. The writer arena is freed after each commit, so an
+idle server keeps only the memory-mapped index, which the OS can evict.
+Reproduce with `cargo run --release -p filebrary-fulltext --example
+index_dir -- <dir> <query>`.
+
 ## Previews
 
 | Kind | Thumbnail | Needs |

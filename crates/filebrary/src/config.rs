@@ -102,6 +102,12 @@ pub struct SourceConfig {
     /// Root directory (for `local`; leave unset for the other kinds).
     #[serde(default)]
     pub path: PathBuf,
+    /// Index the text inside documents (text, PDF, Office) of this source
+    /// for content search. On by default; turn it off for sources with
+    /// little text or slow network storage. Ignored when `[fulltext]
+    /// enabled = false`.
+    #[serde(default = "default_true")]
+    pub content_search: bool,
     /// S3 settings (for `kind = "s3"`).
     #[serde(default)]
     pub s3: Option<S3Config>,
@@ -111,6 +117,10 @@ pub struct SourceConfig {
     /// SMB settings (for `kind = "smb"`).
     #[serde(default)]
     pub smb: Option<SmbConfig>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl SourceConfig {
@@ -123,6 +133,7 @@ impl SourceConfig {
             s3: None,
             sftp: None,
             smb: None,
+            content_search: true,
         }
     }
 
@@ -222,6 +233,8 @@ pub struct Config {
     pub metrics: MetricsConfig,
     /// Indexed search (see [`crate::search::SearchSettings`]).
     pub search: crate::search::SearchSettings,
+    /// Full-text content search settings (`[fulltext]` section).
+    pub fulltext: filebrary_fulltext::FulltextConfig,
     /// Thumbnails and previews (`[previews]` table).
     pub previews: PreviewSettings,
 }
@@ -288,6 +301,7 @@ impl Default for Config {
             notifications: filebrary_events::NotificationsConfig::default(),
             metrics: MetricsConfig::default(),
             search: crate::search::SearchSettings::default(),
+            fulltext: filebrary_fulltext::FulltextConfig::default(),
             previews: PreviewSettings::default(),
         }
     }
@@ -437,6 +451,9 @@ impl Config {
         }
         if let Some(v) = get("FILEBRARY_ACTIVITY_RETENTION_DAYS") {
             self.activity_retention_days = parse("FILEBRARY_ACTIVITY_RETENTION_DAYS", &v)?;
+        }
+        if let Some(v) = get("FILEBRARY_FULLTEXT") {
+            self.fulltext.enabled = parse_bool("FILEBRARY_FULLTEXT", &v)?;
         }
         if let Some(v) = get("FILEBRARY_DEFAULT_QUOTA") {
             self.default_quota = (!v.trim().is_empty()).then_some(v);
