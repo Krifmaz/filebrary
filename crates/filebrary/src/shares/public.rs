@@ -346,11 +346,18 @@ async fn info(
     Path(token): Path<String>,
     Query(q): Query<PublicQuery>,
     jar: CookieJar,
-    headers: HeaderMap,
+    parts: axum::http::request::Parts,
 ) -> ShareResult<Json<PublicShareResponse>> {
+    let headers = &parts.headers;
     let live = resolve(&st, &token).await?;
     let expires_at = live.share.expires_at.map(format_ts);
-    if !is_unlocked(&st, &live, &jar, &headers, &q).await? {
+    let unlocked = is_unlocked(&st, &live, &jar, headers, &q).await?;
+    if unlocked && q.path.is_empty() {
+        // Opening the link shows its top level; browsing deeper is not
+        // reported again.
+        publish_opened(&st, &live, auth::client_ip(&parts, &st.config));
+    }
+    if !unlocked {
         // Reveal nothing about the content until the password is given.
         return Ok(Json(PublicShareResponse {
             name: String::new(),
@@ -437,6 +444,24 @@ async fn info(
         expires_at,
         entries,
     }))
+}
+
+/// Publishes a `share_opened` event for the share's owner.
+fn publish_opened(st: &AppState, live: &LiveShare, remote_addr: Option<String>) {
+    let path = live
+        .share
+        .paths
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    st.events.publish(filebrary_events::Event::ShareOpened {
+        share_id: live.share.id.to_string(),
+        owner: live.owner.username.clone(),
+        source: live.share.source.clone(),
+        path,
+        remote_addr,
+    });
 }
 
 async fn unlock(
@@ -680,6 +705,13 @@ async fn upload(
         bytes = written,
         "file dropped into share"
     );
+    // Drop-link uploads are reported as the link owner's.
+    st.events.publish(filebrary_events::Event::Upload {
+        user: live.owner.username.clone(),
+        source: item.source.clone(),
+        path: real.to_string(),
+        size: written,
+    });
     let stored = target.name().unwrap_or_default().to_owned();
     let mut resp = (
         StatusCode::CREATED,
