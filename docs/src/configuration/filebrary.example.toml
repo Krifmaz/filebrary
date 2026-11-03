@@ -124,6 +124,18 @@ watched_rescan_hours = 24     # safety-net rescan of watched sources; 0 = off
 exclude_sources = []          # sources never indexed
 batch_size = 500              # rows per transaction while scanning
 
+# --- Previews ---------------------------------------------------------------
+# Thumbnails and previews. Video, HEIC, PDF and Office need the tools in the
+# -full image (ffmpeg, heif-dec, pdftoppm, soffice).
+
+[previews]
+enabled = true
+cache_mib = 2048        # LRU cache in <data_dir>/cache/previews
+thumb_size = 256        # 32-1024 px
+large_size = 1920       # 256-8192 px
+max_parallel = 0        # 0 = one per CPU, at most 8
+max_remote_mib = 1024   # largest remote file copied locally for a preview
+
 # --- Sources ----------------------------------------------------------------
 # With no [[sources]], <data_dir>/files is served as "files".
 

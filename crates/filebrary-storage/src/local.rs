@@ -473,6 +473,14 @@ impl Storage for LocalStorage {
             Ok(fs::remove_file(&p).await?)
         }
     }
+
+    async fn local_path(&self, vp: &VPath) -> StorageResult<Option<PathBuf>> {
+        let p = self.resolve_follow(vp).await?;
+        if fs::metadata(&p).await?.is_dir() {
+            return Err(StorageError::IsADirectory);
+        }
+        Ok(Some(p))
+    }
 }
 
 #[cfg(test)]
@@ -758,5 +766,38 @@ mod tests {
         let s = LocalStorage::new(d.path().join("rootlink")).unwrap();
         s.write(&vp("f"), reader(b"1"), false).await.unwrap();
         assert!(d.path().join("root/f").exists());
+    }
+
+    #[tokio::test]
+    async fn local_path_is_checked_against_the_root() {
+        let (_d, s) = setup();
+        std::fs::write(s.root().join("a.txt"), b"x").unwrap();
+        let p = s
+            .local_path(&VPath::parse("/a.txt").unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(p, s.root().join("a.txt"));
+        assert!(matches!(
+            s.local_path(&VPath::parse("/").unwrap()).await,
+            Err(StorageError::IsADirectory)
+        ));
+        assert!(matches!(
+            s.local_path(&VPath::parse("/missing").unwrap()).await,
+            Err(StorageError::NotFound)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn local_path_refuses_symlinks_out_of_the_root() {
+        let (_d, s) = setup();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret"), b"x").unwrap();
+        std::os::unix::fs::symlink(outside.path().join("secret"), s.root().join("link")).unwrap();
+        assert!(matches!(
+            s.local_path(&VPath::parse("/link").unwrap()).await,
+            Err(StorageError::OutsideRoot)
+        ));
     }
 }

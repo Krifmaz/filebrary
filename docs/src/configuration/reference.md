@@ -623,6 +623,84 @@ little faster and use a little more memory.
 | Type        | integer, `1` to `10000`                 |
 | Default     | `500`                                   |
 
+## Previews
+
+Settings for thumbnails and previews, in the `[previews]` table. See
+[Previews and conversions](../guide/previews.md).
+
+### `previews`
+
+The `[previews]` table.
+
+```toml
+[previews]
+cache_mib = 4096
+thumb_size = 320
+```
+
+### `previews.enabled`
+
+Turns thumbnails, previews, media info and transcoded playback on or off.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean                                 |
+| Default     | `true`                                  |
+| Environment | `FILEBRARY_PREVIEWS`                    |
+
+### `previews.cache_mib`
+
+Size limit of the preview cache in `<data_dir>/cache/previews`, in MiB. Every
+10 minutes the least recently used previews are deleted until the cache fits.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer (MiB)                           |
+| Default     | `2048`                                  |
+| Environment | `FILEBRARY_PREVIEW_CACHE_MIB`           |
+
+### `previews.thumb_size`
+
+Longest side of thumbnails, in pixels.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, `32` to `1024`                 |
+| Default     | `256`                                   |
+| Environment | (none)                                  |
+
+### `previews.large_size`
+
+Longest side of large previews (RAW, HEIC, TIFF, video frames), in pixels.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, `256` to `8192`                |
+| Default     | `1920`                                  |
+| Environment | (none)                                  |
+
+### `previews.max_parallel`
+
+How many previews are generated at the same time. `0` means one per CPU, at
+most 8. LibreOffice conversions always run one at a time.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer                                 |
+| Default     | `0`                                     |
+| Environment | (none)                                  |
+
+### `previews.max_remote_mib`
+
+Largest file from a remote source (S3, SFTP, SMB) that is copied to the
+server to make a preview, in MiB. Larger files get no preview.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer (MiB)                           |
+| Default     | `1024`                                  |
+| Environment | (none)                                  |
+
 ## Sources
 
 ### `sources`

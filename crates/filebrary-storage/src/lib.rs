@@ -19,7 +19,7 @@ pub mod sftp;
 pub mod smb;
 mod util;
 
-use std::{io, ops::Range, pin::Pin, sync::Arc};
+use std::{io, ops::Range, path::PathBuf, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -174,6 +174,16 @@ pub trait Storage: Send + Sync + 'static {
     /// returns the path unchanged.
     async fn resolve(&self, path: &VPath) -> StorageResult<VPath> {
         Ok(path.clone())
+    }
+
+    /// The real, absolute path of an existing file on the local filesystem,
+    /// for helpers that must hand a path to an external program (previews,
+    /// conversions). The path is resolved and checked against the source root
+    /// exactly like [`Storage::read`]. Remote backends return `Ok(None)` and
+    /// callers fall back to copying the file through [`Storage::read`].
+    async fn local_path(&self, path: &VPath) -> StorageResult<Option<PathBuf>> {
+        let _ = path;
+        Ok(None)
     }
 }
 
