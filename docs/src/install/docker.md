@@ -7,7 +7,7 @@ Images are published to the GitHub Container Registry for `linux/amd64` and
 | --- | --- | --- |
 | `ghcr.io/krifmaz/filebrary:latest` | Filebrary only, distroless runtime | under 60 MB |
 | `ghcr.io/krifmaz/filebrary:<version>` | A specific release, e.g. `0.1.0` | under 60 MB |
-| `ghcr.io/krifmaz/filebrary:latest-full` | Adds ffmpeg and LibreOffice for previews and conversions | larger |
+| `ghcr.io/krifmaz/filebrary:latest-full` | Adds ffmpeg, LibreOffice, poppler and libheif for previews and conversions | larger |
 | `ghcr.io/krifmaz/filebrary:<version>-full` | A specific release with conversion tools | larger |
 
 ## Quick start
