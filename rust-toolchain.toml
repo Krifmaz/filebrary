@@ -1,0 +1,7 @@
+# Pin the toolchain so local runs and CI use the same rustc, clippy and
+# rustfmt. Bump this together with RUST_VERSION in the Dockerfile and the
+# dtolnay/rust-toolchain version in .github/workflows.
+[toolchain]
+channel = "1.97"
+components = ["clippy", "rustfmt"]
+profile = "minimal"
