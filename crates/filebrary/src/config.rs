@@ -221,7 +221,8 @@ impl Config {
         if let Some(v) = get("FILEBRARY_PREVIEW_CACHE_MIB") {
             self.previews.cache_mib = parse("FILEBRARY_PREVIEW_CACHE_MIB", &v)?;
         }
-        if let Some(v) = get("FILEBRARY_SOURCES") {
+        // An empty value counts as unset, so a mounted config file's [[sources]] can win.
+        if let Some(v) = get("FILEBRARY_SOURCES").filter(|v| !v.trim().is_empty()) {
             self.sources = parse_sources(&v)?;
         }
         Ok(())

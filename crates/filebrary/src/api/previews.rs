@@ -7,7 +7,8 @@
 //! | `GET /api/sources/{id}/media?path=` | duration, codecs, tags, `browser_playable` |
 //! | `GET /api/sources/{id}/stream?path=&start=&audio=` | fragmented MP4 for files the browser cannot play |
 //!
-//! All of them need the `download` permission on the file. When a file has
+//! All of them need the `download` permission on the file, and read it through
+//! a backend confined to the caller's scope ([`files::scoped`]). When a file has
 //! no preview the answer is `404` with `{"error": "no_preview", ...}` so the
 //! UI can show an icon instead.
 //!
@@ -19,6 +20,7 @@
 
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::SystemTime;
 
@@ -40,19 +42,20 @@ use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
 use tokio_util::io::ReaderStream;
 
 use crate::{
-    auth::{AuthUser, Perms},
+    api::files,
+    auth::{AuthUser, Perms, User},
     error::{AppError, AppResult},
     state::AppState,
-    storage::{Source, VPath, guess_mime},
+    storage::{Storage, VPath, guess_mime},
 };
 
 /// Routes for this module.
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/previews", get(capabilities))
-        .route("/sources/{source}/preview", get(preview))
-        .route("/sources/{source}/media", get(media))
-        .route("/sources/{source}/stream", get(stream))
+        .route("/sources/{id}/preview", get(preview))
+        .route("/sources/{id}/media", get(media))
+        .route("/sources/{id}/stream", get(stream))
 }
 
 /// `?path=&variant=`
@@ -109,48 +112,80 @@ async fn capabilities(State(state): State<AppState>, _user: AuthUser) -> Json<se
 async fn preview(
     State(state): State<AppState>,
     AuthUser { user, .. }: AuthUser,
-    Path(source): Path<String>,
+    Path(id): Path<String>,
     Query(q): Query<PreviewQuery>,
     headers: HeaderMap,
 ) -> Response {
     let result = async {
         let vp = VPath::parse(&q.path)?;
-        let real = user.require(&source, Perms::DOWNLOAD, &vp)?;
         let variant = match q.variant.as_deref() {
             None => Variant::Thumb,
             Some(v) => Variant::parse(v).ok_or_else(|| AppError::bad_request("unknown variant"))?,
         };
-        Ok::<_, AppError>((real, variant))
+        let target = Target::for_user(&state, &user, &id, &vp).await?;
+        Ok::<_, AppError>((target, variant))
     }
     .await;
     match result {
-        Ok((real, variant)) => preview_response(&state, &source, &real, variant, &headers).await,
+        Ok((target, variant)) => preview_response(&state, &target, variant, &headers).await,
         Err(e) => e.into_response(),
     }
 }
 
-/// Answer a preview request for `real` (a path already checked against the
-/// caller's permissions). Public so share links can serve previews too.
+/// A file to preview: a backend already confined to what the caller may see,
+/// the path inside that backend, and a stable name for the cache key.
+pub struct Target {
+    /// Backend confined to the caller's scope (see [`files::scoped`]).
+    pub storage: Arc<dyn Storage>,
+    /// Path inside `storage`.
+    pub path: VPath,
+    /// Source name, for the cache key.
+    pub source: String,
+    /// The file's real path in the source, for the cache key, so users with
+    /// different scopes share one cached preview.
+    pub key_path: VPath,
+}
+
+impl Target {
+    /// Checks the `download` permission and confines the backend to the
+    /// user's scope with [`files::scoped`]. All file access then goes through
+    /// that backend with the user-visible path, so symlinks are checked
+    /// against the scope, not just the source root.
+    pub async fn for_user(
+        state: &AppState,
+        user: &User,
+        id: &str,
+        vp: &VPath,
+    ) -> AppResult<Target> {
+        let storage = files::scoped(state, user, id, Perms::DOWNLOAD, vp).await?;
+        let key_path = user.require(id, Perms::DOWNLOAD, vp)?;
+        Ok(Target {
+            storage,
+            path: vp.clone(),
+            source: id.to_owned(),
+            key_path,
+        })
+    }
+}
+
+/// Answer a preview request for `target`. Public so share links can serve
+/// previews with a backend confined to the shared folder.
 pub async fn preview_response(
     state: &AppState,
-    source_name: &str,
-    real: &VPath,
+    target: &Target,
     variant: Variant,
     headers: &HeaderMap,
 ) -> Response {
     let Some(svc) = &state.previews else {
         return no_preview("previews are turned off");
     };
-    let Some(source) = state.source(source_name) else {
-        return AppError::NotFound.into_response();
-    };
-    let local = match Local::open(state, source, real).await {
+    let local = match Local::open(state, target).await {
         Ok(l) => l,
         Err(e) => return e.into_response(),
     };
     match svc.get(&local.input, variant).await {
         Ok(PreviewOutput::Cached(c)) => serve_cached(c, headers).await,
-        Ok(PreviewOutput::Original) => serve_original(source, real).await,
+        Ok(PreviewOutput::Original) => serve_original(target).await,
         Err(e) => preview_error(e),
     }
 }
@@ -158,15 +193,14 @@ pub async fn preview_response(
 async fn media(
     State(state): State<AppState>,
     AuthUser { user, .. }: AuthUser,
-    Path(source): Path<String>,
+    Path(id): Path<String>,
     Query(q): Query<PreviewQuery>,
 ) -> Response {
     let r = async {
         let vp = VPath::parse(&q.path)?;
-        let real = user.require(&source, Perms::DOWNLOAD, &vp)?;
+        let target = Target::for_user(&state, &user, &id, &vp).await?;
         let svc = state.previews.as_ref().ok_or(AppError::NotFound)?;
-        let src = state.source(&source).ok_or(AppError::NotFound)?;
-        let local = Local::open(&state, src, &real).await?;
+        let local = Local::open(&state, &target).await?;
         Ok::<_, AppError>(svc.probe(&local.input).await)
     }
     .await;
@@ -185,7 +219,7 @@ async fn media(
 async fn stream(
     State(state): State<AppState>,
     AuthUser { user, .. }: AuthUser,
-    Path(source): Path<String>,
+    Path(id): Path<String>,
     Query(q): Query<StreamQuery>,
 ) -> Response {
     if !q.start.is_finite() || q.start < 0.0 {
@@ -193,10 +227,9 @@ async fn stream(
     }
     let r = async {
         let vp = VPath::parse(&q.path)?;
-        let real = user.require(&source, Perms::DOWNLOAD, &vp)?;
+        let target = Target::for_user(&state, &user, &id, &vp).await?;
         let svc: &PreviewService = state.previews.as_ref().ok_or(AppError::NotFound)?;
-        let src = state.source(&source).ok_or(AppError::NotFound)?;
-        let local = Local::open(&state, src, &real).await?;
+        let local = Local::open(&state, &target).await?;
         Ok::<_, AppError>((svc.transcode(&local.input, q.start, !q.audio).await, local))
     }
     .await;
@@ -230,20 +263,19 @@ struct Local {
 }
 
 impl Local {
-    async fn open(state: &AppState, source: &Source, real: &VPath) -> AppResult<Local> {
-        let entry = source.storage.stat(real).await?;
+    async fn open(state: &AppState, t: &Target) -> AppResult<Local> {
+        let entry = t.storage.stat(&t.path).await?;
         if entry.is_dir() {
             return Err(AppError::bad_request("folders have no preview"));
         }
-        let modified = entry.modified.map(SystemTime::from);
         let mut input = PreviewInput {
-            source: source.name.clone(),
-            path: real.to_string(),
+            source: t.source.clone(),
+            path: t.key_path.to_string(),
             local: PathBuf::new(),
             size: entry.size,
-            modified,
+            modified: entry.modified.map(SystemTime::from),
         };
-        if let Some(p) = source.storage.local_path(real).await? {
+        if let Some(p) = t.storage.local_path(&t.path).await? {
             input.local = p;
             return Ok(Local { input, _temp: None });
         }
@@ -254,7 +286,8 @@ impl Local {
         let dir = state.config.data_dir.join("cache").join("spool");
         tokio::fs::create_dir_all(&dir).await?;
         // Keep the extension: tools such as LibreOffice pick a filter by it.
-        let suffix = real
+        let suffix = t
+            .path
             .name()
             .and_then(|n| std::path::Path::new(n).extension())
             .map(|e| format!(".{}", e.to_string_lossy()))
@@ -262,7 +295,7 @@ impl Local {
         let tmp = tempfile::Builder::new().suffix(&suffix).tempfile_in(&dir)?;
         let (file, path) = tmp.into_parts();
         let mut file = tokio::fs::File::from_std(file);
-        let mut data = source.storage.read(real, None).await?;
+        let mut data = t.storage.read(&t.path, None).await?;
         while let Some(chunk) = data.try_next().await? {
             file.write_all(&chunk).await?;
         }
@@ -324,10 +357,10 @@ async fn serve_cached(c: filebrary_preview::CachedFile, headers: &HeaderMap) -> 
         .into_response()
 }
 
-async fn serve_original(source: &Source, real: &VPath) -> Response {
-    let name = real.name().unwrap_or_default();
+async fn serve_original(t: &Target) -> Response {
+    let name = t.path.name().unwrap_or_default();
     let mime = guess_mime(name);
-    match source.storage.read(real, None).await {
+    match t.storage.read(&t.path, None).await {
         Ok(stream) => {
             let mut resp = (
                 [

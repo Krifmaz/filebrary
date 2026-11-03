@@ -47,6 +47,11 @@ async fn fixture() -> Fixture {
 
 /// Creates a user with `perms` on the `files` source and returns a cookie.
 async fn login(state: &AppState, name: &str, perms: Perms) -> String {
+    login_scoped(state, name, perms, "/").await
+}
+
+/// Like [`login`], confined to the folder `scope`.
+async fn login_scoped(state: &AppState, name: &str, perms: Perms, scope: &str) -> String {
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO users (username, password_hash, is_admin, created_at) \
          VALUES (?, 'x', 0, 0) RETURNING id",
@@ -55,12 +60,15 @@ async fn login(state: &AppState, name: &str, perms: Perms) -> String {
     .fetch_one(&state.db)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO user_sources (user_id, source, perms) VALUES (?, 'files', ?)")
-        .bind(id)
-        .bind(perms.bits())
-        .execute(&state.db)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO user_sources (user_id, source, perms, scope) VALUES (?, 'files', ?, ?)",
+    )
+    .bind(id)
+    .bind(perms.bits())
+    .bind(scope)
+    .execute(&state.db)
+    .await
+    .unwrap();
     let s = session::create(state, id, None, None).await.unwrap();
     format!("{}={}", session::SESSION_COOKIE, s.token)
 }
@@ -192,4 +200,38 @@ async fn capabilities_report_image_support() {
     assert_eq!(v["kinds"]["image"], true);
     assert_eq!(v["kinds"]["raw"], true);
     assert_eq!(v["thumb_size"], 256);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn symlinks_cannot_leave_the_users_scope() {
+    let f = fixture().await;
+    std::fs::create_dir_all(f.files.join("alice")).unwrap();
+    std::fs::create_dir_all(f.files.join("bob")).unwrap();
+    write_photo(&f.files.join("bob/private.jpg"));
+    write_photo(&f.files.join("alice/mine.jpg"));
+    // Inside the source, but outside alice's folder.
+    std::os::unix::fs::symlink(
+        f.files.join("bob/private.jpg"),
+        f.files.join("alice/peek.jpg"),
+    )
+    .unwrap();
+    let cookie = login_scoped(&f.state, "alice", Perms::VIEW | Perms::DOWNLOAD, "/alice").await;
+
+    let (st, _, _) = get(
+        &f.state,
+        "/api/sources/files/preview?path=/mine.jpg",
+        &cookie,
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    for route in ["preview", "media", "stream"] {
+        let uri = format!("/api/sources/files/{route}?path=/peek.jpg");
+        let (st, _, _) = get(&f.state, &uri, &cookie, None).await;
+        assert!(
+            st == StatusCode::FORBIDDEN || st == StatusCode::NOT_FOUND,
+            "{route} gave {st}"
+        );
+    }
 }

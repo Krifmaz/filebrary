@@ -147,6 +147,26 @@ pub trait Storage: Send + Sync + 'static {
     /// Deletes a file or (recursively) a directory.
     async fn delete(&self, path: &VPath) -> StorageResult<()>;
 
+    /// Returns a backend rooted at the existing folder `scope`.
+    ///
+    /// Every safety rule that applies to the source root applies to the
+    /// scope of the returned backend: in particular a symlink inside the
+    /// scope that points elsewhere in the source (outside the scope) is
+    /// refused. Use it to confine a user to a folder.
+    async fn sub(&self, scope: &VPath) -> StorageResult<Arc<dyn Storage>>;
+
+    /// Returns the symlink-free form of `path` inside the root, so permission
+    /// rules can be checked against where a request really lands.
+    ///
+    /// For an existing path this is its canonical form; for a missing one, the
+    /// canonical nearest existing ancestor plus the remaining components.
+    /// Fails with [`StorageError::OutsideRoot`] if it resolves outside.
+    /// Backends without symlinks (object stores) keep the default, which
+    /// returns the path unchanged.
+    async fn resolve(&self, path: &VPath) -> StorageResult<VPath> {
+        Ok(path.clone())
+    }
+
     /// The real, absolute path of an existing file on the local filesystem,
     /// for helpers that must hand a path to an external program (previews,
     /// conversions). The path is resolved and checked against the source root

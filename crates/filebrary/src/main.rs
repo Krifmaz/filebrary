@@ -46,6 +46,7 @@ async fn main() -> anyhow::Result<()> {
     let secret = crypto::load_or_create_secret(&config.data_dir)?;
     let listen = config.listen;
     let state = AppState::new(config, pool, secret)?;
+    filebrary::spawn_maintenance(state.clone());
     if let Some(p) = &state.previews {
         p.cache().spawn_janitor(std::time::Duration::from_secs(600));
     }
