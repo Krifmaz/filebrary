@@ -42,9 +42,11 @@ API, is on [Trash, tags, stars and activity](../organize.md).
 
 ## Comments
 
-> **Planned for Phase 4.** See [Feature status](../status.md).
-
-Comment on a file to leave notes for other users.
+Select a file and choose **Comments** to read and add to its thread.
+Anyone who can see the file can read the thread; posting needs
+**download**. Authors can edit their own comments, and users with **edit**
+on the file (and administrators) can delete any comment on it. Threads stay
+attached when files are renamed, moved or trashed. API: `/api/comments`.
 
 ## Text editor
 

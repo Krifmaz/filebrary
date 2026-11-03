@@ -28,7 +28,7 @@ top linking here.
 | FTP / FTPS server | 4 | Planned |
 | Notifications (webhook, ntfy, email) | 4 | Planned |
 | Prometheus metrics | 4 | Planned |
-| Comments, collections, Chromecast, themes and branding | 4 | Planned |
+| Comments, collections, casting (Chromecast and AirPlay), themes and branding | 4 | Done, in the next release |
 | This documentation site | 4 | In progress |
 
 Settings for a feature appear in the [settings reference](configuration/reference.md)

@@ -1,6 +1,7 @@
 # Previews and conversions
 
-> **Planned for Phases 2 and 3.** See [Feature status](../status.md).
+> **Previews and conversions are planned for Phases 2 and 3; casting is
+> already available.** See [Feature status](../status.md).
 
 ## Previews
 
@@ -28,7 +29,10 @@ Conversions run as background [jobs](jobs.md), with progress shown in the UI:
 
 ## Casting
 
-> **Planned for Phase 4.**
-
-Video and audio players show a cast button to play on a Chromecast or other
-Google Cast device on the same network.
+Video and audio open in a player with a **Cast** button when a Chromecast
+(in Chrome) or AirPlay device (in Safari) is nearby. Casting uses the
+browser's Remote Playback API, so no third-party script is loaded. The
+device streams from a signed URL that expires after 6 hours and stops
+working as soon as the user loses access to the file. Set
+[`public_url`](../configuration/reference.md#public_url) so the device can
+reach the right address.

@@ -28,6 +28,8 @@ it takes effect immediately. Administrators can see and remove every link.
 
 ## Collections
 
-> **Planned for Phase 4.** See [Feature status](../status.md).
-
-Share several files and folders, even from different places, in one link.
+A collection groups files and folders from any source, so you can share
+them with one link. Select items and choose **Add to collection**; the
+**Collections** page lists your collections and creates a share link for a
+whole collection, with the usual password, expiry and download limit. The
+link only serves items its owner may still share. API: `/api/collections`.
