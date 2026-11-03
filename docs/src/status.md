@@ -20,7 +20,7 @@ top linking here.
 | Tags, stars, activity log | 2 | Done, in the next release |
 | Text editor | 2 | Planned |
 | WebDAV server | 2 | Planned |
-| S3-compatible, SFTP and SMB sources | 3 | Planned |
+| S3-compatible, SFTP and SMB sources | 3 | Done, in the next release |
 | OIDC single sign-on, LDAP, TOTP two-factor, API keys, storage quotas | 3 | Planned |
 | Job queue, conversions (documents, video, photos), custom admin jobs | 3 | Done, in the next release |
 | Archives: create zip / tar.gz, browse inside zip / tar / 7z | 3 | Done, in the next release |

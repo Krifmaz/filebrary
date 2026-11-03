@@ -16,7 +16,7 @@ use common::{Client, TestApp, body_bytes, json};
 use filebrary::{
     AppState,
     auth::Perms,
-    config::{Config, SourceConfig, SourceKind},
+    config::{Config, SourceConfig},
     db,
     jobs::{CustomJobConfig, CustomOutput, process::which},
 };
@@ -29,11 +29,7 @@ async fn app_with(f: impl FnOnce(&mut Config)) -> TestApp {
     std::fs::create_dir_all(&files).unwrap();
     let mut config = Config {
         data_dir: dir.path().join("data"),
-        sources: vec![SourceConfig {
-            name: "files".into(),
-            kind: SourceKind::Local,
-            path: files,
-        }],
+        sources: vec![SourceConfig::local("files", files)],
         ..Config::default()
     };
     f(&mut config);
