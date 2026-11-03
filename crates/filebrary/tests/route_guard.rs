@@ -119,6 +119,20 @@ const ROUTES: &[(&str, &str, Access)] = &[
     ("GET", "/api/sources/files/preview?path=/a.txt", Source),
     ("GET", "/api/sources/files/media?path=/a.txt", Source),
     ("GET", "/api/sources/files/stream?path=/a.txt", Source),
+    ("GET", "/api/sources/files/archive?path=/a.zip", Source),
+    (
+        "GET",
+        "/api/sources/files/archive/entry?path=/a.zip&entry=b",
+        Source,
+    ),
+    // background jobs (each user sees and controls only their own)
+    ("GET", "/api/jobs", User),
+    ("POST", "/api/jobs", User),
+    ("GET", "/api/jobs/kinds", User),
+    ("GET", "/api/jobs/1", User),
+    ("DELETE", "/api/jobs/1", User),
+    ("POST", "/api/jobs/1/cancel", User),
+    ("POST", "/api/jobs/1/retry", User),
     // search
     ("GET", "/api/search?q=a", User),
     ("GET", "/api/search/status", User),
