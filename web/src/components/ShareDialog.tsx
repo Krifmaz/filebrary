@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { api, type Share } from "../api";
 import { basename } from "../paths";
-import { Dialog } from "./Dialog";
+import { Button, Dialog, Field, Icon, Switch, toast } from "../ui";
 
 /** Props for {@link ShareDialog}. */
 export interface ShareDialogProps {
@@ -71,20 +71,31 @@ export function ShareDialog({ source, paths, singleFolder, onClose }: ShareDialo
   if (share) {
     return (
       <Dialog
-        title="Share link ready"
+        title="Your link is ready"
+        description={`Anyone with this link can ${share.upload_only ? "upload into" : "open"} ${label}.`}
         onClose={onClose}
-        actions={<button className="primary" type="button" onClick={onClose}>Done</button>}
+        actions={<Button variant="primary" onClick={onClose}>Done</Button>}
       >
-        <p>Anyone with this link can {share.upload_only ? "upload into" : "open"} {label}.</p>
-        <div className="row">
+        <div className="share-url">
+          <Icon name="link" />
           <input readOnly value={share.url} onFocus={(e) => e.target.select()} aria-label="Share URL" />
-          <button
-            type="button"
-            onClick={async () => setCopied(await copyText(share.url))}
+          <Button
+            variant={copied ? "secondary" : "primary"}
+            icon={copied ? "check" : "copy"}
+            onClick={async () => {
+              const ok = await copyText(share.url);
+              setCopied(ok);
+              if (!ok) toast.error("Could not copy. Select the link and copy it by hand.");
+            }}
           >
             {copied ? "Copied" : "Copy"}
-          </button>
+          </Button>
         </div>
+        <ul className="share-summary">
+          {share.has_password && <li><Icon name="lock" /> Protected by a password</li>}
+          <li><Icon name="info" /> {share.expires_at ? `Expires ${new Date(share.expires_at).toLocaleString()}` : "Never expires"}</li>
+          {share.max_downloads && <li><Icon name="download" /> Up to {share.max_downloads} downloads</li>}
+        </ul>
       </Dialog>
     );
   }
@@ -92,38 +103,38 @@ export function ShareDialog({ source, paths, singleFolder, onClose }: ShareDialo
   return (
     <Dialog
       title={`Share ${label}`}
+      description="Create a link anyone can open. All settings are optional."
       onClose={onClose}
       onSubmit={create}
       actions={
         <>
-          <button type="button" onClick={onClose}>Cancel</button>
-          <button className="primary" type="submit" disabled={busy}>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" icon="link" busy={busy}>
             {busy ? "Creating…" : "Create link"}
-          </button>
+          </Button>
         </>
       }
     >
-      <label>
-        Password (optional)
-        <input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
-      </label>
-      <label>
-        Expires (optional)
-        <input type="datetime-local" value={expires} onChange={(e) => setExpires(e.target.value)} />
-      </label>
-      {!uploadOnly && (
-        <label>
-          Download limit (optional)
-          <input type="number" min={1} value={maxDownloads} onChange={(e) => setMaxDownloads(e.target.value)} />
-        </label>
-      )}
+      <Field label="Password" hint="Visitors must enter it before they can see anything.">
+        <input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="No password" />
+      </Field>
+      <div className="field-row">
+        <Field label="Expires">
+          <input type="datetime-local" value={expires} onChange={(e) => setExpires(e.target.value)} />
+        </Field>
+        {!uploadOnly && (
+          <Field label="Download limit">
+            <input type="number" min={1} value={maxDownloads} onChange={(e) => setMaxDownloads(e.target.value)} placeholder="Unlimited" />
+          </Field>
+        )}
+      </div>
       {singleFolder && (
-        <label className="check">
-          <input type="checkbox" checked={uploadOnly} onChange={(e) => setUploadOnly(e.target.checked)} />
-          Upload-only drop link (visitors can add files but not see or download any)
-        </label>
+        <div className="field">
+          <Switch checked={uploadOnly} onChange={(e) => setUploadOnly(e.target.checked)} label="Upload-only drop link" />
+          <p className="field-hint">Visitors can add files but cannot see or download anything.</p>
+        </div>
       )}
-      {error && <p className="error" role="alert">{error}</p>}
+      {error && <p className="field-error" role="alert">{error}</p>}
     </Dialog>
   );
 }

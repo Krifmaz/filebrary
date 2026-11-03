@@ -828,6 +828,7 @@ export function Browser({ source, path, uploads, refreshKey, user = "anonymous" 
         <FolderPicker
           title={`${modal.kind === "move" ? "Move" : "Copy"} ${plural(modal.paths.length, "item")} to`}
           source={source.id}
+          sourceName={source.name}
           start={path}
           confirmLabel={modal.kind === "move" ? "Move here" : "Copy here"}
           onClose={() => setModal(null)}

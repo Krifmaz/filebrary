@@ -5,7 +5,8 @@
  */
 import { useEffect, useState } from "react";
 import { api, ApiError, type PublicShare as Info } from "../api";
-import { crumbs, formatDate, formatSize, iconFor } from "../paths";
+import { crumbs, formatDate, formatSize } from "../paths";
+import { Button, EmptyState, ErrorState, Field, Icon, SkeletonRows, Spinner, fileIcon } from "../ui";
 import { encodePath, navigate } from "../router";
 import { BrandMark } from "../features/theme/Brand";
 
@@ -60,64 +61,77 @@ export function PublicShare({ token, path }: PublicShareProps) {
         </div>
       </header>
       <section className="card public-card">
-        {error && <p className="error" role="alert">{error}</p>}
-        {!info && !error && <p className="muted">Loading…</p>}
+        {error && !info?.needs_password && <ErrorState compact title="This link cannot be opened" error={error} />}
+        {!info && !error && <SkeletonRows rows={4} />}
         {info?.needs_password && (
           <form onSubmit={unlock}>
+            <span className="state-icon"><Icon name="lock" /></span>
             <h1>This link is protected</h1>
-            <label>
-              Password
+            <p className="muted">Enter the password you were given.</p>
+            <Field label="Password" error={error}>
               <input type="password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} required />
-            </label>
-            <button className="primary">Open</button>
+            </Field>
+            <Button variant="primary" type="submit">Open</Button>
           </form>
         )}
         {info && !info.needs_password && info.upload_only && <DropBox token={token} name={info.name} />}
         {info && !info.needs_password && !info.upload_only && (
           <>
             <div className="row spread">
-              <h1>{info.name}</h1>
+              <div className="row">
+                <span className={info.is_dir ? "file-icon dir" : "file-icon"}><Icon name={fileIcon(info.name, info.is_dir)} /></span>
+                <h1>{info.name}</h1>
+              </div>
               <a className="button primary" href={api.publicDownloadUrl(token, rel(path) || undefined)} download>
+                <Icon name="download" />
                 {info.is_dir ? "Download all (zip)" : "Download"}
               </a>
             </div>
             {info.is_dir && (
               <>
-                <nav className="crumbs small">
-                  {crumbs(path).map((c, i) => (
-                    <span key={c.path}>
-                      {i > 0 && <span className="sep">/</span>}
-                      <a href={shareUrl(token, c.path)} onClick={(e) => { e.preventDefault(); navigate(shareUrl(token, c.path)); }}>
-                        {i === 0 ? info.name || "/" : c.name}
-                      </a>
-                    </span>
-                  ))}
-                </nav>
-                <div className="table-wrap">
-                  <table className="files">
-                    <tbody>
-                      {info.entries?.length === 0 && (
-                        <tr><td className="muted">This folder is empty.</td></tr>
-                      )}
-                      {info.entries?.map((e) => (
-                        <tr key={e.path}>
-                          <td className="name">
-                            <span className="ico" aria-hidden>{iconFor(e.name, e.is_dir)}</span>
-                            {e.is_dir ? (
-                              <a href={shareUrl(token, e.path)} onClick={(ev) => { ev.preventDefault(); navigate(shareUrl(token, e.path)); }}>
-                                {e.name}
-                              </a>
-                            ) : (
-                              <a href={api.publicDownloadUrl(token, rel(e.path))} download>{e.name}</a>
-                            )}
-                          </td>
-                          <td className="size">{e.is_dir ? "" : formatSize(e.size)}</td>
-                          <td className="date">{formatDate(e.modified)}</td>
-                        </tr>
+                {path !== "/" && (
+                  <nav className="crumbs small" aria-label="Folder path" style={{ marginTop: "var(--space-4)" }}>
+                    <ol>
+                      {crumbs(path).map((c, i) => (
+                        <li key={c.path}>
+                          {i > 0 && <Icon name="chevronRight" className="crumb-sep" />}
+                          <a className="crumb" href={shareUrl(token, c.path)} onClick={(e) => { e.preventDefault(); navigate(shareUrl(token, c.path)); }}>
+                            {i === 0 ? info.name || "/" : c.name}
+                          </a>
+                        </li>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                    </ol>
+                  </nav>
+                )}
+                {info.entries?.length === 0 ? (
+                  <EmptyState compact icon="folder" title="This folder is empty" />
+                ) : (
+                  <div className="table-wrap">
+                    <table className="files">
+                      <tbody>
+                        {info.entries?.map((e) => (
+                          <tr key={e.path}>
+                            <td className="name">
+                              <span className="name-cell">
+                                <span className={e.is_dir ? "file-icon dir" : "file-icon"}><Icon name={fileIcon(e.name, e.is_dir)} /></span>
+                                {e.is_dir ? (
+                                  <a className="name-text" href={shareUrl(token, e.path)} onClick={(ev) => { ev.preventDefault(); navigate(shareUrl(token, e.path)); }}>
+                                    {e.name}
+                                  </a>
+                                ) : (
+                                  <a className="name-text" href={api.publicDownloadUrl(token, rel(e.path))} download>{e.name}</a>
+                                )}
+                              </span>
+                              <span className="name-meta">{e.is_dir ? formatDate(e.modified) : `${formatSize(e.size)} · ${formatDate(e.modified)}`}</span>
+                            </td>
+                            <td className="size">{e.is_dir ? "—" : formatSize(e.size)}</td>
+                            <td className="date">{formatDate(e.modified)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </>
             )}
           </>
@@ -153,16 +167,19 @@ function DropBox({ token, name }: { token: string; name: string }) {
       onDragLeave={() => setOver(false)}
       onDrop={(e) => { e.preventDefault(); setOver(false); void send(Array.from(e.dataTransfer.files)); }}
     >
+      <span className="state-icon"><Icon name="upload" /></span>
       <h1>Send files{name ? ` to ${name}` : ""}</h1>
       <p className="muted">Drop files here or choose them. You will not be able to see other files in this folder.</p>
       <label className="button primary">
+        <Icon name="plus" />
         Choose files
         <input type="file" multiple hidden onChange={(e) => { if (e.target.files) void send(Array.from(e.target.files)); e.target.value = ""; }} />
       </label>
       <ul className="drop-status">
         {status.map((s, i) => (
           <li key={i} className={s.state}>
-            {s.name}: {s.state === "sending" ? "sending…" : s.state === "done" ? "sent" : s.error}
+            {s.state === "sending" ? <Spinner size="sm" /> : <Icon name={s.state === "done" ? "checkCircle" : "alert"} />} {s.name}
+            {s.state === "failed" && `: ${s.error}`}
           </li>
         ))}
       </ul>
