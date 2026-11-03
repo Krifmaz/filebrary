@@ -9,6 +9,7 @@
 //! | `/api/sources/{id}/uploads`, `/api/uploads/{uid}` | [`uploads`] | files |
 //! | `/api/sources/{id}/text`      | [`text`] (editor load/save) | editor |
 //! | `/api/auth/...`, `/api/users`, `/api/groups` | [`crate::auth::routes`] | auth |
+//! | `/api/auth/methods`, `/api/auth/oidc/...`, `/api/me/totp...`, `/api/me/api-keys...`, `/api/me/quota`, `/api/users/{id}/{totp,api-keys,quota}`, `/api/api-keys/{id}` | [`crate::identity::routes`] | identity |
 //! | `/api/shares`                  | [`crate::shares::api_router`]    | shares  |
 //! | `/api/public/shares/{token}`   | [`crate::shares::public_router`] | shares  |
 //! | `/api/trash`, `/api/tags`, `/api/stars`, `/api/annotations` | [`crate::organize::api`] | organize |
@@ -43,6 +44,7 @@ pub fn router() -> Router<AppState> {
         .merge(uploads::routes())
         .merge(text::routes())
         .merge(crate::auth::routes::routes())
+        .merge(crate::identity::routes::routes())
         .merge(crate::search::api::routes())
         .nest("/shares", crate::shares::api_router())
         .nest("/public/shares", crate::shares::public_router())
