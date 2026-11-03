@@ -21,6 +21,7 @@ use std::{
 };
 
 use anyhow::{Context, bail};
+use filebrary_storage::{s3::S3Config, sftp::SftpConfig, smb::SmbConfig};
 use serde::Deserialize;
 
 /// Log output format.
@@ -34,17 +35,34 @@ pub enum LogFormat {
     Json,
 }
 
-/// Which backend a source uses. Only `local` exists in v0.1.
+/// Which backend a source uses.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SourceKind {
-    /// A directory on the host.
+    /// A directory on the host (`path`).
     #[default]
     Local,
+    /// An S3-compatible bucket (the `[sources.s3]` table).
+    S3,
+    /// A directory on an SFTP server (the `[sources.sftp]` table).
+    Sftp,
+    /// A folder on an SMB share (the `[sources.smb]` table).
+    Smb,
 }
 
 /// One configured source.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+///
+/// Remote backends take their settings from a sub-table named after the
+/// kind, so each kind's fields stay separate and typos are caught:
+///
+/// ```toml
+/// [[sources]]
+/// name = "photos"
+/// kind = "s3"
+/// [sources.s3]
+/// bucket = "family-photos"
+/// ```
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SourceConfig {
     /// Identifier used in URLs and permissions: 1–32 of `[a-z0-9_-]`.
@@ -52,8 +70,62 @@ pub struct SourceConfig {
     /// Backend type.
     #[serde(default)]
     pub kind: SourceKind,
-    /// Root directory (for `local`).
+    /// Root directory (for `local`; leave unset for the other kinds).
+    #[serde(default)]
     pub path: PathBuf,
+    /// S3 settings (for `kind = "s3"`).
+    #[serde(default)]
+    pub s3: Option<S3Config>,
+    /// SFTP settings (for `kind = "sftp"`).
+    #[serde(default)]
+    pub sftp: Option<SftpConfig>,
+    /// SMB settings (for `kind = "smb"`).
+    #[serde(default)]
+    pub smb: Option<SmbConfig>,
+}
+
+impl SourceConfig {
+    /// A local source rooted at `path`.
+    pub fn local(name: impl Into<String>, path: impl Into<PathBuf>) -> Self {
+        Self {
+            name: name.into(),
+            kind: SourceKind::Local,
+            path: path.into(),
+            s3: None,
+            sftp: None,
+            smb: None,
+        }
+    }
+
+    /// Checks that exactly the settings for `kind` are present.
+    fn validate(&self) -> anyhow::Result<()> {
+        let name = &self.name;
+        let has_path = !self.path.as_os_str().is_empty();
+        let tables = [
+            ("s3", self.s3.is_some(), SourceKind::S3),
+            ("sftp", self.sftp.is_some(), SourceKind::Sftp),
+            ("smb", self.smb.is_some(), SourceKind::Smb),
+        ];
+        for (table, present, kind) in tables {
+            if present && self.kind != kind {
+                bail!("source {name:?}: [sources.{table}] is only allowed with kind = \"{table}\"");
+            }
+            if !present && self.kind == kind {
+                bail!("source {name:?}: kind = \"{table}\" needs a [sources.{table}] table");
+            }
+        }
+        match self.kind {
+            SourceKind::Local if !has_path => bail!("source {name:?}: path is required"),
+            SourceKind::Local => {}
+            _ if has_path => {
+                bail!(
+                    "source {name:?}: path is only for local sources; set the root in the backend table"
+                )
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 /// The full server configuration.
@@ -144,11 +216,8 @@ impl Config {
         };
         cfg.apply_env(|k| std::env::var(k).ok())?;
         if cfg.sources.is_empty() {
-            cfg.sources.push(SourceConfig {
-                name: "files".into(),
-                kind: SourceKind::Local,
-                path: cfg.data_dir.join("files"),
-            });
+            cfg.sources
+                .push(SourceConfig::local("files", cfg.data_dir.join("files")));
         }
         cfg.validate()?;
         Ok(cfg)
@@ -232,6 +301,7 @@ impl Config {
             if !seen.insert(&s.name) {
                 bail!("duplicate source name {:?}", s.name);
             }
+            s.validate()?;
         }
         if self.session_ttl_hours == 0 {
             bail!("session_ttl_hours must be at least 1");
@@ -281,11 +351,7 @@ fn parse_sources(v: &str) -> anyhow::Result<Vec<SourceConfig>> {
             let (name, path) = pair
                 .split_once('=')
                 .with_context(|| format!("FILEBRARY_SOURCES entry {pair:?} is not name=path"))?;
-            Ok(SourceConfig {
-                name: name.trim().to_owned(),
-                kind: SourceKind::Local,
-                path: PathBuf::from(path.trim()),
-            })
+            Ok(SourceConfig::local(name.trim(), path.trim()))
         })
         .collect()
 }
@@ -351,5 +417,74 @@ mod tests {
             ..Config::default()
         };
         assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn parses_remote_sources() {
+        let cfg: Config = toml::from_str(
+            r#"
+            [[sources]]
+            name = "files"
+            path = "/srv"
+
+            [[sources]]
+            name = "photos"
+            kind = "s3"
+            [sources.s3]
+            bucket = "family"
+            prefix = "lib"
+            endpoint = "http://minio:9000"
+
+            [[sources]]
+            name = "nas"
+            kind = "sftp"
+            [sources.sftp]
+            host = "nas.lan"
+            username = "fb"
+            private_key = "/keys/id"
+            host_key_fingerprint = "SHA256:abc"
+
+            [[sources]]
+            name = "office"
+            kind = "smb"
+            [sources.smb]
+            host = "fs"
+            share = "Projects"
+            "#,
+        )
+        .unwrap();
+        cfg.validate().unwrap();
+        assert_eq!(cfg.sources[1].kind, SourceKind::S3);
+        assert_eq!(cfg.sources[1].s3.as_ref().unwrap().bucket, "family");
+        assert_eq!(cfg.sources[2].kind, SourceKind::Sftp);
+        assert_eq!(cfg.sources[3].smb.as_ref().unwrap().share, "Projects");
+    }
+
+    #[test]
+    fn source_tables_must_match_kind() {
+        let check = |t: &str| {
+            toml::from_str::<Config>(t)
+                .map_err(anyhow::Error::from)
+                .and_then(|c| c.validate())
+        };
+        // Missing table for the kind.
+        assert!(check("[[sources]]\nname = \"a\"\nkind = \"s3\"").is_err());
+        // Table for another kind.
+        assert!(
+            check("[[sources]]\nname = \"a\"\npath = \"/x\"\n[sources.smb]\nhost = \"h\"\nshare = \"s\"")
+                .is_err()
+        );
+        // `path` on a remote source.
+        assert!(
+            check("[[sources]]\nname = \"a\"\nkind = \"smb\"\npath = \"/x\"\n[sources.smb]\nhost = \"h\"\nshare = \"s\"")
+                .is_err()
+        );
+        // Local without a path.
+        assert!(check("[[sources]]\nname = \"a\"").is_err());
+        // Unknown keys inside a backend table.
+        assert!(
+            check("[[sources]]\nname = \"a\"\nkind = \"s3\"\n[sources.s3]\nbucket = \"b\"\nbuckt = \"c\"")
+                .is_err()
+        );
     }
 }
