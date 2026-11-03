@@ -30,6 +30,8 @@ pub struct Inner {
     pub upload_dir: PathBuf,
     /// Upload ids with a chunk currently being written (one writer at a time).
     pub uploads_in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// Login rate limiter and auth hooks.
+    pub auth: crate::auth::AuthRuntime,
 }
 
 impl Deref for AppState {
@@ -61,7 +63,9 @@ impl AppState {
         let upload_dir = config.data_dir.join("uploads");
         std::fs::create_dir_all(&upload_dir)
             .with_context(|| format!("creating {}", upload_dir.display()))?;
+        let auth = crate::auth::AuthRuntime::new(&config);
         Ok(Self(Arc::new(Inner {
+            auth,
             config,
             db,
             sources,
