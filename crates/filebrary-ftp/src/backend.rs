@@ -36,7 +36,7 @@ use unftp_core::{
     storage::{Error, ErrorKind, FEATURE_RESTART, Fileinfo, Metadata, StorageBackend},
 };
 
-use crate::access::{Denied, FtpAccount, Op};
+use crate::access::{Change, Denied, FtpAccount, Op, RemoveError};
 
 /// The libunftp user type: a logged-in account.
 #[derive(Clone)]
@@ -177,6 +177,13 @@ fn denied(d: Denied) -> Error {
     Error::new(kind, d)
 }
 
+fn remove_error(e: RemoveError) -> Error {
+    match e {
+        RemoveError::Denied(d) => denied(d),
+        RemoveError::Storage(s) => storage_error(s),
+    }
+}
+
 fn perm() -> Error {
     Error::from(ErrorKind::PermissionDenied)
 }
@@ -274,12 +281,13 @@ impl StorageBackend<FtpUser> for Backend {
                 })
                 .collect::<Vec<_>>()
         } else {
-            let (_, vp, storage) = resolve(user, path.as_ref(), Op::View).await?;
+            let (source, vp, storage) = resolve(user, path.as_ref(), Op::View).await?;
             storage
                 .list(&vp)
                 .await
                 .map_err(storage_error)?
                 .iter()
+                .filter(|e| !user.account.hide(&source, &vp, &e.name))
                 .map(|e| Fileinfo {
                     path: PathBuf::from(&e.name),
                     metadata: Meta::from(e),
@@ -359,7 +367,16 @@ impl StorageBackend<FtpUser> for Backend {
             .await
             .map_err(storage_error)?;
         metrics::counter!("filebrary_ftp_transfers_total", "direction" => "upload").increment(1);
-        user.account.after_write(&source, &vp, written).await;
+        user.account
+            .after_change(
+                &source,
+                Change::Upload {
+                    path: &vp,
+                    size: written,
+                    replaced: existing.is_some(),
+                },
+            )
+            .await;
         Ok(written.saturating_sub(start_pos))
     }
 
@@ -368,12 +385,15 @@ impl StorageBackend<FtpUser> for Backend {
         user: &FtpUser,
         path: P,
     ) -> unftp_core::storage::Result<()> {
-        let (_, vp, storage) = resolve_inner(user, path.as_ref(), Op::Delete).await?;
+        let (source, vp, storage) = resolve_inner(user, path.as_ref(), Op::Delete).await?;
         let e = storage.stat(&vp).await.map_err(storage_error)?;
         if e.is_dir() {
             return Err(Error::from(ErrorKind::PermanentFileNotAvailable));
         }
-        storage.delete(&vp).await.map_err(storage_error)
+        user.account
+            .remove(&source, &vp, &storage)
+            .await
+            .map_err(remove_error)
     }
 
     async fn mkd<P: AsRef<Path> + Send + fmt::Debug>(
@@ -381,11 +401,15 @@ impl StorageBackend<FtpUser> for Backend {
         user: &FtpUser,
         path: P,
     ) -> unftp_core::storage::Result<()> {
-        let (_, vp, storage) = resolve_inner(user, path.as_ref(), Op::Upload).await?;
+        let (source, vp, storage) = resolve_inner(user, path.as_ref(), Op::Upload).await?;
         if stat_opt(storage.as_ref(), &vp).await?.is_some() {
             return Err(Error::from(ErrorKind::PermanentFileNotAvailable));
         }
-        storage.mkdir(&vp).await.map_err(storage_error)
+        storage.mkdir(&vp).await.map_err(storage_error)?;
+        user.account
+            .after_change(&source, Change::Mkdir { path: &vp })
+            .await;
+        Ok(())
     }
 
     async fn rename<P: AsRef<Path> + Send + fmt::Debug>(
@@ -409,7 +433,18 @@ impl StorageBackend<FtpUser> for Backend {
         storage
             .rename(&from_vp, &to_vp, exists)
             .await
-            .map_err(storage_error)
+            .map_err(storage_error)?;
+        user.account
+            .after_change(
+                &to_source,
+                Change::Rename {
+                    from: &from_vp,
+                    to: &to_vp,
+                    replaced: exists,
+                },
+            )
+            .await;
+        Ok(())
     }
 
     async fn rmd<P: AsRef<Path> + Send + fmt::Debug>(
@@ -417,7 +452,7 @@ impl StorageBackend<FtpUser> for Backend {
         user: &FtpUser,
         path: P,
     ) -> unftp_core::storage::Result<()> {
-        let (_, vp, storage) = resolve_inner(user, path.as_ref(), Op::Delete).await?;
+        let (source, vp, storage) = resolve_inner(user, path.as_ref(), Op::Delete).await?;
         let e = storage.stat(&vp).await.map_err(storage_error)?;
         if !e.is_dir() {
             return Err(Error::from(ErrorKind::PermanentDirectoryNotAvailable));
@@ -425,7 +460,10 @@ impl StorageBackend<FtpUser> for Backend {
         if !storage.list(&vp).await.map_err(storage_error)?.is_empty() {
             return Err(Error::from(ErrorKind::PermanentDirectoryNotEmpty));
         }
-        storage.delete(&vp).await.map_err(storage_error)
+        user.account
+            .remove(&source, &vp, &storage)
+            .await
+            .map_err(remove_error)
     }
 
     async fn cwd<P: AsRef<Path> + Send + fmt::Debug>(

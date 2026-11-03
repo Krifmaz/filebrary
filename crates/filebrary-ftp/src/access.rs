@@ -3,7 +3,7 @@
 use std::{fmt::Debug, net::IpAddr, sync::Arc};
 
 use async_trait::async_trait;
-use filebrary_storage::{Storage, VPath};
+use filebrary_storage::{Storage, StorageError, VPath};
 
 /// What a client wants to do with a path. The server crate maps each one to
 /// a permission (`view`, `download`, `upload`, `edit`, `delete`).
@@ -36,6 +36,46 @@ pub enum Denied {
     /// The user is over their storage quota.
     #[error("quota exceeded")]
     QuotaExceeded,
+}
+
+/// A change made over FTP, reported to [`FtpAccount::after_change`] once it
+/// succeeded. Paths are the ones the user sees.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Change<'a> {
+    /// A file was written (`STOR`); `size` is the final file size.
+    Upload {
+        /// The file.
+        path: &'a VPath,
+        /// Its size in bytes.
+        size: u64,
+        /// Whether an existing file was replaced or resumed.
+        replaced: bool,
+    },
+    /// A folder was created (`MKD`).
+    Mkdir {
+        /// The folder.
+        path: &'a VPath,
+    },
+    /// A file or folder was renamed or moved (`RNFR`/`RNTO`).
+    Rename {
+        /// The old path.
+        from: &'a VPath,
+        /// The new path.
+        to: &'a VPath,
+        /// Whether an existing item at `to` was replaced.
+        replaced: bool,
+    },
+}
+
+/// Why [`FtpAccount::remove`] failed.
+#[derive(Debug, thiserror::Error)]
+pub enum RemoveError {
+    /// Refused by a permission or visibility rule.
+    #[error(transparent)]
+    Denied(#[from] Denied),
+    /// The storage operation failed.
+    #[error(transparent)]
+    Storage(#[from] StorageError),
 }
 
 /// A logged-in FTP user.
@@ -73,10 +113,34 @@ pub trait FtpAccount: Send + Sync + Debug + 'static {
         Ok(())
     }
 
-    /// Called after a file was written successfully. `path` is the path the
-    /// user sees, `size` the final file size. Use it to publish an upload
-    /// event and update quota usage. The default does nothing.
-    async fn after_write(&self, _source: &str, _path: &VPath, _size: u64) {}
+    /// Removes a file or folder (after the permission and type checks).
+    /// Override it to send deletes to a trash bin; `storage` is the
+    /// confined backend from [`resolve`](Self::resolve). The default deletes
+    /// permanently.
+    ///
+    /// # Errors
+    ///
+    /// [`RemoveError`] when the item cannot be removed.
+    async fn remove(
+        &self,
+        _source: &str,
+        path: &VPath,
+        storage: &Arc<dyn Storage>,
+    ) -> Result<(), RemoveError> {
+        Ok(storage.delete(path).await?)
+    }
+
+    /// Whether to leave the entry `name` out of the listing of folder `dir`
+    /// (a user-visible path) in `source`, for example a reserved trash
+    /// folder. The default shows everything.
+    fn hide(&self, _source: &str, _dir: &VPath, _name: &str) -> bool {
+        false
+    }
+
+    /// Called after a change succeeded. Use it to publish events, record
+    /// activity, keep tags in step and update quota usage. The default does
+    /// nothing.
+    async fn after_change(&self, _source: &str, _change: Change<'_>) {}
 }
 
 /// Logs users in. Implemented by the server crate on top of its user table.

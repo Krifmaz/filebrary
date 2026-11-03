@@ -13,10 +13,21 @@
 //! * [`api`]: JSON endpoints under `/api`.
 //! * [`shares`]: share links.
 //! * [`ops`]: health, metrics, logging, OpenAPI, notifications admin, FTP glue.
+//! * [`organize`]: trash bin, tags and stars.
+//! * [`activity`]: the activity log.
 //! * [`web`]: the embedded React UI.
 
 #![warn(missing_docs)]
 
+/// Formats an SQL string from *trusted constants only* (table names and SQL
+/// fragments defined in this crate, never user input) and marks it as audited
+/// for sqlx. Values always go through `.bind()`.
+macro_rules! sql_fmt {
+    ($($t:tt)*) => { sqlx::AssertSqlSafe(format!($($t)*)) };
+}
+pub(crate) use sql_fmt;
+
+pub mod activity;
 pub mod api;
 pub mod auth;
 pub mod config;
@@ -24,6 +35,7 @@ pub mod crypto;
 pub mod db;
 pub mod error;
 pub mod ops;
+pub mod organize;
 pub mod shares;
 pub mod state;
 pub use filebrary_storage as storage;
@@ -53,6 +65,7 @@ pub fn spawn_maintenance(state: AppState) -> tokio::task::JoinHandle<()> {
                 Ok(n) => tracing::info!(count = n, "removed stale uploads"),
                 Err(e) => tracing::warn!(error = %e, "purging uploads failed"),
             }
+            organize::maintain(&state).await;
         }
     })
 }

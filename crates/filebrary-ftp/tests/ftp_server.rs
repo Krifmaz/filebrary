@@ -8,7 +8,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use filebrary_ftp::{Denied, FtpAccess, FtpAccount, FtpConfig, FtpServer, Op};
+use filebrary_ftp::{Change, Denied, FtpAccess, FtpAccount, FtpConfig, FtpServer, Op};
 use filebrary_storage::{Storage, VPath, local::LocalStorage};
 use suppaftp::tokio::AsyncFtpStream;
 use tokio::io::AsyncReadExt;
@@ -52,11 +52,16 @@ impl FtpAccount for Account {
             _ => Err(Denied::NotFound),
         }
     }
-    async fn after_write(&self, source: &str, path: &VPath, size: u64) {
-        self.writes
-            .lock()
-            .unwrap()
-            .push((source.into(), path.to_string(), size));
+    fn hide(&self, _source: &str, dir: &VPath, name: &str) -> bool {
+        dir.is_root() && name == ".hidden"
+    }
+    async fn after_change(&self, source: &str, change: Change<'_>) {
+        if let Change::Upload { path, size, .. } = change {
+            self.writes
+                .lock()
+                .unwrap()
+                .push((source.into(), path.to_string(), size));
+        }
     }
 }
 
@@ -155,8 +160,13 @@ async fn root_lists_sources() {
 #[tokio::test]
 async fn upload_rename_delete_inside_scope() {
     let f = start(5).await;
+    std::fs::create_dir_all(f.root.join("files/home/alice/.hidden")).unwrap();
     let mut c = login(&f).await;
     c.cwd("/files").await.unwrap();
+    assert!(
+        c.nlst(None).await.unwrap().is_empty(),
+        "hidden entries are listed"
+    );
     c.mkdir("docs").await.unwrap();
     let mut data: &[u8] = b"hello ftp";
     c.put_file("docs/a.txt", &mut data).await.unwrap();

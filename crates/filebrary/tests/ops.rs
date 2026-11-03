@@ -495,3 +495,56 @@ async fn ftp_uses_real_users_and_scopes() {
     assert_eq!(e["user"], "carol");
     assert_eq!(e["path"], "/home/carol/note.txt");
 }
+
+#[tokio::test]
+async fn ftp_deletes_go_to_the_trash_and_are_logged() {
+    use suppaftp::tokio::AsyncFtpStream;
+
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let pasv = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let t = app_with(|c| {
+        c.ftp.enabled = true;
+        c.ftp.listen = SocketAddr::from(([127, 0, 0, 1], port));
+        c.ftp.passive_ports = [pasv, pasv.saturating_add(20)];
+    })
+    .await;
+    t.user("root", "root-pass", true, Perms::ALL, "/").await;
+    std::fs::write(t.dir.path().join("files/old.txt"), "old").unwrap();
+    filebrary::ops::ftp::spawn(&t.state, std::future::pending())
+        .unwrap()
+        .unwrap();
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    for _ in 0..100 {
+        if tokio::net::TcpStream::connect(addr).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let mut c = AsyncFtpStream::connect(addr).await.unwrap();
+    c.login("root", "root-pass").await.unwrap();
+    c.rm("/files/old.txt").await.unwrap();
+    assert!(!t.dir.path().join("files/old.txt").exists());
+    let trashed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM trash")
+        .fetch_one(&t.state.db)
+        .await
+        .unwrap();
+    assert_eq!(trashed, 1);
+    // The trash folder exists on disk but is never listed or reachable.
+    assert!(t.dir.path().join("files/.filebrary-trash").exists());
+    assert!(c.nlst(Some("/files")).await.unwrap().is_empty());
+    assert!(c.cwd("/files/.filebrary-trash").await.is_err());
+    c.mkdir("/files/new").await.unwrap();
+    let actions: Vec<String> = sqlx::query_scalar("SELECT action FROM activity ORDER BY id")
+        .fetch_all(&t.state.db)
+        .await
+        .unwrap();
+    assert_eq!(actions, ["trash", "mkdir"]);
+}

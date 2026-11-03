@@ -69,7 +69,10 @@ async fn sends_plain_text_mail() {
     let h = Dispatcher::from_config(&c).unwrap().spawn(&bus);
     h.send_test("mail", "the body".into()).await.unwrap();
     let got = data.lock().unwrap().clone();
-    assert!(got.contains("Subject: [home] Filebrary test notification"), "{got}");
+    assert!(
+        got.contains("Subject: [home] Filebrary test notification"),
+        "{got}"
+    );
     assert!(got.contains("To: admin@example.com"), "{got}");
     assert!(got.contains("the body"), "{got}");
 }

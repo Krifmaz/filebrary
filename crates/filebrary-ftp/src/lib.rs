@@ -28,6 +28,6 @@ pub mod backend;
 mod config;
 mod server;
 
-pub use access::{Denied, FtpAccess, FtpAccount, Op};
+pub use access::{Change, Denied, FtpAccess, FtpAccount, Op, RemoveError};
 pub use config::{FtpConfig, FtpsConfig, FtpsMode};
 pub use server::{FtpError, FtpServer};

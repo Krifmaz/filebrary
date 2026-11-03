@@ -7,6 +7,9 @@
 //!   `edit`, `delete`) and gets its backend from [`api::files::scoped`], so
 //!   the user is confined to their scope by [`Storage::sub`] exactly as in
 //!   the web API.
+//! * Deletes go to the trash bin like web deletes, the trash folder is
+//!   hidden, renames carry tags and stars along, and every change is
+//!   recorded in the activity log (with `"via": "ftp"`).
 //! * Finished uploads publish an `upload` event.
 //!
 //! The account is loaded at login: permission changes apply from the next
@@ -15,13 +18,18 @@
 use std::{net::IpAddr, sync::Arc};
 
 use async_trait::async_trait;
-use filebrary_ftp::{Denied, FtpAccess, FtpAccount, Op};
+use filebrary_ftp::{Change, Denied, FtpAccess, FtpAccount, Op, RemoveError};
 use tokio::sync::OnceCell;
 
 use crate::{
+    activity::{Activity, action},
     api,
     auth::{self, Perms, User, password},
     error::AppError,
+    organize::{
+        self, meta,
+        trash::{self, Removed},
+    },
     state::AppState,
     storage::{Storage, VPath},
 };
@@ -133,27 +141,116 @@ impl FtpAccount for Account {
     ) -> Result<Arc<dyn Storage>, Denied> {
         api::files::scoped(&self.state, &self.user, source, perm_for(op), path)
             .await
-            .map_err(|e| match e {
-                AppError::Forbidden(_) => Denied::Forbidden,
-                AppError::NotFound => Denied::NotFound,
-                other => {
-                    tracing::warn!(error = %other, "ftp scope resolution failed");
-                    Denied::NotFound
-                }
-            })
+            .map_err(denied)
     }
 
-    async fn after_write(&self, source: &str, path: &VPath, size: u64) {
-        let real = self
-            .user
+    fn hide(&self, source: &str, dir: &VPath, name: &str) -> bool {
+        // The trash folder at the top of the source is never listed.
+        name == trash::TRASH_DIR && self.real(source, dir).is_root()
+    }
+
+    async fn remove(
+        &self,
+        source: &str,
+        path: &VPath,
+        _storage: &Arc<dyn Storage>,
+    ) -> Result<(), RemoveError> {
+        // Same as the web API: confine, then move to the trash (or delete
+        // when the trash is off) and record the activity.
+        let outcome = async {
+            let real =
+                organize::confine(&self.state, &self.user, source, Perms::DELETE, path).await?;
+            let removed = trash::remove(&self.state, Some(self.user.id), source, &real).await?;
+            crate::error::AppResult::Ok((real, removed))
+        }
+        .await;
+        match outcome {
+            Ok((real, removed)) => {
+                let ev = match &removed {
+                    Removed::Trashed(item) => Activity::new(action::TRASH)
+                        .details(serde_json::json!({ "trash_id": item.id, "via": "ftp" })),
+                    Removed::Deleted => {
+                        Activity::new(action::DELETE).details(serde_json::json!({ "via": "ftp" }))
+                    }
+                };
+                ev.user(&self.user)
+                    .at(source, &real)
+                    .record(&self.state)
+                    .await;
+                Ok(())
+            }
+            Err(e) => Err(RemoveError::Denied(denied(e))),
+        }
+    }
+
+    async fn after_change(&self, source: &str, change: Change<'_>) {
+        let via = serde_json::json!({ "via": "ftp" });
+        match change {
+            Change::Upload {
+                path,
+                size,
+                replaced,
+            } => {
+                let real = self.real(source, path);
+                Activity::new(action::UPLOAD)
+                    .user(&self.user)
+                    .at(source, &real)
+                    .details(
+                        serde_json::json!({ "size": size, "overwrite": replaced, "via": "ftp" }),
+                    )
+                    .record(&self.state)
+                    .await;
+                self.state.events.publish(filebrary_events::Event::Upload {
+                    user: self.user.username.clone(),
+                    source: source.to_owned(),
+                    path: real.to_string(),
+                    size,
+                });
+            }
+            Change::Mkdir { path } => {
+                Activity::new(action::MKDIR)
+                    .user(&self.user)
+                    .at(source, &self.real(source, path))
+                    .details(via)
+                    .record(&self.state)
+                    .await;
+            }
+            Change::Rename { from, to, .. } => {
+                let (from, to) = (self.real(source, from), self.real(source, to));
+                // Tags and stars follow the item, as in the web API.
+                if let Err(e) = meta::on_move(&self.state.db, source, &from, source, &to).await {
+                    tracing::warn!(error = %e, "ftp rename: moving tags failed");
+                }
+                Activity::new(action::MOVE)
+                    .user(&self.user)
+                    .at(source, &from)
+                    .target(&to)
+                    .details(via)
+                    .record(&self.state)
+                    .await;
+            }
+        }
+    }
+}
+
+impl Account {
+    /// The real path in the source for a user-visible path.
+    fn real(&self, source: &str, path: &VPath) -> VPath {
+        self.user
             .grant(source)
-            .map_or_else(|| path.clone(), |g| g.scope.join_path(path));
-        self.state.events.publish(filebrary_events::Event::Upload {
-            user: self.user.username.clone(),
-            source: source.to_owned(),
-            path: real.to_string(),
-            size,
-        });
+            .map_or_else(|| path.clone(), |g| g.scope.join_path(path))
+    }
+}
+
+/// Maps a server error to an FTP refusal.
+fn denied(e: AppError) -> Denied {
+    match e {
+        AppError::Forbidden(_) | AppError::BadRequest(_) => Denied::Forbidden,
+        AppError::NotFound => Denied::NotFound,
+        other => {
+            tracing::warn!(error = %other, "ftp operation failed");
+            Denied::NotFound
+        }
     }
 }
 

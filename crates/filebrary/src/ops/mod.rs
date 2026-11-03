@@ -17,7 +17,7 @@
 //! # Events
 //!
 //! Code that does something worth notifying about publishes on
-//! [`crate::AppState::events`]:
+//! [`crate::state::Inner::events`]:
 //!
 //! ```ignore
 //! state.events.publish(filebrary_events::Event::ShareOpened { .. });
