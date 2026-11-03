@@ -15,8 +15,47 @@ use crate::{
 /// Longest username accepted.
 pub const MAX_USERNAME_LEN: usize = 64;
 
+/// What kind of account a user has.
+///
+/// JSON: `"admin"`, `"user"` or `"read_only"`. Stored as the `is_admin` and
+/// `read_only` columns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+    /// Every permission on every source; manages users and settings.
+    Admin,
+    /// What the permission rules grant.
+    User,
+    /// What the permission rules grant, capped at view and download: never
+    /// uploads, edits, deletes or shares, whatever the rules say.
+    ReadOnly,
+}
+
+impl Role {
+    /// The role stored as these two flags (`is_admin` wins).
+    pub fn from_flags(is_admin: bool, read_only: bool) -> Self {
+        match (is_admin, read_only) {
+            (true, _) => Self::Admin,
+            (false, true) => Self::ReadOnly,
+            (false, false) => Self::User,
+        }
+    }
+
+    /// The `(is_admin, read_only)` columns for this role.
+    pub fn flags(self) -> (bool, bool) {
+        match self {
+            Self::Admin => (true, false),
+            Self::User => (false, false),
+            Self::ReadOnly => (false, true),
+        }
+    }
+}
+
 /// A user account as stored (never includes the password hash).
+///
+/// Serialised with a derived `role` field next to `is_admin` and `read_only`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, sqlx::FromRow)]
+#[serde(into = "UserView")]
 pub struct UserRecord {
     /// Database id.
     pub id: i64,
@@ -26,15 +65,52 @@ pub struct UserRecord {
     pub auth_source: String,
     /// Administrators have every permission and manage users.
     pub is_admin: bool,
+    /// Read-only accounts can view and download, nothing more (see [`Role`]).
+    pub read_only: bool,
     /// Disabled accounts cannot log in and their sessions stop working.
     pub disabled: bool,
     /// Unix creation time.
     pub created_at: i64,
 }
 
+impl UserRecord {
+    /// The account's role.
+    pub fn role(&self) -> Role {
+        Role::from_flags(self.is_admin, self.read_only)
+    }
+}
+
+/// JSON shape of a [`UserRecord`].
+#[derive(Serialize)]
+struct UserView {
+    id: i64,
+    username: String,
+    auth_source: String,
+    role: Role,
+    is_admin: bool,
+    read_only: bool,
+    disabled: bool,
+    created_at: i64,
+}
+
+impl From<UserRecord> for UserView {
+    fn from(u: UserRecord) -> Self {
+        Self {
+            role: u.role(),
+            id: u.id,
+            username: u.username,
+            auth_source: u.auth_source,
+            is_admin: u.is_admin,
+            read_only: u.read_only && !u.is_admin,
+            disabled: u.disabled,
+            created_at: u.created_at,
+        }
+    }
+}
+
 macro_rules! user_cols {
     () => {
-        "id, username, auth_source, is_admin, disabled, created_at"
+        "id, username, auth_source, is_admin, read_only, disabled, created_at"
     };
 }
 
@@ -70,7 +146,8 @@ fn map_unique(e: sqlx::Error) -> AppError {
     }
 }
 
-/// Creates a local user with a password (validated and hashed here).
+/// Creates a local user with a password (validated and hashed here), as an
+/// administrator or a regular user. See [`create_with_role`].
 ///
 /// # Errors
 ///
@@ -81,15 +158,32 @@ pub async fn create(
     password: &str,
     is_admin: bool,
 ) -> AppResult<UserRecord> {
+    let role = if is_admin { Role::Admin } else { Role::User };
+    create_with_role(db, username, password, role).await
+}
+
+/// Creates a local user with a password (validated and hashed here) and a role.
+///
+/// # Errors
+///
+/// `BadRequest` for an invalid name or password, `Conflict` if the name is taken.
+pub async fn create_with_role(
+    db: &SqlitePool,
+    username: &str,
+    password: &str,
+    role: Role,
+) -> AppResult<UserRecord> {
     validate_name(username)?;
     password::validate(password)?;
     let hash = password::hash(password.to_owned()).await?;
     let now = db::now();
-    sqlx::query_as(concat!("INSERT INTO users (username, password_hash, auth_source, is_admin, disabled, created_at, updated_at)
-         VALUES (?, ?, 'local', ?, 0, ?, ?) RETURNING ", user_cols!()))
+    let (is_admin, read_only) = role.flags();
+    sqlx::query_as(concat!("INSERT INTO users (username, password_hash, auth_source, is_admin, read_only, disabled, created_at, updated_at)
+         VALUES (?, ?, 'local', ?, ?, 0, ?, ?) RETURNING ", user_cols!()))
     .bind(username)
     .bind(hash)
     .bind(is_admin)
+    .bind(read_only)
     .bind(now)
     .bind(now)
     .fetch_one(db)
@@ -208,7 +302,10 @@ async fn enabled_admins(db: &SqlitePool) -> AppResult<i64> {
 pub struct UserUpdate {
     /// New username.
     pub username: Option<String>,
-    /// Grant or revoke administrator rights.
+    /// New role. Do not combine with `is_admin`.
+    pub role: Option<Role>,
+    /// Grant or revoke administrator rights (the older form of `role`:
+    /// `true` is `admin`, `false` is `user`).
     pub is_admin: Option<bool>,
     /// Disable or re-enable the account.
     pub disabled: Option<bool>,
@@ -236,7 +333,14 @@ pub async fn update(db: &SqlitePool, id: i64, upd: &UserUpdate) -> AppResult<Use
         }
         password::validate(pw)?;
     }
-    let is_admin = upd.is_admin.unwrap_or(cur.is_admin);
+    let (is_admin, read_only) = match (upd.role, upd.is_admin) {
+        (Some(_), Some(_)) => {
+            return Err(AppError::bad_request("give either role or is_admin, not both"));
+        }
+        (Some(r), None) => r.flags(),
+        (None, Some(a)) => (a, cur.read_only && !a),
+        (None, None) => (cur.is_admin, cur.read_only),
+    };
     let disabled = upd.disabled.unwrap_or(cur.disabled);
     if cur.is_admin && !cur.disabled && (!is_admin || disabled) && enabled_admins(db).await? <= 1 {
         return Err(AppError::bad_request(
@@ -244,12 +348,13 @@ pub async fn update(db: &SqlitePool, id: i64, upd: &UserUpdate) -> AppResult<Use
         ));
     }
     let user: UserRecord = sqlx::query_as(concat!(
-        "UPDATE users SET username = ?, is_admin = ?, disabled = ?, updated_at = ?
+        "UPDATE users SET username = ?, is_admin = ?, read_only = ?, disabled = ?, updated_at = ?
          WHERE id = ? RETURNING ",
         user_cols!()
     ))
     .bind(upd.username.as_deref().unwrap_or(&cur.username))
     .bind(is_admin)
+    .bind(read_only)
     .bind(disabled)
     .bind(db::now())
     .bind(id)

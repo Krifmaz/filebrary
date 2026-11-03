@@ -123,7 +123,7 @@ pub async fn remove_member(pool: &SqlitePool, group_id: i64, user_id: i64) -> Ap
 pub async fn members(pool: &SqlitePool, group_id: i64) -> AppResult<Vec<UserRecord>> {
     get(pool, group_id).await?;
     Ok(sqlx::query_as(
-        "SELECT u.id, u.username, u.auth_source, u.is_admin, u.disabled, u.created_at
+        "SELECT u.id, u.username, u.auth_source, u.is_admin, u.read_only, u.disabled, u.created_at
          FROM users u JOIN group_members m ON m.user_id = u.id
          WHERE m.group_id = ? ORDER BY u.username",
     )

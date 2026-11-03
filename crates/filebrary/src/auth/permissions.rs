@@ -48,6 +48,8 @@ impl Perms {
     pub const SHARE: Perms = Perms(1 << 5);
     /// Every permission.
     pub const ALL: Perms = Perms(0b11_1111);
+    /// What a read-only account is capped at: view and download.
+    pub const READ_ONLY: Perms = Perms(Self::VIEW.0 | Self::DOWNLOAD.0);
 
     const NAMES: [(&'static str, Perms); 6] = [
         ("view", Self::VIEW),
