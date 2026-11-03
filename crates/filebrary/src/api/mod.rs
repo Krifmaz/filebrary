@@ -10,6 +10,7 @@
 //! | `/api/auth/...`, `/api/users`, `/api/groups` | [`crate::auth::routes`] | auth |
 //! | `/api/shares`                  | [`crate::shares::api_router`]    | shares  |
 //! | `/api/public/shares/{token}`   | [`crate::shares::public_router`] | shares  |
+//! | `/api/search`, `/api/search/...` | [`crate::search::api`]  | search  |
 //!
 //! Errors are JSON: `{"error": "<machine code>", "message": "<human text>"}`.
 //! Paths are passed as `path` query parameters (or JSON fields), absolute
@@ -33,6 +34,7 @@ pub fn router() -> Router<AppState> {
         .merge(files::routes())
         .merge(uploads::routes())
         .merge(crate::auth::routes::routes())
+        .merge(crate::search::api::routes())
         .nest("/shares", crate::shares::api_router())
         .nest("/public/shares", crate::shares::public_router())
 }

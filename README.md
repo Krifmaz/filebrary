@@ -34,3 +34,35 @@ cargo build --release
 `FILEBRARY_SECURE_COOKIES`, `FILEBRARY_LOG` (filter, e.g. `debug`),
 `FILEBRARY_LOG_FORMAT` (`text`|`json`). `filebrary healthcheck` probes
 `/healthz` for container health checks.
+
+## Search
+
+Every source is indexed into SQLite (names, type, size, date) and kept fresh
+by file-system notifications (inotify/FSEvents/ReadDirectoryChangesW) plus a
+periodic rescan. `GET /api/search?q=report&type=document&min_size=1M&after=2024-01-01&tag=work`
+filters by name, type, extension, size, date and tag; results only include
+what the caller may view.
+
+```toml
+[search]
+enabled = true              # FILEBRARY_SEARCH_ENABLED
+watch = true                # FILEBRARY_SEARCH_WATCH
+rescan_minutes = 60         # unwatched sources; FILEBRARY_SEARCH_RESCAN_MINUTES
+watched_rescan_hours = 24   # safety net for watched sources (0 = off)
+exclude_sources = []
+batch_size = 500
+```
+
+Indexing cost, measured with `cargo run --release --example index_bench -- N`
+(Linux, ext4, release build):
+
+| Files     | First scan | Rescan (no changes) | Peak RSS (`VmHWM`) | Database |
+|-----------|-----------:|--------------------:|-------------------:|---------:|
+| 100 000   | 1.2 s      | 1.5 s               | 13.3 MiB           | 25 MiB   |
+| 1 000 000 | 12.6 s     | 17.9 s              | 16.5 MiB           | 251 MiB  |
+
+Memory stays flat as the tree grows because the walker streams batches of
+`batch_size` rows through a short channel; a substring name query on one
+million entries takes about 55 ms. On Linux each watched folder uses one
+inotify watch: raise `fs.inotify.max_user_watches` for very large trees (if
+the watcher cannot start, the source falls back to periodic rescans).

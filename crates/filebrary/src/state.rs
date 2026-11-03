@@ -7,6 +7,7 @@ use sqlx::SqlitePool;
 
 use crate::{
     config::{Config, SourceKind},
+    search::Search,
     storage::{Source, local::LocalStorage},
 };
 
@@ -26,6 +27,8 @@ pub struct Inner {
     pub secret: [u8; 32],
     /// Directory where resumable uploads are staged.
     pub upload_dir: PathBuf,
+    /// Indexed search. Background indexing starts with [`crate::search::Search::start`].
+    pub search: Search,
 }
 
 impl Deref for AppState {
@@ -66,7 +69,10 @@ impl AppState {
         let upload_dir = config.data_dir.join("uploads");
         std::fs::create_dir_all(&upload_dir)
             .with_context(|| format!("creating {}", upload_dir.display()))?;
+        let names: Vec<String> = sources.keys().cloned().collect();
+        let search = Search::new(db.clone(), config.search.clone(), &names);
         Ok(Self(Arc::new(Inner {
+            search,
             config,
             db,
             sources,

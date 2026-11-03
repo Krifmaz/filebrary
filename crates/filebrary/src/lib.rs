@@ -12,6 +12,7 @@
 //! * [`auth`]: users, permissions, sessions and extractors.
 //! * [`api`]: JSON endpoints under `/api`.
 //! * [`shares`]: share links.
+//! * [`search`]: the file index, its watcher and `GET /api/search`.
 //! * [`web`]: the embedded React UI.
 
 #![warn(missing_docs)]
@@ -22,6 +23,7 @@ pub mod config;
 pub mod crypto;
 pub mod db;
 pub mod error;
+pub mod search;
 pub mod shares;
 pub mod state;
 pub use filebrary_storage as storage;
