@@ -9,7 +9,7 @@ use axum::{
 use filebrary::{
     AppState, app,
     auth::{Perms, session},
-    config::{Config, SourceConfig, SourceKind},
+    config::{Config, SourceConfig},
     db,
     storage::VPath,
 };
@@ -46,11 +46,7 @@ async fn setup() -> Env {
         secure_cookies: Some(false),
         max_drop_upload_mib: 1,
         login_max_attempts: 3,
-        sources: vec![SourceConfig {
-            name: "files".into(),
-            kind: SourceKind::Local,
-            path: root.clone(),
-        }],
+        sources: vec![SourceConfig::local("files", root.clone())],
         ..Config::default()
     };
     let pool = db::open_memory().await.unwrap();
