@@ -20,6 +20,7 @@ path = "src/main.rs"
 
 [dependencies]
 filebrary-storage = { path = "../filebrary-storage" }
+filebrary-preview = { path = "../filebrary-preview" }
 
 # Web
 axum = { workspace = true }
@@ -64,8 +65,9 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 uuid = { version = "1.29.0", features = ["v4"] }
+tempfile = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 tower = { version = "0.5.3", features = ["util"] }
 

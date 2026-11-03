@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, ops::Deref, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
+use filebrary_preview::{PreviewCache, PreviewConfig, PreviewService, Tools};
 use sqlx::SqlitePool;
 
 use crate::{
@@ -26,6 +27,8 @@ pub struct Inner {
     pub secret: [u8; 32],
     /// Directory where resumable uploads are staged.
     pub upload_dir: PathBuf,
+    /// Thumbnail and preview generator with its cache (`None` when disabled).
+    pub previews: Option<PreviewService>,
 }
 
 impl Deref for AppState {
@@ -66,12 +69,18 @@ impl AppState {
         let upload_dir = config.data_dir.join("uploads");
         std::fs::create_dir_all(&upload_dir)
             .with_context(|| format!("creating {}", upload_dir.display()))?;
+        let previews = if config.previews.enabled {
+            Some(build_previews(&config)?)
+        } else {
+            None
+        };
         Ok(Self(Arc::new(Inner {
             config,
             db,
             sources,
             secret,
             upload_dir,
+            previews,
         })))
     }
 
@@ -79,4 +88,24 @@ impl AppState {
     pub fn source(&self, name: &str) -> Option<&Source> {
         self.sources.get(name)
     }
+}
+
+/// Sets up the preview service: finds the external tools on `PATH` and opens
+/// the cache under `<data_dir>/cache/previews`.
+fn build_previews(config: &Config) -> anyhow::Result<PreviewService> {
+    let ps = &config.previews;
+    let dir = config.data_dir.join("cache").join("previews");
+    let cache = PreviewCache::new(&dir, ps.cache_mib.saturating_mul(1 << 20))
+        .with_context(|| format!("creating {}", dir.display()))?;
+    let mut cfg = PreviewConfig {
+        thumb_size: ps.thumb_size,
+        large_size: ps.large_size,
+        ..PreviewConfig::default()
+    };
+    if ps.max_parallel > 0 {
+        cfg.max_parallel = ps.max_parallel;
+    }
+    let tools = Tools::detect();
+    tracing::info!(tools = %tools.summary(), "preview tools");
+    Ok(PreviewService::new(cfg, tools, cache))
 }

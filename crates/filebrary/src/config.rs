@@ -87,6 +87,40 @@ pub struct Config {
     pub log_format: LogFormat,
     /// Storage sources.
     pub sources: Vec<SourceConfig>,
+    /// Thumbnails and previews (`[previews]` table).
+    pub previews: PreviewSettings,
+}
+
+/// Settings for thumbnails and previews.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct PreviewSettings {
+    /// Turn previews off entirely.
+    pub enabled: bool,
+    /// Size limit of the preview cache in `<data_dir>/cache/previews`, in MiB.
+    /// The least recently used previews are deleted past it.
+    pub cache_mib: u64,
+    /// Longest side of thumbnails, in pixels.
+    pub thumb_size: u32,
+    /// Longest side of large previews (RAW, HEIC, TIFF), in pixels.
+    pub large_size: u32,
+    /// Previews generated at once. 0 means one per CPU, at most 8.
+    pub max_parallel: usize,
+    /// Largest file from a remote source copied locally to make a preview, in MiB.
+    pub max_remote_mib: u64,
+}
+
+impl Default for PreviewSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            cache_mib: 2048,
+            thumb_size: 256,
+            large_size: 1920,
+            max_parallel: 0,
+            max_remote_mib: 1024,
+        }
+    }
 }
 
 impl Default for Config {
@@ -105,6 +139,7 @@ impl Default for Config {
             login_window_secs: 300,
             log_format: LogFormat::Text,
             sources: Vec::new(),
+            previews: PreviewSettings::default(),
         }
     }
 }
@@ -180,6 +215,12 @@ impl Config {
                 _ => bail!("invalid value for FILEBRARY_LOG_FORMAT: {v:?} (use text or json)"),
             };
         }
+        if let Some(v) = get("FILEBRARY_PREVIEWS") {
+            self.previews.enabled = parse_bool("FILEBRARY_PREVIEWS", &v)?;
+        }
+        if let Some(v) = get("FILEBRARY_PREVIEW_CACHE_MIB") {
+            self.previews.cache_mib = parse("FILEBRARY_PREVIEW_CACHE_MIB", &v)?;
+        }
         if let Some(v) = get("FILEBRARY_SOURCES") {
             self.sources = parse_sources(&v)?;
         }
@@ -209,6 +250,11 @@ impl Config {
         }
         if self.max_chunk_mib == 0 || self.max_chunk_mib > 4096 {
             bail!("max_chunk_mib must be between 1 and 4096");
+        }
+        if !(32..=1024).contains(&self.previews.thumb_size)
+            || !(256..=8192).contains(&self.previews.large_size)
+        {
+            bail!("previews.thumb_size must be 32-1024 and previews.large_size 256-8192");
         }
         if self.login_max_attempts == 0 {
             bail!("login_max_attempts must be at least 1");
