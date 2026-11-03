@@ -47,6 +47,8 @@ pub struct Inner {
     pub metrics: crate::ops::metrics::Metrics,
     /// When the server started, for the uptime metric.
     pub started_at: std::time::Instant,
+    /// Background job queue (conversions, archives, custom jobs).
+    pub jobs: crate::jobs::JobQueue,
     /// Login rate limiter and auth hooks.
     pub auth: crate::auth::AuthRuntime,
     /// SSO, LDAP, 2FA, API key and quota settings and caches.
@@ -97,6 +99,7 @@ impl AppState {
         let metrics = crate::ops::metrics::Metrics::install();
         let names: Vec<String> = sources.keys().cloned().collect();
         let search = Search::new(db.clone(), config.search.clone(), &names);
+        let jobs = crate::jobs::JobQueue::new(&config.jobs);
         let content_index = crate::content::open_index(&config)?;
         let auth = crate::auth::AuthRuntime::new(&config);
         let identity = crate::identity::Identity::new(&config);
@@ -107,6 +110,7 @@ impl AppState {
         };
         Ok(Self(Arc::new(Inner {
             search,
+            jobs,
             auth,
             identity,
             config,

@@ -13,6 +13,8 @@
 //! | `/api/previews`, `/api/sources/{id}/{preview,media,stream}` | [`previews`] | previews |
 //! | `/api/shares`                  | [`crate::shares::api_router`]    | shares  |
 //! | `/api/public/shares/{token}`   | [`crate::shares::public_router`] | shares  |
+//! | `/api/jobs`, `/api/jobs/{id}/...` | [`crate::jobs::api`]   | jobs    |
+//! | `/api/sources/{id}/archive...` | [`archive`]               | jobs    |
 //! | `/api/trash`, `/api/tags`, `/api/stars`, `/api/annotations` | [`crate::organize::api`] | organize |
 //! | `/api/activity`                | [`crate::activity`]       | organize |
 //! | `/api/comments`                | [`crate::comments`]       | social  |
@@ -26,6 +28,7 @@
 //! within the source and `/`-separated; they are validated by
 //! [`crate::storage::VPath::parse`].
 
+pub mod archive;
 pub mod download;
 pub mod files;
 pub mod previews;
@@ -46,6 +49,8 @@ pub fn router() -> Router<AppState> {
         .merge(previews::routes())
         .merge(uploads::routes())
         .merge(text::routes())
+        .merge(archive::routes())
+        .merge(crate::jobs::api::routes())
         .merge(crate::auth::routes::routes())
         .merge(crate::identity::routes::routes())
         .merge(crate::search::api::routes())

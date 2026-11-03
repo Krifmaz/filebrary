@@ -19,6 +19,7 @@ Preview it locally with `mdbook serve docs`.
 | `crates/filebrary-events`  | Event bus and notifications (webhook, ntfy, email).           |
 | `crates/filebrary-ftp`     | Optional FTP/FTPS server over the storage trait.              |
 | `crates/filebrary-storage` | `Storage` trait, `VPath` path validation; local, S3, SFTP and SMB backends. |
+| `crates/filebrary-archive` | Browse zip/tar/tar.gz/7z; create zip and tar.gz (pure Rust). |
 | `crates/filebrary-webdav`  | WebDAV class 1 and 2 server over the `Storage` trait.         |
 | `crates/filebrary-identity` | TOTP 2FA, API keys, quotas, LDAP and OIDC logic and storage. |
 | `crates/filebrary-preview` | Thumbnails, previews, media info, transcoding, preview cache. |
@@ -66,7 +67,9 @@ without either header is refused with `428`.
 (`30`; `0` makes deletes permanent), `FILEBRARY_ACTIVITY_RETENTION_DAYS`
 (`365`; `0` keeps events forever), `FILEBRARY_PREVIEWS` (`true`|`false`),
 `FILEBRARY_PREVIEW_CACHE_MIB` (default `2048`), `FILEBRARY_WEBDAV`
-(`true`|`false`). `filebrary healthcheck` probes
+(`true`|`false`), `FILEBRARY_JOB_WORKERS`,
+`FILEBRARY_JOB_RETAIN_DAYS`, `FILEBRARY_FFMPEG`, `FILEBRARY_FFPROBE`,
+`FILEBRARY_SOFFICE`. `filebrary healthcheck` probes
 `/healthz` for container health checks.
 
 `FILEBRARY_SOURCES` makes local sources only; S3, SFTP and SMB sources are set
@@ -300,3 +303,15 @@ the browser cannot play (HEVC, AC-3, WMA, ...) stream through
 plays from the download route with range requests. External tools always run
 with an argument list (no shell), a time limit, and a fresh LibreOffice
 profile per conversion.
+
+## Jobs, conversions and archives
+
+Long-running work runs as background jobs (`/api/jobs`) with progress, cancel
+and retry: archive creation (zip, tar.gz), documents to PDF (LibreOffice),
+video transcode/remux and audio extraction (ffmpeg), and image resize/format
+changes (built in). Administrators can define custom jobs in the config file
+(`[[jobs.custom]]`); they run a program directly with an argument list, never
+through a shell, on a private copy of the file. Archives (zip, tar, tar.gz,
+7z) can be browsed and single files downloaded without extracting
+(`/api/sources/{id}/archive`). Conversions need the `full` Docker image (or
+ffmpeg/LibreOffice installed); everything else works in the small image.
