@@ -30,6 +30,7 @@ you can do in the UI you can script.
 | `/api/shares` | Managing your share links. |
 | `/api/public/shares/{token}` | Anonymous access to a share link. |
 | files, uploads, downloads | Browsing, chunked uploads, downloads with ranges, zip of a selection. |
+| `/api/sources/{id}/text` | Load and save text files for the editor, with ETag conflict detection ([details](guide/files.md#text-editor)). |
 
 Exact routes and request bodies will be published in the OpenAPI
 specification.
