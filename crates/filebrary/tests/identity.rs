@@ -204,6 +204,42 @@ async fn api_keys() {
     assert_eq!(st, StatusCode::OK);
     assert_eq!(me["user"]["username"], "erin");
 
+    // The key's scopes cap what it can do with files.
+    std::fs::write(t.root().join("a.txt"), b"hello").unwrap();
+    let resp = t
+        .send(bearer(
+            &token,
+            "GET",
+            "/api/sources/files/download?path=/a.txt",
+            None,
+        ))
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let resp = t
+        .send(bearer(
+            &token,
+            "POST",
+            "/api/sources/files/uploads",
+            Some(j!({ "path": "/b.txt", "size": 1 })),
+        ))
+        .await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let (_, del) = json(
+        t.send(bearer(
+            &token,
+            "POST",
+            "/api/sources/files/delete",
+            Some(j!({ "paths": ["/a.txt"] })),
+        ))
+        .await,
+    )
+    .await;
+    assert!(
+        del["deleted"].as_array().is_none_or(|d| d.is_empty()),
+        "{del}"
+    );
+    assert!(t.root().join("a.txt").exists());
+
     // Keys cannot manage keys or 2FA.
     let resp = t
         .send(bearer(

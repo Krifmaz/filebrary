@@ -355,6 +355,10 @@ impl AuthHooks for IdentityHooks {
         })
     }
 
+    fn bearer_ceiling(&self, scopes: &[String]) -> Perms {
+        scope_ceiling(scopes)
+    }
+
     fn before_write<'a>(
         &'a self,
         state: &'a AppState,

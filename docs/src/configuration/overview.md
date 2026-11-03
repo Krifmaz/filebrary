@@ -37,7 +37,51 @@ path = "/srv"
 | `activity_retention_days` | `FILEBRARY_ACTIVITY_RETENTION_DAYS` | `365` | Days activity-log events are kept. `0` keeps them forever. |
 | (none) | `FILEBRARY_LOG` | `info` | Log filter, e.g. `debug` or `info,sqlx=warn`. |
 
-Settings for later features are documented here as they land.
+## Sign-in, API keys and quotas
+
+| TOML key | Environment | Default | Description |
+| --- | --- | --- | --- |
+| `totp_issuer` | (none) | `Filebrary` | Name shown in authenticator apps for two-factor codes. |
+| `default_quota` | `FILEBRARY_DEFAULT_QUOTA` | unlimited | Storage limit for users without their own, e.g. `10G` (binary units). |
+| `quota_rescan_hours` | `FILEBRARY_QUOTA_RESCAN_HOURS` | `6` | Hours between measurements of each user's real usage. `0` turns it off. |
+| `[oidc]` | | off | OpenID Connect single sign-on (table below). Needs `public_url`. |
+| `[ldap]` | | off | LDAP sign-in (table below). |
+
+`[oidc]` keys:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `issuer_url` | required | The provider's issuer, e.g. `https://auth.example.com`. Must be `https://` (except for `localhost`). |
+| `client_id` | required | Client id registered at the provider. |
+| `client_secret` / `client_secret_file` | none | Client secret, or a file holding it. `FILEBRARY_OIDC_CLIENT_SECRET` overrides both. |
+| `scopes` | `["profile", "email", "groups"]` | Scopes requested besides `openid`. |
+| `username_claim` | `preferred_username` | Claim used as the local username (then a verified `email`, then `sub`). |
+| `groups_claim` | `groups` | Claim listing the user's groups. |
+| `admin_group` | none | Members are administrators; checked at every login. |
+| `allowed_groups` | `[]` (everyone) | Only members of one of these groups may sign in. |
+| `auto_create` | `true` | Create a local user on first sign-in. |
+| `button_label` | `Sign in with SSO` | Text of the login button. |
+| `disable_password_login` | `false` | Hide and refuse password login for everyone but administrators. |
+
+`[ldap]` keys:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `url` | required | `ldaps://host:636` or `ldap://host:389`. |
+| `starttls` | `false` | Upgrade an `ldap://` connection with StartTLS. |
+| `bind_dn` | none (anonymous search) | Service account used to find users. |
+| `bind_password` / `bind_password_file` | none | Its password, or a file holding it. `FILEBRARY_LDAP_BIND_PASSWORD` overrides both. |
+| `base_dn` | required | Where users are searched for. |
+| `user_filter` | `(&(objectClass=person)(uid={username}))` | Search filter; `{username}` is replaced by the escaped login name. |
+| `username_attribute` | `uid` | Attribute holding the login name. |
+| `email_attribute` | `mail` | Attribute holding the e-mail address. |
+| `display_name_attribute` | `cn` | Attribute holding the display name. |
+| `group_attribute` | `memberOf` | Attribute listing the user's group DNs. |
+| `required_group` | none | Only members of this group DN may sign in. |
+| `admin_group` | none | Members of this group DN are administrators. |
+| `timeout_secs` | `10` | Network timeout. |
+
+See [Single sign-on, 2FA, API keys and quotas](sso.md) for how these fit together.
 
 ## Health check
 
