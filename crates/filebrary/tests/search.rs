@@ -446,3 +446,38 @@ async fn watcher_keeps_the_index_fresh() {
     tokio::time::sleep(Duration::from_millis(800)).await;
     assert!(e.paths(&e.admin, "q=trashed").await.is_empty());
 }
+
+#[tokio::test]
+async fn file_operation_hooks_update_an_unwatched_source() {
+    let e = env(false).await;
+    e.scan().await;
+    let s = &e.state.search;
+    let vp = |p: &str| filebrary::storage::VPath::parse(p).unwrap();
+
+    write(&e.root, "uploads/batch/invoice-77.pdf", 9);
+    s.changed(&e.state, "files", &vp("uploads"));
+    eventually("upload indexed", async || {
+        e.paths(&e.admin, "q=invoice").await == ["/uploads/batch/invoice-77.pdf"]
+    })
+    .await;
+
+    std::fs::rename(e.root.join("uploads"), e.root.join("archive")).unwrap();
+    s.renamed(&e.state, "files", &vp("uploads"), &vp("archive"));
+    eventually("move followed", async || {
+        e.paths(&e.admin, "q=invoice").await == ["/archive/batch/invoice-77.pdf"]
+    })
+    .await;
+
+    std::fs::remove_dir_all(e.root.join("archive")).unwrap();
+    s.removed(&e.state, "files", &vp("archive"));
+    eventually("delete followed", async || {
+        e.paths(&e.admin, "q=invoice").await.is_empty()
+    })
+    .await;
+
+    // Paths that must stay out of the index are ignored.
+    write(&e.root, ".filebrary-trash/9/invoice-old.pdf", 1);
+    s.changed(&e.state, "files", &vp(".filebrary-trash/9"));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(e.paths(&e.admin, "q=invoice").await.is_empty());
+}

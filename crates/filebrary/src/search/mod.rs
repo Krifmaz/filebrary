@@ -307,16 +307,174 @@ impl Search {
                 Err(e) => tracing::warn!(error = %e, "could not prune the search index"),
             }
             for name in keep {
-                let local_root = state
-                    .config
-                    .sources
-                    .iter()
-                    .find(|s| s.name == name)
-                    .filter(|s| s.kind == SourceKind::Local)
-                    .and_then(|s| std::fs::canonicalize(&s.path).ok());
+                let local_root = local_root(&state, &name);
                 tokio::spawn(run_source(me.clone(), state.clone(), name, local_root));
             }
         });
+    }
+}
+
+/// The canonical root of a local source, `None` for other backends.
+fn local_root(state: &AppState, name: &str) -> Option<PathBuf> {
+    state
+        .config
+        .sources
+        .iter()
+        .find(|s| s.name == name)
+        .filter(|s| s.kind == SourceKind::Local)
+        .and_then(|s| std::fs::canonicalize(&s.path).ok())
+}
+
+impl Search {
+    /// Tells the index that `path` (a real path inside `source`) was created
+    /// or changed through Filebrary: an upload, a new folder, the target of a
+    /// copy or move. Folders are walked. Runs in the background and never
+    /// fails the caller; errors are logged.
+    ///
+    /// Watched sources would notice anyway; calling this makes the change
+    /// searchable at once and is what keeps unwatched sources fresh between
+    /// rescans.
+    pub fn changed(&self, state: &AppState, source: &str, path: &VPath) {
+        let Some(job) = self.hook(state, source, path) else {
+            return;
+        };
+        tokio::spawn(async move {
+            if let Err(e) = job.refresh().await {
+                tracing::warn!(source = %job.source.name, path = %job.path, error = %e, "updating the search index");
+            }
+        });
+    }
+
+    /// Tells the index that `path` (and everything under it) was deleted or
+    /// moved to the trash. Runs in the background.
+    pub fn removed(&self, state: &AppState, source: &str, path: &VPath) {
+        let Some(job) = self.hook(state, source, path) else {
+            return;
+        };
+        tokio::spawn(async move {
+            match job.search.store().remove(&job.source.name, &job.path).await {
+                Ok(n) if n > 0 => job.search.publish(IndexEvent::Remove {
+                    source: job.source.name.clone(),
+                    path: job.path.to_string(),
+                }),
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "updating the search index"),
+            }
+        });
+    }
+
+    /// Tells the index that `from` was renamed or moved to `to` within
+    /// `source` (real paths). The indexed subtree moves in place; if `from`
+    /// was not indexed, `to` is indexed from scratch. Runs in the background.
+    pub fn renamed(&self, state: &AppState, source: &str, from: &VPath, to: &VPath) {
+        let Some(job) = self.hook(state, source, to) else {
+            return;
+        };
+        let from = from.clone();
+        tokio::spawn(async move {
+            let moved = match job
+                .search
+                .store()
+                .rename(&job.source.name, &from, &job.path)
+                .await
+            {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!(error = %e, "updating the search index");
+                    false
+                }
+            };
+            if moved {
+                job.search.publish(IndexEvent::Rename {
+                    source: job.source.name.clone(),
+                    from: from.to_string(),
+                    to: job.path.to_string(),
+                });
+            }
+            if let Err(e) = job.refresh_shallow(!moved).await {
+                tracing::warn!(error = %e, "updating the search index");
+            }
+        });
+    }
+
+    fn hook(&self, state: &AppState, source: &str, path: &VPath) -> Option<HookJob> {
+        if !self.indexes(source) || path.is_root() || is_ignored(path) {
+            return None;
+        }
+        Some(HookJob {
+            search: self.clone(),
+            source: state.source(source)?.clone(),
+            local_root: local_root(state, source),
+            path: path.clone(),
+        })
+    }
+}
+
+/// One background index update requested by a file operation.
+struct HookJob {
+    search: Search,
+    source: crate::storage::Source,
+    local_root: Option<PathBuf>,
+    path: VPath,
+}
+
+impl HookJob {
+    /// Re-reads the path; walks it if it is a folder.
+    async fn refresh(&self) -> anyhow::Result<()> {
+        self.refresh_shallow(true).await
+    }
+
+    /// Re-reads the path; walks it if it is a folder and `walk` is set.
+    async fn refresh_shallow(&self, walk: bool) -> anyhow::Result<()> {
+        let name = &self.source.name;
+        let row = match &self.local_root {
+            Some(root) => {
+                let (root, path) = (root.clone(), self.path.clone());
+                tokio::task::spawn_blocking(move || {
+                    scan::local_row(&root, &scan::local_path(&root, &path), &path)
+                })
+                .await?
+            }
+            None => match self.source.storage.stat(&self.path).await {
+                Ok(e) => Some((IndexRow::from_entry(&e), e.is_dir())),
+                Err(crate::storage::StorageError::NotFound) => None,
+                Err(e) => return Err(e.into()),
+            },
+        };
+        let Some((row, descend)) = row else {
+            if self.search.store().remove(name, &self.path).await? > 0 {
+                self.search.publish(IndexEvent::Remove {
+                    source: name.clone(),
+                    path: self.path.to_string(),
+                });
+            }
+            return Ok(());
+        };
+        let generation = self.search.generation(name);
+        let out = self
+            .search
+            .store()
+            .upsert_batch(name, std::slice::from_ref(&row), generation)
+            .await?;
+        for r in out.changed {
+            self.search.publish(IndexEvent::Upsert {
+                source: name.clone(),
+                path: r.path,
+                size: r.size,
+                mtime: r.mtime,
+                is_dir: r.is_dir,
+            });
+        }
+        if walk && descend {
+            scan::scan(
+                &self.search,
+                &self.source,
+                self.local_root.as_deref(),
+                &self.path,
+            )
+            .await?;
+        }
+        Ok(())
     }
 }
 
