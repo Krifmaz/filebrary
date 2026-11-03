@@ -128,7 +128,7 @@ export function App() {
         {error && <p className="error" role="alert">{error}</p>}
         {route.name === "files" && sources && !current && <p className="error">Unknown source “{route.source}”.</p>}
         {route.name === "files" && current && (
-          <Browser key={`${current.id}:${route.path}`} source={current} path={route.path} uploads={uploads} refreshKey={refreshKey} />
+          <Browser key={`${current.id}:${route.path}`} source={current} path={route.path} uploads={uploads} refreshKey={refreshKey} user={user.id} />
         )}
         {route.name === "home" && sources?.length === 0 && (
           <p className="muted">No storage sources are available to you. Ask an administrator for access.</p>
