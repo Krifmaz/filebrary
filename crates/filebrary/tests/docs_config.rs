@@ -46,6 +46,7 @@ const ENV_DOCS: &[&str] = &[
 const ENV_SOURCES: &[&str] = &[
     include_str!("../src/config.rs"),
     include_str!("../src/main.rs"),
+    include_str!("../src/jobs/config.rs"),
 ];
 
 /// Returns every setting key of `Config`, in the docs' dotted notation.

@@ -24,6 +24,7 @@ filebrary-fulltext = { path = "../filebrary-fulltext" }
 filebrary-identity = { path = "../filebrary-identity" }
 filebrary-events = { path = "../filebrary-events" }
 filebrary-ftp = { path = "../filebrary-ftp" }
+filebrary-archive = { path = "../filebrary-archive" }
 filebrary-preview = { path = "../filebrary-preview" }
 filebrary-webdav = { path = "../filebrary-webdav" }
 
@@ -34,7 +35,7 @@ tower = { version = "0.5.3", default-features = false, features = ["util"] }
 tower-http = { version = "0.7.1", default-features = false, features = ["trace", "set-header", "limit", "catch-panic", "request-id", "util"] }
 hyper = { version = "1.12.0", default-features = false }
 http-body-util = "0.1.5"
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["process"] }
 tokio-util = { version = "0.7.20", features = ["io", "io-util"] }
 futures = { version = "0.3.34", default-features = false, features = ["std", "async-await"] }
 bytes = "1.12.1"
@@ -61,7 +62,10 @@ base64 = { workspace = true }
 hex = "0.4.3"
 
 # Archives (pure Rust deflate backend, no C libraries)
-zip = { version = "9.3.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { workspace = true }
+
+# Image conversion (pure Rust codecs)
+image = { workspace = true }
 
 # File-system notifications for the search index (inotify/FSEvents/ReadDirectoryChangesW;
 # no C libraries beyond the OS).
@@ -81,6 +85,8 @@ metrics = "0.24.3"
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 utoipa = { version = "6.0.0", default-features = false, features = ["macros"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 suppaftp = { version = "8", default-features = false, features = ["tokio"] }

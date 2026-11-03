@@ -1,0 +1,19 @@
+[package]
+name = "filebrary-archive"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Browse inside zip, tar and 7z archives and create zip or tar.gz archives, for Filebrary."
+
+[dependencies]
+flate2 = { workspace = true }
+serde = { workspace = true }
+sevenz-rust2 = { workspace = true }
+tar = { workspace = true }
+thiserror = { workspace = true }
+zip = { workspace = true }
+
+[dev-dependencies]
+sevenz-rust2 = { workspace = true, features = ["compress"] }

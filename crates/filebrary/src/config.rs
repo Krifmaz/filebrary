@@ -233,6 +233,8 @@ pub struct Config {
     pub metrics: MetricsConfig,
     /// Indexed search (see [`crate::search::SearchSettings`]).
     pub search: crate::search::SearchSettings,
+    /// Background jobs, conversions and custom jobs (`[jobs]`).
+    pub jobs: crate::jobs::JobsConfig,
     /// Full-text content search settings (`[fulltext]` section).
     pub fulltext: filebrary_fulltext::FulltextConfig,
     /// Thumbnails and previews (`[previews]` table).
@@ -301,6 +303,7 @@ impl Default for Config {
             notifications: filebrary_events::NotificationsConfig::default(),
             metrics: MetricsConfig::default(),
             search: crate::search::SearchSettings::default(),
+            jobs: crate::jobs::JobsConfig::default(),
             fulltext: filebrary_fulltext::FulltextConfig::default(),
             previews: PreviewSettings::default(),
         }
@@ -485,6 +488,7 @@ impl Config {
         if let Some(v) = get("FILEBRARY_SOURCES").filter(|v| !v.trim().is_empty()) {
             self.sources = parse_sources(&v)?;
         }
+        self.jobs.apply_env(&get)?;
         Ok(())
     }
 
@@ -549,6 +553,7 @@ impl Config {
         if self.metrics.token.as_deref().is_some_and(|t| t.len() < 16) {
             bail!("metrics.token must be at least 16 characters");
         }
+        self.jobs.validate()?;
         Ok(())
     }
 

@@ -1602,3 +1602,254 @@ Bearer token scrapers must send (`Authorization: Bearer <token>`). Without it, `
 | Type        | string, at least 16 characters |
 | Default     | not set |
 | Environment | `FILEBRARY_METRICS_TOKEN` |
+
+## Jobs, conversions and archives
+
+The `[jobs]` table configures the background job queue, the conversion
+tools and archive limits. See [Jobs](../guide/jobs.md).
+
+### `jobs`
+
+The job queue settings, as a table (`[jobs]`). Every key is optional.
+
+### `jobs.workers`
+
+How many jobs run at the same time. Conversions use a lot of CPU, so keep
+this low on small machines.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, `1` to `64`                    |
+| Default     | `2`                                     |
+| Environment | `FILEBRARY_JOB_WORKERS`                 |
+
+### `jobs.retain_days`
+
+Days a finished job (succeeded, failed or cancelled) stays in the job list
+before it is removed. The files a job created are not affected.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer                                 |
+| Default     | `7`                                     |
+| Environment | `FILEBRARY_JOB_RETAIN_DAYS`             |
+
+### `jobs.ffmpeg`
+
+The ffmpeg program used for video and audio conversions (and to decode
+images such as HEIC that the built-in decoder cannot read). A bare name is
+looked up on `PATH`; a value with a path separator is used as given. When
+the program is missing, video conversions are listed as unavailable.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string                                  |
+| Default     | `"ffmpeg"`                              |
+| Environment | `FILEBRARY_FFMPEG`                      |
+
+### `jobs.ffprobe`
+
+The ffprobe program, used to read a video's length so conversions can show
+progress. Without it, conversions still work but progress stays at the
+start until they finish.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string                                  |
+| Default     | `"ffprobe"`                             |
+| Environment | `FILEBRARY_FFPROBE`                     |
+
+### `jobs.soffice`
+
+The LibreOffice program used to convert documents, spreadsheets and
+presentations to PDF.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string                                  |
+| Default     | `"soffice"`                             |
+| Environment | `FILEBRARY_SOFFICE`                     |
+
+### `jobs.timeout_secs`
+
+Longest a single external program (ffmpeg, LibreOffice, a custom job) may
+run before it is stopped and the job fails.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, at least `1`                   |
+| Default     | `21600` (6 hours)                       |
+
+### `jobs.max_archive_files`
+
+Most files and folders one "create archive" job may pack.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer                                 |
+| Default     | `200000`                                |
+
+### `jobs.max_archive_entries`
+
+Most entries listed when browsing inside an archive. Larger archives cannot
+be browsed (they can still be downloaded).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer                                 |
+| Default     | `100000`                                |
+
+### `jobs.max_archive_entry_mib`
+
+Largest single file that can be read out of an archive, in MiB. Reading
+stops at this size, which protects the server from "zip bombs".
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer                                 |
+| Default     | `4096`                                  |
+
+### `jobs.custom`
+
+Custom jobs, as an array of tables (`[[jobs.custom]]`). They can only be
+defined here: the web UI and the API can list and run them but never create
+or change them. The program is started directly with the given arguments,
+with no shell, so quotes, `$VAR`, pipes and globs have no special meaning.
+It runs on a private temporary copy of the selected file, with an empty
+environment except `PATH`, `HOME`, `LANG` and the job's `env`, and is
+stopped (with any programs it started) on cancel or timeout.
+
+```toml
+[[jobs.custom]]
+name = "optimise-png"
+title = "Optimise PNG"
+program = "optipng"
+args = ["-quiet", "-o2", "{input}"]
+extensions = ["png"]
+output = "replace"
+```
+
+### `jobs.custom[].name`
+
+Identifier; the job kind is `custom.<name>`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string: 1 to 32 characters from `a-z`, `0-9`, `-` and `_`; unique |
+| Default     | required                                |
+
+### `jobs.custom[].title`
+
+Label shown in the web UI and the job list.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string                                  |
+| Default     | required                                |
+
+### `jobs.custom[].description`
+
+Longer help text shown in the web UI.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string                                  |
+| Default     | empty                                   |
+
+### `jobs.custom[].program`
+
+The program to run: a bare name looked up on `PATH`, or a full path. If it
+is missing, the job is listed as unavailable.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string                                  |
+| Default     | required                                |
+
+### `jobs.custom[].args`
+
+The arguments, one string each. These placeholders are replaced:
+
+* `{input}`: the full path of the private copy of the selected file;
+* `{output_dir}`: an empty private folder for result files;
+* `{ext}`: the file's extension, lower case (letters and digits only).
+
+The user's file name is never placed on the command line. Any other
+`{...}` is a configuration error.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of strings                        |
+| Default     | `[]`                                    |
+
+### `jobs.custom[].extensions`
+
+File extensions (without the dot) the job applies to. Empty means any file.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | array of strings                        |
+| Default     | `[]`                                    |
+
+### `jobs.custom[].output`
+
+What happens with the results:
+
+* `none`: nothing is written; the end of the program's output is kept in
+  the job's result;
+* `replace`: the program changes `{input}` in place and the changed file
+  replaces the original (needs the **edit** permission; `args` must use
+  `{input}`);
+* `files`: every file the program writes into `{output_dir}` is saved next
+  to the original under a free name (needs the **upload** permission).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | `"none"`, `"replace"` or `"files"`      |
+| Default     | `"none"`                                |
+
+### `jobs.custom[].permission`
+
+The permission a user needs on the file to run the job, in addition to what
+`output` needs.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | `"download"`, `"upload"` or `"edit"`    |
+| Default     | `"download"`                            |
+
+### `jobs.custom[].admin_only`
+
+Only administrators may see and run the job.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean                                 |
+| Default     | `false`                                 |
+
+### `jobs.custom[].timeout_secs`
+
+Time limit for this job, in seconds.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer                                 |
+| Default     | [`jobs.timeout_secs`](#jobstimeout_secs) |
+
+### `jobs.custom[].env`
+
+Extra environment variables for the program.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | table of strings                        |
+| Default     | empty                                   |
+
+### `jobs.custom[].workdir`
+
+Working directory for the program.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | path                                    |
+| Default     | the job's private temporary folder      |
