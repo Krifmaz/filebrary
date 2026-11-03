@@ -618,3 +618,46 @@ async fn branding_and_themes() {
     assert_eq!(m["theme_color"], "#336699");
     assert_eq!(m["icons"][0]["type"], "image/svg+xml");
 }
+
+#[tokio::test]
+async fn comments_follow_moves_and_deletes() {
+    let ctx = setup().await;
+    let (_, alice) = ctx.user("alice", false, Some((ALL, "/"))).await;
+    let post = json!({"source": "files", "path": "/films/a.mp4", "body": "great"});
+    let (s, _) = ctx
+        .call(Some(&alice), Method::POST, "/api/comments", Some(post))
+        .await;
+    assert_eq!(s, StatusCode::CREATED);
+    let (s, _) = ctx
+        .call(
+            Some(&alice),
+            Method::POST,
+            "/api/sources/files/move",
+            Some(json!({"from": "/films", "to": "/movies"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, l) = ctx
+        .call(
+            Some(&alice),
+            Method::GET,
+            "/api/comments?source=files&path=/movies/a.mp4",
+            None,
+        )
+        .await;
+    assert_eq!(l[0]["body"], "great");
+    let (s, _) = ctx
+        .call(
+            Some(&alice),
+            Method::POST,
+            "/api/sources/files/delete",
+            Some(json!({"paths": ["/movies"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM comments")
+        .fetch_one(&ctx.state.db)
+        .await
+        .unwrap();
+    assert_eq!(n, 0);
+}

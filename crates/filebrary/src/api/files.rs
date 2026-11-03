@@ -316,6 +316,17 @@ async fn move_entry(
     let st = scoped(&state, &auth.user, &id, Perms::EDIT, &body.from).await?;
     auth.user.require(&id, Perms::EDIT, &body.to)?;
     st.rename(&body.from, &body.to, body.overwrite).await?;
+    // Keep comment threads attached; the move already happened, so only log failures.
+    let from_real = auth.user.require(&id, Perms::EDIT, &body.from)?;
+    let to_real = auth.user.require(&id, Perms::EDIT, &body.to)?;
+    if body.overwrite
+        && let Err(e) = crate::comments::on_delete(&state.db, &id, &to_real).await
+    {
+        tracing::warn!(error = %e, "dropping comments of an overwritten file");
+    }
+    if let Err(e) = crate::comments::on_rename(&state.db, &id, &from_real, &to_real).await {
+        tracing::warn!(error = %e, "moving comments with their file");
+    }
     let e = st.stat(&body.to).await?;
     Ok(Json(EntryDto::from_entry(e, body.to)))
 }
@@ -375,7 +386,14 @@ async fn delete(
     };
     for visible in body.paths {
         match st.delete(&visible).await {
-            Ok(()) => result.deleted.push(visible),
+            Ok(()) => {
+                // Permanent delete: drop the comments too (a trash would skip this).
+                let real = auth.user.require(&id, Perms::DELETE, &visible)?;
+                if let Err(e) = crate::comments::on_delete(&state.db, &id, &real).await {
+                    tracing::warn!(error = %e, "dropping comments of a deleted file");
+                }
+                result.deleted.push(visible);
+            }
             Err(e) => result.failed.push(DeleteFailure {
                 path: visible,
                 message: AppError::from(e).to_string(),
