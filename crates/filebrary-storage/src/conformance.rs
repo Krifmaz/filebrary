@@ -81,6 +81,7 @@ pub async fn run(s: &dyn Storage) {
     delete_rules(s).await;
     large_file(s).await;
     odd_names(s).await;
+    scopes(s).await;
 }
 
 async fn empty_root(s: &dyn Storage) {
@@ -394,4 +395,57 @@ async fn odd_names(s: &dyn Storage) {
         assert_eq!(listed, [name], "listing shows the exact name");
         s.delete(&p).await.unwrap();
     }
+}
+
+async fn scopes(s: &dyn Storage) {
+    s.mkdir(&vp("sc/home/bob/docs")).await.unwrap();
+    s.mkdir(&vp("sc/home/alice")).await.unwrap();
+    s.write(&vp("sc/home/alice/private"), reader(b"a".to_vec()), false)
+        .await
+        .unwrap();
+    s.write(&vp("sc/home/bob/note"), reader(b"n".to_vec()), false)
+        .await
+        .unwrap();
+
+    let bob = s.sub(&vp("sc/home/bob")).await.unwrap();
+    let mut listed: Vec<String> = bob
+        .list(&VPath::root())
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.name)
+        .collect();
+    listed.sort();
+    assert_eq!(listed, ["docs", "note"]);
+    assert!(bob.stat(&VPath::root()).await.unwrap().is_dir());
+    assert_eq!(read_all(&*bob, "note", None).await.unwrap(), b"n");
+    bob.write(&vp("docs/new"), reader(b"new".to_vec()), false)
+        .await
+        .unwrap();
+    assert_eq!(
+        read_all(s, "sc/home/bob/docs/new", None).await.unwrap(),
+        b"new"
+    );
+    // Nothing outside the scope is reachable.
+    assert_err!(bob.stat(&vp("alice")).await, StorageError::NotFound);
+    assert_err!(
+        bob.delete(&VPath::root()).await,
+        StorageError::InvalidPath(_)
+    );
+    // A scope must be an existing folder.
+    assert_err!(
+        s.sub(&vp("sc/home/bob/note")).await,
+        StorageError::NotADirectory
+    );
+    assert_err!(s.sub(&vp("sc/none")).await, StorageError::NotFound);
+    // Plain paths resolve to themselves, existing or not.
+    assert_eq!(
+        s.resolve(&vp("sc/home/bob/note")).await.unwrap(),
+        vp("sc/home/bob/note")
+    );
+    assert_eq!(
+        s.resolve(&vp("sc/home/bob/missing/deeper")).await.unwrap(),
+        vp("sc/home/bob/missing/deeper")
+    );
+    s.delete(&vp("sc")).await.unwrap();
 }

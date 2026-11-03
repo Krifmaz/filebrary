@@ -195,10 +195,6 @@ impl Conn {
         !self.dead.load(Ordering::Relaxed) && !self.handle.is_closed()
     }
 
-    fn inside(&self, p: &str) -> bool {
-        self.root == "/" || p == self.root || p.starts_with(&format!("{}/", self.root))
-    }
-
     fn join(base: &str, name: &str) -> String {
         if base.ends_with('/') {
             format!("{base}{name}")
@@ -208,11 +204,35 @@ impl Conn {
     }
 }
 
+/// A connection together with the root directory one storage works in.
+struct Ctx {
+    conn: Arc<Conn>,
+    /// The canonical root of this storage (the source root or a sub-scope).
+    root: String,
+}
+
+impl std::ops::Deref for Ctx {
+    type Target = Conn;
+    fn deref(&self) -> &Conn {
+        &self.conn
+    }
+}
+
+impl Ctx {
+    /// Returns `true` if the canonical path `p` is the root or lies inside it.
+    fn inside(&self, p: &str) -> bool {
+        self.root == "/" || p == self.root || p.starts_with(&format!("{}/", self.root))
+    }
+}
+
 /// A source backed by a directory on an SFTP server.
 pub struct SftpStorage {
     cfg: Arc<SftpConfig>,
     check: HostKeyCheck,
-    conn: tokio::sync::Mutex<Option<Arc<Conn>>>,
+    /// Shared with the scoped storages made by [`Storage::sub`].
+    conn: Arc<tokio::sync::Mutex<Option<Arc<Conn>>>>,
+    /// Canonical root of a scoped storage; `None` for the source root.
+    scope: Option<String>,
 }
 
 impl std::fmt::Debug for SftpStorage {
@@ -265,12 +285,19 @@ impl SftpStorage {
         Ok(Self {
             cfg: Arc::new(cfg.clone()),
             check,
-            conn: tokio::sync::Mutex::new(None),
+            conn: Arc::new(tokio::sync::Mutex::new(None)),
+            scope: None,
         })
     }
 
     /// Returns the live connection, connecting if needed.
-    async fn conn(&self) -> StorageResult<Arc<Conn>> {
+    async fn conn(&self) -> StorageResult<Ctx> {
+        let conn = self.raw_conn().await?;
+        let root = self.scope.clone().unwrap_or_else(|| conn.root.clone());
+        Ok(Ctx { conn, root })
+    }
+
+    async fn raw_conn(&self) -> StorageResult<Arc<Conn>> {
         let mut guard = self.conn.lock().await;
         if let Some(c) = guard.as_ref().filter(|c| c.usable()) {
             return Ok(Arc::clone(c));
@@ -381,7 +408,7 @@ impl SftpStorage {
     }
 
     /// Canonical path of the directory `vp` names, checked to lie inside the root.
-    async fn real_dir(&self, c: &Conn, vp: &VPath) -> StorageResult<String> {
+    async fn real_dir(&self, c: &Ctx, vp: &VPath) -> StorageResult<String> {
         if vp.is_root() {
             return Ok(c.root.clone());
         }
@@ -402,7 +429,7 @@ impl SftpStorage {
 
     /// The path of `vp` itself, with its parent resolved (a final symlink is
     /// not followed). The root maps to the root.
-    async fn resolve_entry(&self, c: &Conn, vp: &VPath) -> StorageResult<String> {
+    async fn resolve_entry(&self, c: &Ctx, vp: &VPath) -> StorageResult<String> {
         match (vp.parent(), vp.name()) {
             (Some(parent), Some(name)) => {
                 let dir = self.real_dir(c, &parent).await?;
@@ -413,7 +440,7 @@ impl SftpStorage {
     }
 
     /// The path of `vp` with a final symlink followed and checked.
-    async fn resolve_follow(&self, c: &Conn, vp: &VPath) -> StorageResult<String> {
+    async fn resolve_follow(&self, c: &Ctx, vp: &VPath) -> StorageResult<String> {
         let p = self.resolve_entry(c, vp).await?;
         if vp.is_root() {
             return Ok(p);
@@ -615,6 +642,65 @@ impl SftpStorage {
 
 #[async_trait]
 impl Storage for SftpStorage {
+    async fn sub(&self, scope: &VPath) -> StorageResult<Arc<dyn Storage>> {
+        let c = self.conn().await?;
+        let real = self.resolve_follow(&c, scope).await?;
+        let m = c
+            .sftp
+            .metadata(real.as_str())
+            .await
+            .map_err(|e| Self::fail(&c, e))?;
+        if !m.is_dir() {
+            return Err(StorageError::NotADirectory);
+        }
+        Ok(Arc::new(Self {
+            cfg: Arc::clone(&self.cfg),
+            check: self.check.clone(),
+            conn: Arc::clone(&self.conn),
+            scope: Some(real),
+        }))
+    }
+
+    async fn resolve(&self, vp: &VPath) -> StorageResult<VPath> {
+        let c = self.conn().await?;
+        let mut existing = vp.clone();
+        let mut missing: Vec<String> = Vec::new();
+        loop {
+            let raw = existing
+                .components()
+                .iter()
+                .fold(c.root.clone(), |acc, part| Conn::join(&acc, part));
+            match c.sftp.canonicalize(raw).await {
+                Ok(real) => {
+                    if !c.inside(&real) {
+                        return Err(StorageError::OutsideRoot);
+                    }
+                    let rel = if c.root == "/" {
+                        real.as_str()
+                    } else {
+                        &real[c.root.len()..]
+                    };
+                    let mut out = VPath::parse(rel)?;
+                    for name in missing.iter().rev() {
+                        out = out.join(name)?;
+                    }
+                    return Ok(out);
+                }
+                Err(e) => match Self::fail(&c, e) {
+                    StorageError::NotFound => {
+                        let (Some(parent), Some(name)) = (existing.parent(), existing.name())
+                        else {
+                            return Err(StorageError::NotFound);
+                        };
+                        missing.push(name.to_owned());
+                        existing = parent;
+                    }
+                    other => return Err(other),
+                },
+            }
+        }
+    }
+
     async fn list(&self, vp: &VPath) -> StorageResult<Vec<Entry>> {
         let c = self.conn().await?;
         let dir = self.resolve_follow(&c, vp).await?;
@@ -691,7 +777,7 @@ impl Storage for SftpStorage {
             }
         };
         // Keep the connection alive while the stream is read.
-        let keep = Arc::clone(&c);
+        let keep = Arc::clone(&c.conn);
         Ok(stream
             .map(move |chunk| {
                 let _ = &keep;

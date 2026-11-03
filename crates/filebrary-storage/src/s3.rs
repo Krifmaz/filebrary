@@ -318,6 +318,20 @@ impl S3Storage {
 
 #[async_trait]
 impl Storage for S3Storage {
+    async fn sub(&self, scope: &VPath) -> StorageResult<Arc<dyn Storage>> {
+        Self::refuse_marker(scope)?;
+        if self.head_file(scope).await?.is_some() {
+            return Err(StorageError::NotADirectory);
+        }
+        if !self.dir_exists(scope).await? {
+            return Err(StorageError::NotFound);
+        }
+        Ok(Arc::new(Self {
+            store: Arc::clone(&self.store),
+            prefix: self.prefix.join_path(scope),
+        }))
+    }
+
     async fn list(&self, vp: &VPath) -> StorageResult<Vec<Entry>> {
         let prefix = self.child_prefix(vp)?;
         let res = self

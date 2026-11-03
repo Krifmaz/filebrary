@@ -126,7 +126,8 @@ pub struct SmbStorage {
     cfg: Arc<SmbConfig>,
     /// The root folder inside the share.
     root: VPath,
-    session: Mutex<Option<Session>>,
+    /// Shared with the scoped storages made by [`Storage::sub`].
+    session: Arc<Mutex<Option<Session>>>,
 }
 
 impl std::fmt::Debug for SmbStorage {
@@ -158,7 +159,7 @@ impl SmbStorage {
         Ok(Self {
             cfg: Arc::new(cfg.clone()),
             root,
-            session: Mutex::new(None),
+            session: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -431,6 +432,21 @@ impl SmbStorage {
 
 #[async_trait]
 impl Storage for SmbStorage {
+    async fn sub(&self, scope: &VPath) -> StorageResult<Arc<dyn Storage>> {
+        {
+            let mut guard = self.session().await?;
+            let s = guard.as_mut().ok_or_else(|| io_other("smb: no session"))?;
+            if !self.stat_checked(s, scope).await?.is_directory {
+                return Err(StorageError::NotADirectory);
+            }
+        }
+        Ok(Arc::new(Self {
+            cfg: Arc::clone(&self.cfg),
+            root: self.root.join_path(scope),
+            session: Arc::clone(&self.session),
+        }))
+    }
+
     async fn list(&self, vp: &VPath) -> StorageResult<Vec<Entry>> {
         let mut guard = self.session().await?;
         let s = guard.as_mut().ok_or_else(|| io_other("smb: no session"))?;

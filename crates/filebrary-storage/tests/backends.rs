@@ -214,6 +214,23 @@ async fn symlink_escape(
         .await
         .unwrap();
     assert_eq!(ok, b"ok");
+    // Permission checks see where a path really lands.
+    assert_eq!(
+        s.resolve(&VPath::parse("good_dir/ok.txt").unwrap())
+            .await
+            .unwrap(),
+        VPath::parse("in/ok.txt").unwrap()
+    );
+    assert!(matches!(
+        s.resolve(&VPath::parse("evil_dir/x").unwrap()).await,
+        Err(StorageError::OutsideRoot)
+    ));
+    // A scope cannot be entered through a link that leaves it.
+    let scoped = s.sub(&VPath::root()).await.unwrap();
+    assert!(matches!(
+        scoped.stat(&VPath::parse("evil_dir").unwrap()).await,
+        Err(StorageError::OutsideRoot)
+    ));
     // Deleting a link removes the link, never the target.
     s.delete(&VPath::parse("evil_dir").unwrap()).await.unwrap();
     s.delete(&VPath::parse("evil_file").unwrap()).await.unwrap();
