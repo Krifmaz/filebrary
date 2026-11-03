@@ -480,6 +480,13 @@ pub async fn rescan_quotas(state: &AppState) -> AppResult<usize> {
     Ok(n)
 }
 
+/// Installs [`IdentityHooks`] as the server's auth hooks, turning on LDAP,
+/// two-factor login, API keys and quotas. Call once after
+/// [`AppState::new`]; returns `false` if other hooks were installed first.
+pub fn install(state: &AppState) -> bool {
+    state.auth.set_hooks(Arc::new(IdentityHooks)).is_ok()
+}
+
 /// Starts the identity housekeeping: hourly purge of long-expired API keys
 /// and the quota rescan every `quota_rescan_hours`.
 pub fn spawn_maintenance(state: AppState) -> tokio::task::JoinHandle<()> {

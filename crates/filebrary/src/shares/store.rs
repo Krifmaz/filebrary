@@ -41,6 +41,8 @@ pub struct Share {
     pub upload_only: bool,
     /// Unix time the share was created.
     pub created_at: i64,
+    /// Collection this share serves instead of `source`/`paths`.
+    pub collection_id: Option<i64>,
 }
 
 impl Share {
@@ -72,6 +74,8 @@ pub struct NewShare {
     pub max_downloads: Option<i64>,
     /// Upload-only drop link.
     pub upload_only: bool,
+    /// Collection to serve (then `source` is empty and `paths` empty).
+    pub collection_id: Option<i64>,
 }
 
 /// A partial update. `None` leaves a field unchanged; `Some(None)` clears it.
@@ -121,6 +125,7 @@ fn from_row(row: &SqliteRow) -> Result<Share, ShareError> {
         downloads: row.try_get("downloads")?,
         upload_only: row.try_get::<i64, _>("upload_only")? != 0,
         created_at: row.try_get("created_at")?,
+        collection_id: row.try_get("collection_id")?,
     })
 }
 
@@ -128,7 +133,7 @@ fn from_row(row: &SqliteRow) -> Result<Share, ShareError> {
 macro_rules! cols {
     () => {
         "id, token, owner_id, source, paths, password_hash, expires_at, \
-         max_downloads, downloads, upload_only, created_at"
+         max_downloads, downloads, upload_only, created_at, collection_id"
     };
 }
 
@@ -154,7 +159,8 @@ impl ShareStore {
             let token = new_token();
             let res = sqlx::query(concat!(
                 "INSERT INTO shares (token, owner_id, source, paths, password_hash, expires_at, \
-                 max_downloads, upload_only, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
+                 max_downloads, upload_only, created_at, collection_id) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
                  RETURNING ",
                 cols!()
             ))
@@ -167,6 +173,7 @@ impl ShareStore {
             .bind(new.max_downloads)
             .bind(new.upload_only as i64)
             .bind(created_at)
+            .bind(new.collection_id)
             .fetch_one(&self.pool)
             .await;
             match res {
@@ -340,6 +347,7 @@ mod tests {
             expires_at: None,
             max_downloads: max,
             upload_only: false,
+            collection_id: None,
         }
     }
 
@@ -400,6 +408,7 @@ mod tests {
             max_downloads: None,
             downloads: 0,
             upload_only: false,
+            collection_id: None,
             created_at: 0,
         };
         assert!(!s.is_expired(99));

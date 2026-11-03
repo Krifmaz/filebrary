@@ -20,6 +20,7 @@
 //! * [`collections`]: multi-item collections that can be shared.
 //! * [`cast`]: cookie-free media URLs for Chromecast/AirPlay.
 //! * [`branding`]: branding, themes and the PWA manifest.
+//! * [`search`]: the file index, its watcher and `GET /api/search`.
 //! * [`web`]: the embedded React UI.
 
 #![warn(missing_docs)]
@@ -46,6 +47,7 @@ pub mod error;
 pub mod identity;
 pub mod ops;
 pub mod organize;
+pub mod search;
 pub mod shares;
 pub mod state;
 pub use filebrary_storage as storage;

@@ -30,9 +30,16 @@ async fn setup() -> Ctx {
     std::fs::write(files.join("films/a.mp4"), b"0123456789").unwrap();
     std::fs::write(files.join("notes.txt"), b"hello").unwrap();
     std::fs::write(files.join("home/bob/b.txt"), b"bob").unwrap();
+    let media = dir.path().join("media");
+    std::fs::create_dir_all(media.join("album")).unwrap();
+    std::fs::write(media.join("album/song.mp3"), b"la la").unwrap();
+    std::fs::write(media.join("notes.txt"), b"other notes").unwrap();
     let config = Config {
         data_dir: dir.path().join("data"),
-        sources: vec![SourceConfig::local("files", files)],
+        sources: vec![
+            SourceConfig::local("files", files),
+            SourceConfig::local("media", media),
+        ],
         ..Config::default()
     };
     let pool = db::open_memory().await.unwrap();
@@ -675,4 +682,161 @@ async fn comments_follow_moves_and_deletes() {
         .await
         .unwrap();
     assert!(left.iter().all(|p| !p.starts_with("/movies")), "{left:?}");
+}
+
+#[tokio::test]
+async fn collection_share_links_span_sources() {
+    let ctx = setup().await;
+    let (alice_id, alice) = ctx.user("alice", false, Some((ALL, "/"))).await;
+    filebrary::auth::permissions::set(
+        &ctx.state.db,
+        "media",
+        &filebrary::storage::VPath::root(),
+        filebrary::auth::Subject::User(alice_id),
+        filebrary::auth::Perms::from_bits(ALL),
+    )
+    .await
+    .unwrap();
+    let (_, bob) = ctx.user("bob", false, Some((ALL, "/home/bob"))).await;
+
+    let (_, c) = ctx
+        .call(
+            Some(&alice),
+            Method::POST,
+            "/api/collections",
+            Some(json!({"name": "Mix", "items": [
+                {"source": "files", "path": "/notes.txt"},
+                {"source": "media", "path": "/notes.txt"},
+                {"source": "media", "path": "/album"},
+            ]})),
+        )
+        .await;
+    let cid = c["id"].as_i64().unwrap();
+
+    // Only the owner can share it, and not mixed with paths or as a drop link.
+    let (s, _) = ctx
+        .call(
+            Some(&bob),
+            Method::POST,
+            "/api/shares",
+            Some(json!({"collection_id": cid})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = ctx
+        .call(
+            Some(&alice),
+            Method::POST,
+            "/api/shares",
+            Some(json!({"collection_id": cid, "upload_only": true})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, share) = ctx
+        .call(
+            Some(&alice),
+            Method::POST,
+            "/api/shares",
+            Some(json!({"collection_id": cid})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{share}");
+    assert_eq!(share["collection_id"], cid);
+    let token = share["token"].as_str().unwrap().to_owned();
+
+    // The public listing shows every item, duplicate names made unique.
+    let (s, info) = ctx
+        .call(
+            None,
+            Method::GET,
+            &format!("/api/public/shares/{token}"),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let mut names: Vec<_> = info["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap().to_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["album", "notes (2).txt", "notes.txt"]);
+
+    // Files and folder contents from both sources can be fetched.
+    let get = |uri: String| {
+        ctx.app
+            .clone()
+            .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+    };
+    let r = get(format!(
+        "/api/public/shares/{token}/download?path=notes%20(2).txt"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(
+        to_bytes(r.into_body(), 100).await.unwrap(),
+        &b"other notes"[..]
+    );
+    let r = get(format!(
+        "/api/public/shares/{token}/download?path=album/song.mp3"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(to_bytes(r.into_body(), 100).await.unwrap(), &b"la la"[..]);
+
+    // The whole link zips across sources.
+    let r = get(format!("/api/public/shares/{token}/download"))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let zip = to_bytes(r.into_body(), 1 << 20).await.unwrap();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip.to_vec())).unwrap();
+    let mut entries: Vec<String> = (0..archive.len())
+        .map(|i| archive.by_index(i).unwrap().name().unwrap().into_owned())
+        .collect();
+    entries.sort();
+    assert_eq!(
+        entries,
+        ["album/", "album/song.mp3", "notes (2).txt", "notes.txt"]
+    );
+
+    // Losing access on one source drops its items; deleting the collection kills the link.
+    filebrary::auth::permissions::set(
+        &ctx.state.db,
+        "media",
+        &filebrary::storage::VPath::root(),
+        filebrary::auth::Subject::User(alice_id),
+        filebrary::auth::Perms::from_bits(0),
+    )
+    .await
+    .unwrap();
+    let (_, info) = ctx
+        .call(
+            None,
+            Method::GET,
+            &format!("/api/public/shares/{token}"),
+            None,
+        )
+        .await;
+    assert_eq!(info["name"], "notes.txt");
+    let (s, _) = ctx
+        .call(
+            Some(&alice),
+            Method::DELETE,
+            &format!("/api/collections/{cid}"),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    let (s, _) = ctx
+        .call(
+            None,
+            Method::GET,
+            &format!("/api/public/shares/{token}"),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
 }

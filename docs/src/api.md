@@ -38,5 +38,6 @@ and the main groups of endpoints.
 | `/api/shares` | Managing your share links. |
 | `/api/public/shares/{token}` | Anonymous access to a share link. |
 | files, uploads, downloads | Browsing, chunked uploads, downloads with ranges, zip of a selection. |
+| `/api/sources/{id}/text` | Load and save text files for the editor, with ETag conflict detection ([details](guide/files.md#text-editor)). |
 
 Exact routes, request bodies and responses are in `/api/openapi.json`.

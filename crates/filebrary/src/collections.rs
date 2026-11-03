@@ -421,7 +421,14 @@ pub async fn check_shareable(state: &AppState, owner: &User, id: i64) -> AppResu
         let visible = owner.visible_path(&source, &real).ok_or_else(|| {
             AppError::forbidden(format!("{source}:{path} is no longer in your reach"))
         })?;
-        owner.require(&source, Perms::SHARE | Perms::DOWNLOAD, &visible)?;
+        crate::auth::authorize(
+            state,
+            owner,
+            &source,
+            Perms::SHARE | Perms::DOWNLOAD,
+            &visible,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -445,10 +452,16 @@ pub async fn share_items(state: &AppState, owner: &User, id: i64) -> AppResult<V
         let Some(visible) = owner.visible_path(&source, &real) else {
             continue;
         };
-        if owner
-            .require(&source, Perms::SHARE | Perms::DOWNLOAD, &visible)
+        if state.source(&source).is_none()
+            || crate::auth::authorize(
+                state,
+                owner,
+                &source,
+                Perms::SHARE | Perms::DOWNLOAD,
+                &visible,
+            )
+            .await
             .is_err()
-            || state.source(&source).is_none()
         {
             continue;
         }

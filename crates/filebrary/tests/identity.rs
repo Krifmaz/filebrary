@@ -88,6 +88,7 @@ fn now() -> u64 {
 #[tokio::test]
 async fn totp_two_factor_login() {
     let t = TestApp::new().await;
+    assert!(filebrary::identity::install(&t.state));
     users::create(&t.state.db, "dana", "correct horse battery", false)
         .await
         .unwrap();
@@ -185,6 +186,7 @@ fn bearer(token: &str, method: &str, uri: &str, body: Option<Value>) -> Request<
 #[tokio::test]
 async fn api_keys() {
     let t = TestApp::new().await;
+    assert!(filebrary::identity::install(&t.state));
     let c = t.user("erin", false, Perms::ALL, "/").await;
 
     let (st, key) = json(
@@ -292,6 +294,7 @@ async fn api_keys() {
 #[tokio::test]
 async fn quotas_limit_uploads() {
     let t = TestApp::new().await;
+    assert!(filebrary::identity::install(&t.state));
     let admin = t.user("root", true, Perms::ALL, "/").await;
     let c = t.user("fred", false, Perms::ALL, "/home/fred").await;
     std::fs::create_dir_all(t.root().join("home/fred")).unwrap();
@@ -463,6 +466,7 @@ async fn sso_app(issuer: &str, extra: Value) -> (tempfile::TempDir, AppState, Ro
     config.validate().unwrap();
     std::fs::create_dir_all(&config.data_dir).unwrap();
     let state = AppState::new(config, db::open_memory().await.unwrap(), [7u8; 32]).unwrap();
+    assert!(filebrary::identity::install(&state));
     let app = filebrary::app(state.clone());
     (dir, state, app)
 }
