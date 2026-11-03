@@ -24,6 +24,7 @@ filebrary-identity = { path = "../filebrary-identity" }
 filebrary-events = { path = "../filebrary-events" }
 filebrary-ftp = { path = "../filebrary-ftp" }
 filebrary-preview = { path = "../filebrary-preview" }
+filebrary-webdav = { path = "../filebrary-webdav" }
 
 # Web
 axum = { workspace = true, features = ["matched-path"] }

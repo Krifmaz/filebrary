@@ -61,6 +61,11 @@ trash_retention_days = 30
 # Days activity-log events are kept; 0 keeps them forever.
 activity_retention_days = 365
 
+# --- WebDAV -----------------------------------------------------------------
+
+# Serve WebDAV at /dav/ (Windows Explorer, macOS Finder, rclone).
+webdav = true
+
 # --- Two-factor login and quotas ------------------------------------------
 
 # Name shown in authenticator apps.
