@@ -10,7 +10,7 @@ use axum::{
 use filebrary::{
     AppState,
     auth::{Perms, Subject, permissions, session, users},
-    config::{Config, SourceConfig, SourceKind},
+    config::{Config, SourceConfig},
     db,
     search::scan,
     storage::VPath,
@@ -73,11 +73,7 @@ async fn env(watch: bool) -> Env {
     std::fs::create_dir_all(root.join("empty")).unwrap();
     let mut config = Config {
         data_dir: tmp.path().join("data"),
-        sources: vec![SourceConfig {
-            name: "files".into(),
-            kind: SourceKind::Local,
-            path: root.clone(),
-        }],
+        sources: vec![SourceConfig::local("files", root.clone())],
         ..Config::default()
     };
     config.search.watch = watch;
