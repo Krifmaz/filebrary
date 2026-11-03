@@ -5,6 +5,12 @@ binary (web UI embedded) and one Docker image. Licensed under Apache-2.0.
 
 > Status: Phase 1 in progress (v0.1). This README is expanded as features land.
 
+## Documentation
+
+The full documentation (install, configuration and every setting) is at
+<https://krifmaz.github.io/filebrary/>, built from `docs/` with mdBook.
+Preview it locally with `mdbook serve docs`.
+
 ## Layout
 
 | Path                       | What                                                          |
@@ -66,6 +72,21 @@ generated and printed once in the log. Log in and change it.
 
 The admin API is under `/api/users`, `/api/groups` and `/api/permissions`
 (see `crates/filebrary/src/auth/routes.rs`).
+
+## Share links
+
+Users with the `share` permission can create public links to a file, a
+folder, or several items at once (`POST /api/shares`). A link can have a
+password (argon2id), an expiry time, a download limit, or be an
+upload-only *drop link* where visitors add files to a folder without seeing
+its contents. Links are served at `/s/{token}` (API: `/api/public/shares/{token}`).
+
+A link never grants more than its creator holds: if the creator is disabled
+or loses the rights on the shared path, the link stops working at once, and
+folders that a rule hides from the creator are hidden from visitors too.
+Shared folders are confined, so symlinks inside them cannot reach other
+files. Wrong share passwords are rate limited with the login limits, and
+drop-link uploads are capped by `max_drop_upload_mib` and never overwrite.
 
 ## Trash, tags, stars and activity
 

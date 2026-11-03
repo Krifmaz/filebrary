@@ -73,3 +73,10 @@ download.
 | `GET /api/permissions?source=`, `PUT /api/permissions`, `DELETE /api/permissions/{id}` | Rules: `{"source": "files", "path": "/drop", "subject": {"type": "group", "id": 2}, "perms": ["upload"]}`. |
 
 The server refuses to remove, demote or disable the last enabled administrator.
+
+## Storage quotas
+
+> **Planned for Phase 3.** See [Feature status](../status.md).
+
+Each user can have a storage quota. Uploads that would exceed it are
+refused, and a notification can be sent when a user is close to it.

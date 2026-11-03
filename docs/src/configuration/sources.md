@@ -1,25 +1,73 @@
 # Storage sources
 
 A source is a storage location Filebrary serves. Each source has its own
-name, root and permissions, and you can configure several at once.
-
-## Local folders
-
-Any folder on the host, including FUSE and mergerfs pools.
+name, root and permissions, and you can configure several at once. Each one
+appears as a top-level entry in the sidebar.
 
 ```toml
 [[sources]]
 name = "files"
+path = "/srv/files"
+
+[[sources]]
+name = "media"
 kind = "local"
-path = "/srv"
+path = "/mnt/pool/media"
 ```
 
-Every path a user requests is normalised and checked against the source
-root. Symbolic links that point outside the root are refused.
+Or, as an environment variable (local sources only):
+
+```sh
+FILEBRARY_SOURCES="files=/srv/files;media=/mnt/pool/media"
+```
+
+The keys are described in the [settings reference](reference.md#sources).
+With no sources configured, Filebrary serves `<data_dir>/files` as `files`.
+
+## Choosing names
+
+The name (`a-z`, `0-9`, `-`, `_`, up to 32 characters) appears in URLs,
+share links and permission entries. Pick it once: renaming a source later
+breaks its share links and permissions.
+
+## Local folders
+
+Any folder on the host, including FUSE file systems such as **mergerfs**
+pools, **rclone mount** and **sshfs**. The folder is created on start-up if
+it does not exist.
+
+Filebrary needs read permission to browse and write permission to upload,
+rename and delete. In Docker, mount the folder into the container and point
+the source at the path *inside* the container:
+
+```sh
+docker run -v /mnt/pool/media:/media \
+  -e FILEBRARY_SOURCES="files=/srv;media=/media" ...
+```
+
+For FUSE mounts used from Docker, mount them on the host with
+`allow_other` so the container's user can see them.
+
+## Path safety
+
+Users can never reach anything outside a source's root:
+
+* URL encoding is decoded exactly once, then every path is normalised;
+* `..` components are rejected outright (never "resolved"), as are
+  backslashes, NUL bytes and over-long names, and on Windows drive
+  prefixes, alternate data streams and reserved names such as `CON`;
+* a doubly encoded `%2e%2e` is treated as a literal file name, not as `..`;
+* the parent of every path is resolved on disk and checked to be inside the
+  root, and symbolic links that point outside the root are refused (links
+  inside the root work);
+* no file operation goes through a shell.
+
+## S3, SFTP and SMB
 
 Remote sources take their settings from a sub-table named after their kind
-(`[sources.s3]`, `[sources.sftp]` or `[sources.smb]`) and leave `path` unset.
-They are checked at start-up but connect on first use, so a server that is
+(`[sources.s3]`, `[sources.sftp]` or `[sources.smb]`) and leave `path` unset;
+every key is in the [settings reference](reference.md#sourcess3). They are
+checked at start-up but connect on first use, so a server that is
 down does not stop Filebrary or the other sources from starting; requests to
 it fail until it is back, and the connection is re-made automatically.
 
@@ -28,7 +76,7 @@ settings), such as a Docker or systemd secret. All three clients are written
 in Rust and built into the binary: no `ssh`, `smbclient` or other program is
 run, and nothing goes through a shell.
 
-## S3-compatible object storage
+### S3-compatible object storage
 
 AWS S3 and anything that speaks its API: MinIO, Garage, SeaweedFS, Ceph RGW,
 Cloudflare R2, Backblaze B2, Wasabi.
@@ -47,17 +95,6 @@ access_key_id = "AKIA..."
 secret_access_key_file = "/run/secrets/s3_secret"
 ```
 
-| Setting | Default | Meaning |
-|---|---|---|
-| `bucket` | required | Bucket name. |
-| `prefix` | empty | Key prefix that acts as the source root. |
-| `endpoint` | AWS | Endpoint URL for other services. `http://` is accepted only when written here. |
-| `region` | `us-east-1` | Region; most non-AWS services ignore it. |
-| `access_key_id` | from environment | Without it, credentials come from the standard `AWS_*` variables, web identity or instance metadata. |
-| `secret_access_key` | | Secret key. |
-| `secret_access_key_file` | | File holding the secret key (wins over `secret_access_key`). |
-| `session_token` | | Session token for temporary credentials. |
-| `virtual_hosted_style` | `false` with `endpoint`, `true` on AWS | Use `bucket.host` URLs instead of `host/bucket`. |
 
 How files map onto objects:
 
@@ -75,7 +112,7 @@ The bucket policy needs `s3:ListBucket`, `s3:GetObject`, `s3:PutObject` and
 `s3:DeleteObject` on the prefix (and the multipart actions, which `PutObject`
 covers on AWS).
 
-## SFTP
+### SFTP
 
 A directory on any SSH server.
 
@@ -93,18 +130,6 @@ root = "/volume1/shared"
 host_key_fingerprint = "SHA256:7cLm9wR4..."
 ```
 
-| Setting | Default | Meaning |
-|---|---|---|
-| `host` | required | Server name or address. |
-| `port` | `22` | SSH port. |
-| `username` | required | Account name. |
-| `password` / `password_file` | | Password, or a file holding it. |
-| `private_key` | | Private key file (OpenSSH or PKCS#8; Ed25519, ECDSA or RSA). |
-| `private_key_passphrase` | | Passphrase for an encrypted key. |
-| `root` | home directory | Directory that acts as the source root. Relative paths start at the home directory. |
-| `host_key_fingerprint` | | The server's SHA-256 host key fingerprint. |
-| `known_hosts` | | A `known_hosts` file to check the host key against instead. |
-| `insecure_accept_any_host_key` | `false` | Skip the host key check. For tests only. |
 
 One of `password`, `password_file` or `private_key` is required, and the host
 key must be pinned with `host_key_fingerprint` or `known_hosts`. To get the
@@ -119,7 +144,7 @@ removes the link, never its target. Writes go to a hidden temporary file that
 is renamed into place. SFTP cannot rename over a file, so overwriting removes
 the old file just before the rename.
 
-## SMB (Windows shares, Samba, NAS)
+### SMB (Windows shares, Samba, NAS)
 
 A folder on an SMB 2 or 3 share.
 
@@ -137,15 +162,6 @@ password_file = "/run/secrets/smb"
 domain = "CORP"          # optional
 ```
 
-| Setting | Default | Meaning |
-|---|---|---|
-| `host` | required | Server name or address. |
-| `port` | `445` | TCP port. |
-| `share` | required | Share name. |
-| `root` | share root | Folder inside the share that acts as the source root. |
-| `username` | guest | Account name. |
-| `password` / `password_file` | | Password, or a file holding it. |
-| `domain` | | Windows domain or workgroup. |
 
 Authentication is NTLMv2. Signing and encryption follow what the server asks
 for (SMB 3 encrypts when the share requires it). SMB 1 is not supported.
@@ -160,7 +176,7 @@ same share and you serve only part of it with `root`, set
 Writes go to a hidden temporary file that is renamed over the target in one
 step. Copies within a source use server-side copy when the server supports it.
 
-## Testing the backends
+### Testing the backends
 
 `scripts/test-backends.sh` starts MinIO, an OpenSSH SFTP server and Samba
 (the last two in Docker), runs the backend test suite against all of them,
