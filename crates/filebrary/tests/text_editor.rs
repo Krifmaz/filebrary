@@ -17,6 +17,7 @@ use tower::ServiceExt;
 
 struct Harness {
     app: Router,
+    db: sqlx::SqlitePool,
     root: std::path::PathBuf,
     _dir: tempfile::TempDir,
 }
@@ -77,10 +78,12 @@ async fn setup() -> (Harness, Login, Login) {
     }
     let bob = logins.pop().unwrap();
     let alice = logins.pop().unwrap();
+    let db = state.db.clone();
     let app = filebrary::app(state);
     (
         Harness {
             app,
+            db,
             root,
             _dir: dir,
         },
@@ -160,6 +163,11 @@ async fn load_edit_and_conflict() {
     let new_tag = new_tag.unwrap();
     assert_ne!(new_tag, etag);
     assert_eq!(body["size"], 8);
+    let action: String = sqlx::query_scalar("SELECT action FROM activity ORDER BY id DESC LIMIT 1")
+        .fetch_one(&h.db)
+        .await
+        .unwrap();
+    assert_eq!(action, "edit");
     assert_eq!(
         std::fs::read_to_string(h.root.join("home/notes.md")).unwrap(),
         "# Hello\n"
@@ -220,6 +228,16 @@ async fn create_new_file() {
     assert_eq!(
         std::fs::read_to_string(h.root.join("home/new.rs")).unwrap(),
         "fn main() {}\n"
+    );
+    // Recorded in the activity log at the real path.
+    let (action, path, user): (String, String, String) =
+        sqlx::query_as("SELECT action, path, username FROM activity ORDER BY id DESC LIMIT 1")
+            .fetch_one(&h.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        (action.as_str(), path.as_str(), user.as_str()),
+        ("upload", "/home/new.rs", "alice")
     );
     // Creating it again fails: it exists now.
     let (st, _, body) = h

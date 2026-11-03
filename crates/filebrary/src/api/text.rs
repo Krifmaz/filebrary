@@ -20,7 +20,8 @@
 //!   `{"error": "precondition_failed", "message": ..., "etag": <current or null>}`
 //!   so the editor can offer "reload" or "overwrite anyway" (the latter is a
 //!   new PUT with the returned ETag). On success it returns
-//!   `{path, etag, size, modified}`.
+//!   `{path, etag, size, modified}`. Each save is recorded in the activity
+//!   log as `edit`, or `upload` when it created the file.
 //!
 //! # ETags and conflict detection
 //!
@@ -56,6 +57,7 @@ use time::OffsetDateTime;
 use tokio::sync::Mutex;
 
 use crate::{
+    activity::{Activity, ClientIp, action},
     api::files::scoped,
     auth::{AuthUser, Perms},
     crypto,
@@ -261,6 +263,7 @@ pub async fn save(
     Path(id): Path<String>,
     Query(q): Query<PathQuery>,
     auth: AuthUser,
+    ip: ClientIp,
     headers: HeaderMap,
     body: Bytes,
 ) -> AppResult<Response> {
@@ -317,6 +320,17 @@ pub async fn save(
         Err(e) => return Err(e.into()),
     }
     let modified = storage.stat(&vp).await.ok().and_then(|e| e.modified);
+    Activity::new(if overwrite {
+        action::EDIT
+    } else {
+        action::UPLOAD
+    })
+    .user(&auth.user)
+    .at(&id, &real)
+    .details(json!({ "size": size, "editor": true }))
+    .ip(ip.0.as_deref())
+    .record(&state)
+    .await;
     let status = if overwrite {
         StatusCode::OK
     } else {
