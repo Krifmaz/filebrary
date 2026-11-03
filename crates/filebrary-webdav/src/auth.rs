@@ -36,6 +36,27 @@ pub enum DavPerm {
     Delete,
 }
 
+/// What a request is about to do with a path, so [`DavAuth::authorize`] can
+/// apply the right check (symlink handling, rules deeper in a tree, quotas).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Access {
+    /// Read or inspect the resource (a final symlink is followed).
+    Read,
+    /// Act on a whole tree: `COPY` source (`follow: true`), `DELETE` and the
+    /// `MOVE` source (`follow: false`, since a final symlink is what moves).
+    Tree {
+        /// Whether a final symlink is followed.
+        follow: bool,
+    },
+    /// Create or change content (`PUT`, `MKCOL`, `COPY`/`MOVE` destination,
+    /// `LOCK` on an unmapped URL). `bytes` is the size about to be written
+    /// when known, for quota checks.
+    Write {
+        /// Bytes about to be written, if known.
+        bytes: Option<u64>,
+    },
+}
+
 /// Why access was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Denied {
@@ -44,6 +65,8 @@ pub enum Denied {
     NotFound,
     /// Visible, but the permission is missing (403).
     Forbidden,
+    /// The write would exceed a quota (507).
+    InsufficientStorage,
 }
 
 /// Why authentication failed.
@@ -112,22 +135,25 @@ pub trait DavAuth: Send + Sync + 'static {
         client: Option<SocketAddr>,
     ) -> Result<Arc<dyn DavUser>, AuthError>;
 
-    /// Checks that `user` may do `perm` on the user-visible `path`.
+    /// Checks that `user` may do `perm` on the user-visible `path`, for the
+    /// kind of operation in `access`.
     ///
     /// Called before every storage operation. Implementations should check
     /// per-folder rules against the symlink-resolved path, so a link cannot
-    /// reach a folder a rule denies.
+    /// reach a folder a rule denies, and apply quotas for [`Access::Write`].
     ///
     /// # Errors
     ///
     /// [`Denied::NotFound`] when the user cannot view the source or path,
-    /// [`Denied::Forbidden`] when `perm` is missing.
+    /// [`Denied::Forbidden`] when `perm` is missing,
+    /// [`Denied::InsufficientStorage`] when a quota would be exceeded.
     async fn authorize(
         &self,
         user: &dyn DavUser,
         source: &str,
         perm: DavPerm,
         path: &VPath,
+        access: Access,
     ) -> Result<(), Denied>;
 
     /// The backend for `source` as `user` sees it: rooted at their scope

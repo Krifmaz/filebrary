@@ -4,20 +4,26 @@
 //! into the server:
 //!
 //! * **Authentication** is HTTP Basic (what Windows Explorer, macOS Finder
-//!   and rclone send) checked against the user table with argon2id. Failed
-//!   attempts are rate limited per client address with the same
-//!   `login_max_attempts` / `login_window_secs` settings as the web login.
-//!   A verified password is remembered for [`CRED_CACHE_TTL`] under an HMAC
-//!   of the credentials, so a client that sends Basic on every request (all
-//!   of them do) does not pay for an argon2 hash each time. The user and
-//!   their grants are still loaded from the database on every request, so a
-//!   disabled user or changed permission applies at once.
+//!   and rclone send). The password may be the account password of a local
+//!   user, or an API key, which works as an app password: it is the way in
+//!   for accounts with two-factor authentication or single sign-on, and its
+//!   scopes cap what the WebDAV session may do. Failures go through the same
+//!   login rate limiter as the web login (per user name and per address).
+//!   A verified credential is remembered for [`CRED_CACHE_TTL`] under an
+//!   HMAC of it, so a client that sends Basic on every request (all of them
+//!   do) does not pay for an argon2 hash each time. The user, their rules
+//!   and the key's ceiling are still loaded on every request, so disabling a
+//!   user or changing a permission applies at once.
 //! * The web session cookie is never accepted here: WebDAV methods are not
 //!   covered by the CSRF check, and browsers attach cookies cross-site.
-//! * **Permissions** map one to one: see [`filebrary_webdav::DavPerm`].
-//! * **Storage** comes from [`crate::api::files::scoped`]'s rule: the source
-//!   backend confined to the user's scope with `Storage::sub`, used with
-//!   user-visible paths.
+//! * **Permissions** go through [`auth::authorize`] and its tree, entry and
+//!   write variants, exactly like the files API: per-folder rules apply to
+//!   the symlink-resolved path, deletes and moves check rules deeper in the
+//!   tree, and writes pass the quota hook. See [`filebrary_webdav::DavPerm`]
+//!   for how methods map to permissions.
+//! * **Storage** is the source backend confined to the user's scope with
+//!   `Storage::sub`, used with user-visible paths. The trash folder is
+//!   hidden and refused; `DELETE` moves items to the trash.
 
 use std::{
     collections::HashMap,
@@ -29,12 +35,13 @@ use std::{
 use async_trait::async_trait;
 use axum::http::HeaderMap;
 use filebrary_webdav::{
-    AuthError, BasicCredentials, Change, DavAuth, DavConfig, DavPerm, DavServer, DavUser, Denied,
+    Access, AuthError, BasicCredentials, Change, DavAuth, DavConfig, DavPerm, DavServer, DavUser,
+    Denied,
 };
 
 use crate::{
     activity::{Activity, action},
-    auth::{Perms, User, load_user, password},
+    auth::{self, Perms, User, load_user, password, users},
     crypto,
     error::AppError,
     organize::{self, meta, trash},
@@ -49,6 +56,7 @@ fn ours(user: &dyn DavUser) -> Option<&FilebraryDavUser> {
 fn denied(e: &AppError) -> Denied {
     match e {
         AppError::NotFound => Denied::NotFound,
+        AppError::PayloadTooLarge => Denied::InsufficientStorage,
         _ => Denied::Forbidden,
     }
 }
@@ -59,23 +67,8 @@ pub const PREFIX: &str = "/dav";
 /// How long a verified Basic credential is remembered.
 pub const CRED_CACHE_TTL: Duration = Duration::from_secs(300);
 
-/// Most remembered credentials (oldest are dropped first).
+/// Most remembered credentials (all are dropped when it fills up).
 const CRED_CACHE_MAX: usize = 1024;
-
-/// A hash of a random password, verified against when the user name does not
-/// exist so that the response time does not reveal which names exist.
-static DUMMY_HASH: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
-
-async fn dummy_hash() -> String {
-    DUMMY_HASH
-        .get_or_init(|| async {
-            password::hash(crypto::random_token::<16>())
-                .await
-                .unwrap_or_default()
-        })
-        .await
-        .clone()
-}
 
 /// Builds the WebDAV router for the app.
 pub fn router(state: &AppState) -> axum::Router<AppState> {
@@ -87,11 +80,19 @@ pub fn router(state: &AppState) -> axum::Router<AppState> {
     DavServer::new(auth, config).router()
 }
 
+/// What a verified credential stands for.
+#[derive(Clone, Debug)]
+struct Verified {
+    user_id: i64,
+    /// The API key's scopes, or `None` for a password.
+    scopes: Option<Vec<String>>,
+    at: Instant,
+}
+
 /// [`DavAuth`] over the Filebrary user database.
 pub struct FilebraryDavAuth {
     state: AppState,
-    failures: Mutex<HashMap<IpAddr, (u32, Instant)>>,
-    verified: Mutex<HashMap<String, (i64, Instant)>>,
+    verified: Mutex<HashMap<String, Verified>>,
 }
 
 impl FilebraryDavAuth {
@@ -99,7 +100,6 @@ impl FilebraryDavAuth {
     pub fn new(state: AppState) -> Self {
         Self {
             state,
-            failures: Mutex::default(),
             verified: Mutex::default(),
         }
     }
@@ -119,78 +119,81 @@ impl FilebraryDavAuth {
         peer.map(|p| p.ip())
     }
 
-    fn window(&self) -> Duration {
-        Duration::from_secs(self.state.config.login_window_secs)
-    }
-
-    /// Seconds to wait if this client has used up its attempts.
-    fn limited(&self, ip: Option<IpAddr>) -> Option<u64> {
-        let ip = ip?;
-        let mut f = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-        let (count, since) = *f.get(&ip)?;
-        let elapsed = since.elapsed();
-        if elapsed >= self.window() {
-            f.remove(&ip);
-            return None;
-        }
-        (count >= self.state.config.login_max_attempts)
-            .then(|| (self.window() - elapsed).as_secs().max(1))
-    }
-
-    fn record_failure(&self, ip: Option<IpAddr>) {
-        let Some(ip) = ip else { return };
-        let window = self.window();
-        let mut f = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-        if f.len() > 10_000 {
-            f.retain(|_, (_, since)| since.elapsed() < window);
-        }
-        let e = f.entry(ip).or_insert((0, Instant::now()));
-        if e.1.elapsed() >= window {
-            *e = (0, Instant::now());
-        }
-        e.0 += 1;
-    }
-
     fn cache_key(&self, c: &BasicCredentials) -> String {
         let msg = format!("{}\0{}", c.username.to_lowercase(), c.password);
         crypto::hmac_b64(&self.state.secret, msg.as_bytes())
     }
 
-    /// Checks a user name and password, returning the user id.
-    async fn verify(&self, c: &BasicCredentials) -> Result<Option<i64>, AppError> {
-        let key = self.cache_key(c);
-        {
-            let mut v = self.verified.lock().unwrap_or_else(|e| e.into_inner());
-            match v.get(&key) {
-                Some((id, at)) if at.elapsed() < CRED_CACHE_TTL => return Ok(Some(*id)),
-                Some(_) => {
-                    v.remove(&key);
-                }
-                None => {}
+    fn cached(&self, key: &str) -> Option<Verified> {
+        let mut v = self.verified.lock().unwrap_or_else(|e| e.into_inner());
+        match v.get(key) {
+            Some(hit) if hit.at.elapsed() < CRED_CACHE_TTL => Some(hit.clone()),
+            Some(_) => {
+                v.remove(key);
+                None
             }
+            None => None,
         }
-        let row: Option<(i64, String)> =
-            sqlx::query_as("SELECT id, password_hash FROM users WHERE username = ?")
-                .bind(&c.username)
-                .fetch_optional(&self.state.db)
-                .await?;
-        let (id, hash) = match row {
-            Some((id, hash)) => (Some(id), hash),
-            None => (None, dummy_hash().await),
-        };
-        let ok = password::verify(c.password.clone(), hash).await;
-        let Some(id) = id.filter(|_| ok) else {
-            return Ok(None);
-        };
+    }
+
+    fn remember(&self, key: String, verified: Verified) {
         let mut v = self.verified.lock().unwrap_or_else(|e| e.into_inner());
         if v.len() >= CRED_CACHE_MAX {
-            v.retain(|_, (_, at)| at.elapsed() < CRED_CACHE_TTL);
+            v.retain(|_, hit| hit.at.elapsed() < CRED_CACHE_TTL);
             if v.len() >= CRED_CACHE_MAX {
                 v.clear();
             }
         }
-        v.insert(key, (id, Instant::now()));
-        Ok(Some(id))
+        v.insert(key, verified);
+    }
+
+    /// Checks the credentials: first as an API key of that user, then as the
+    /// local password. `Ok(None)` means wrong credentials.
+    async fn verify(&self, c: &BasicCredentials) -> Result<Option<Verified>, AppError> {
+        let hooks = self.state.auth.hooks();
+        if let Some((user_id, scopes)) = hooks.resolve_bearer(&self.state, &c.password).await? {
+            // The key must belong to the user named in the Basic header.
+            let owner = users::get_with_hash(&self.state.db, &c.username).await?;
+            return Ok(match owner {
+                Some((rec, _)) if rec.id == user_id && !rec.disabled => Some(Verified {
+                    user_id,
+                    scopes: Some(scopes),
+                    at: Instant::now(),
+                }),
+                _ => None,
+            });
+        }
+        let found = users::get_with_hash(&self.state.db, &c.username).await?;
+        let (rec, hash) = match found {
+            Some((rec, Some(hash))) if rec.auth_source == "local" => (Some(rec), hash),
+            // Unknown, external (OIDC/LDAP) or password-less accounts still
+            // pay for a hash, so timing does not reveal which names exist.
+            _ => (None, password::dummy_hash().await),
+        };
+        let ok = password::verify(c.password.clone(), hash).await;
+        let rec = match rec {
+            Some(r) if ok && !r.disabled => r,
+            _ => return Ok(None),
+        };
+        // Two-factor accounts cannot answer a code over Basic auth: they
+        // must use an API key instead.
+        match hooks.after_password(&self.state, &rec, None).await {
+            Ok(()) => {}
+            Err(AppError::TotpRequired) => {
+                tracing::info!(
+                    user = %rec.username,
+                    "webdav: password login refused for a two-factor account; use an API key"
+                );
+                return Ok(None);
+            }
+            Err(AppError::InvalidCredentials | AppError::Unauthorized) => return Ok(None),
+            Err(e) => return Err(e),
+        }
+        Ok(Some(Verified {
+            user_id: rec.id,
+            scopes: None,
+            at: Instant::now(),
+        }))
     }
 }
 
@@ -202,27 +205,53 @@ impl DavAuth for FilebraryDavAuth {
         client: Option<SocketAddr>,
     ) -> Result<Arc<dyn DavUser>, AuthError> {
         let ip = self.client_ip(headers, client);
-        if let Some(retry_after) = self.limited(ip) {
-            return Err(AuthError::RateLimited { retry_after });
-        }
+        let ip_str = ip.map_or_else(|| "unknown".to_owned(), |i| i.to_string());
         let creds = BasicCredentials::from_headers(headers).ok_or(AuthError::Unauthorized)?;
-        let id = match self.verify(&creds).await {
-            Ok(Some(id)) => id,
-            Ok(None) => {
-                self.record_failure(ip);
-                tracing::info!(user = %creds.username, ?ip, "webdav login failed");
-                return Err(AuthError::Unauthorized);
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "webdav authentication");
-                return Err(AuthError::Internal);
+        let limiter = &self.state.auth.limiter;
+        let key = self.cache_key(&creds);
+        let verified = match self.cached(&key) {
+            Some(v) => v,
+            None => {
+                if let Err(AppError::TooManyRequests { retry_after }) =
+                    limiter.check(&creds.username, &ip_str)
+                {
+                    return Err(AuthError::RateLimited { retry_after });
+                }
+                let too_long = creds.username.len() > users::MAX_USERNAME_LEN
+                    || creds.password.len() > password::MAX_LEN;
+                let result = if too_long {
+                    Ok(None)
+                } else {
+                    self.verify(&creds).await
+                };
+                match result {
+                    Ok(Some(v)) => {
+                        limiter.record_success(&creds.username);
+                        self.remember(key, v.clone());
+                        v
+                    }
+                    Ok(None) => {
+                        limiter.record_failure(&creds.username, &ip_str);
+                        tracing::info!(user = %creds.username, ip = %ip_str, "webdav login failed");
+                        return Err(AuthError::Unauthorized);
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "webdav authentication");
+                        return Err(AuthError::Internal);
+                    }
+                }
             }
         };
-        match load_user(&self.state, id).await {
-            Ok(Some(user)) => Ok(Arc::new(FilebraryDavUser {
-                user,
-                ip: ip.map(|i| i.to_string()),
-            })),
+        match load_user(&self.state, verified.user_id).await {
+            Ok(Some(mut user)) => {
+                if let Some(scopes) = &verified.scopes {
+                    user.apply_ceiling(self.state.auth.hooks().bearer_ceiling(scopes));
+                }
+                Ok(Arc::new(FilebraryDavUser {
+                    user,
+                    ip: ip.map(|i| i.to_string()),
+                }))
+            }
             // Disabled or deleted since the credentials were cached.
             Ok(None) => Err(AuthError::Unauthorized),
             Err(e) => {
@@ -238,15 +267,25 @@ impl DavAuth for FilebraryDavAuth {
         source: &str,
         p: DavPerm,
         path: &VPath,
+        access: Access,
     ) -> Result<(), Denied> {
         // Only our own users reach here; anything else is refused.
         let u = ours(user).ok_or(Denied::NotFound)?;
-        // `confine` checks the permission, resolves symlinks inside the scope
-        // and refuses the trash folder, exactly as the files API does.
-        organize::confine(&self.state, &u.user, source, perm(p), path)
-            .await
-            .map(|_| ())
-            .map_err(|e| denied(&e))
+        let (state, user, perm) = (&self.state, &u.user, perm(p));
+        let real = match access {
+            Access::Read => auth::authorize(state, user, source, perm, path).await,
+            Access::Tree { follow } => {
+                auth::authorize_tree(state, user, source, perm, path, follow).await
+            }
+            Access::Write { bytes } => {
+                auth::authorize_write(state, user, source, perm, path, bytes).await
+            }
+        }
+        .map_err(|e| denied(&e))?;
+        if trash::is_reserved(&real) {
+            return Err(Denied::NotFound);
+        }
+        Ok(())
     }
 
     fn hidden(&self, _source: &str, real: &VPath) -> bool {
@@ -396,11 +435,6 @@ impl DavUser for FilebraryDavUser {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[tokio::test]
-    async fn dummy_hash_is_a_real_hash() {
-        assert!(dummy_hash().await.starts_with("$argon2id$"));
-    }
 
     #[test]
     fn perms_map() {

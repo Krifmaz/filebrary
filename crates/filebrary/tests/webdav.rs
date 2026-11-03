@@ -10,30 +10,30 @@ use axum::{
 };
 use base64::Engine as _;
 use common::{TestApp, body_bytes};
-use filebrary::auth::{Perms, password};
+use filebrary::{
+    auth::{Perms, Subject, permissions, users},
+    storage::VPath,
+};
 
-async fn add_user(app: &TestApp, name: &str, pw: &str, admin: bool, perms: Perms, scope: &str) {
-    let hash = password::hash(pw.to_owned()).await.unwrap();
-    let id: i64 = sqlx::query_scalar(
-        "INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, 0) RETURNING id",
-    )
-    .bind(name)
-    .bind(hash)
-    .bind(admin)
-    .fetch_one(&app.state.db)
-    .await
-    .unwrap();
+async fn add_user(
+    app: &TestApp,
+    name: &str,
+    pw: &str,
+    admin: bool,
+    perms: Perms,
+    scope: &str,
+) -> i64 {
+    let rec = users::create(&app.state.db, name, pw, admin).await.unwrap();
     if !admin {
-        sqlx::query(
-            "INSERT INTO user_sources (user_id, source, perms, scope) VALUES (?, 'files', ?, ?)",
-        )
-        .bind(id)
-        .bind(perms.bits())
-        .bind(scope)
-        .execute(&app.state.db)
-        .await
-        .unwrap();
+        let scope = VPath::parse(scope).unwrap();
+        permissions::set(&app.state.db, "files", &scope, Subject::User(rec.id), perms)
+            .await
+            .unwrap();
+        users::set_scope(&app.state.db, rec.id, "files", &scope)
+            .await
+            .unwrap();
     }
+    rec.id
 }
 
 fn dav(method: &str, uri: &str, user: &str, pw: &str, body: &str) -> Request<Body> {
@@ -56,17 +56,17 @@ fn dav(method: &str, uri: &str, user: &str, pw: &str, body: &str) -> Request<Bod
 #[tokio::test]
 async fn webdav_uses_real_users_and_grants() {
     let app = TestApp::new().await;
-    add_user(&app, "admin", "s3cret-pass", true, Perms::ALL, "/").await;
+    add_user(&app, "admin", "s3cret-password", true, Perms::ALL, "/").await;
     add_user(
         &app,
         "ro",
-        "ro-pass",
+        "read-only-password",
         false,
         Perms::VIEW | Perms::DOWNLOAD,
         "/",
     )
     .await;
-    add_user(&app, "jail", "jail-pass", false, Perms::ALL, "/jail").await;
+    add_user(&app, "jail", "jailed-password", false, Perms::ALL, "/jail").await;
     std::fs::create_dir(app.root().join("jail")).unwrap();
 
     // Admin writes a file.
@@ -75,7 +75,7 @@ async fn webdav_uses_real_users_and_grants() {
             "PUT",
             "/dav/files/hello.txt",
             "admin",
-            "s3cret-pass",
+            "s3cret-password",
             "hi",
         ))
         .await;
@@ -91,7 +91,7 @@ async fn webdav_uses_real_users_and_grants() {
             "GET",
             "/dav/files/hello.txt",
             "admin",
-            "s3cret-pass",
+            "s3cret-password",
             "",
         ))
         .await;
@@ -100,28 +100,46 @@ async fn webdav_uses_real_users_and_grants() {
 
     // Read-only user: may read, may not write.
     let r = app
-        .send(dav("GET", "/dav/files/hello.txt", "ro", "ro-pass", ""))
+        .send(dav(
+            "GET",
+            "/dav/files/hello.txt",
+            "ro",
+            "read-only-password",
+            "",
+        ))
         .await;
     assert_eq!(r.status(), StatusCode::OK);
     let r = app
-        .send(dav("PUT", "/dav/files/x", "ro", "ro-pass", "x"))
+        .send(dav("PUT", "/dav/files/x", "ro", "read-only-password", "x"))
         .await;
     assert_eq!(r.status(), StatusCode::FORBIDDEN);
 
     // Scoped user sees only their folder.
     let r = app
-        .send(dav("PUT", "/dav/files/mine", "jail", "jail-pass", "m"))
+        .send(dav(
+            "PUT",
+            "/dav/files/mine",
+            "jail",
+            "jailed-password",
+            "m",
+        ))
         .await;
     assert_eq!(r.status(), StatusCode::CREATED);
     assert!(app.root().join("jail/mine").exists());
     let r = app
-        .send(dav("GET", "/dav/files/hello.txt", "jail", "jail-pass", ""))
+        .send(dav(
+            "GET",
+            "/dav/files/hello.txt",
+            "jail",
+            "jailed-password",
+            "",
+        ))
         .await;
     assert_eq!(r.status(), StatusCode::NOT_FOUND);
 
     // The mount root lists the source.
     let r = app
-        .send(dav("PROPFIND", "/dav/", "ro", "ro-pass", ""))
+        .send(dav("PROPFIND", "/dav/", "ro", "read-only-password", ""))
         .await;
     assert_eq!(r.status(), StatusCode::MULTI_STATUS);
     let body = String::from_utf8(body_bytes(r).await.to_vec()).unwrap();
@@ -137,7 +155,7 @@ async fn webdav_uses_real_users_and_grants() {
             "GET",
             "/dav/files/hello.txt",
             "admin",
-            "s3cret-pass",
+            "s3cret-password",
             "",
         ))
         .await;
@@ -168,18 +186,24 @@ async fn webdav_never_accepts_the_session_cookie() {
 #[tokio::test]
 async fn webdav_logins_are_rate_limited() {
     let app = TestApp::new().await;
-    add_user(&app, "u", "right", true, Perms::ALL, "/").await;
+    add_user(&app, "u", "right-password", true, Perms::ALL, "/").await;
     let max = app.state.config.login_max_attempts;
     for _ in 0..max {
-        let r = app.send(dav("PROPFIND", "/dav/", "u", "wrong", "")).await;
+        let r = app
+            .send(dav("PROPFIND", "/dav/", "u", "wrong-password", ""))
+            .await;
         assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
     }
     // Even the right password is refused until the window passes.
-    let r = app.send(dav("PROPFIND", "/dav/", "u", "right", "")).await;
+    let r = app
+        .send(dav("PROPFIND", "/dav/", "u", "right-password", ""))
+        .await;
     assert_eq!(r.status(), StatusCode::TOO_MANY_REQUESTS);
     assert!(r.headers().contains_key("retry-after"));
     // OPTIONS still answers, unauthenticated.
-    let r = app.send(dav("OPTIONS", "/dav/", "u", "wrong", "")).await;
+    let r = app
+        .send(dav("OPTIONS", "/dav/", "u", "wrong-password", ""))
+        .await;
     assert_eq!(r.status(), StatusCode::OK);
 }
 
@@ -212,9 +236,9 @@ async fn webdav_can_be_turned_off() {
 #[tokio::test]
 async fn webdav_deletes_go_to_the_trash_and_are_logged() {
     let app = TestApp::new().await;
-    add_user(&app, "admin", "pw-admin", true, Perms::ALL, "/").await;
+    add_user(&app, "admin", "admin-password", true, Perms::ALL, "/").await;
     let send = |m: &'static str, p: &'static str, body: &'static str| {
-        app.send(dav(m, p, "admin", "pw-admin", body))
+        app.send(dav(m, p, "admin", "admin-password", body))
     };
     assert_eq!(
         send("PUT", "/dav/files/doc.txt", "x").await.status(),
@@ -250,4 +274,50 @@ async fn webdav_deletes_go_to_the_trash_and_are_logged() {
     assert_eq!(actions, ["upload", "trash"]);
     assert_eq!(rows[1].1, "/doc.txt");
     assert_eq!(rows[1].2.as_deref(), Some("10.0.0.1"));
+}
+
+#[tokio::test]
+async fn webdav_applies_per_folder_rules() {
+    let app = TestApp::new().await;
+    let id = add_user(&app, "u", "user-password", false, Perms::ALL, "/").await;
+    std::fs::create_dir(app.root().join("secret")).unwrap();
+    std::fs::write(app.root().join("secret/plan.txt"), "plan").unwrap();
+    std::fs::create_dir(app.root().join("open")).unwrap();
+    // A deeper rule takes everything away in /secret.
+    permissions::set(
+        &app.state.db,
+        "files",
+        &VPath::parse("secret").unwrap(),
+        Subject::User(id),
+        Perms::NONE,
+    )
+    .await
+    .unwrap();
+    let send = |m: &'static str, p: &'static str| app.send(dav(m, p, "u", "user-password", ""));
+    assert!(
+        !send("GET", "/dav/files/secret/plan.txt")
+            .await
+            .status()
+            .is_success()
+    );
+    assert!(
+        !send("PUT", "/dav/files/secret/new.txt")
+            .await
+            .status()
+            .is_success()
+    );
+    // Deleting the parent would delete what the rule protects.
+    assert_eq!(
+        send("DELETE", "/dav/files/").await.status(),
+        StatusCode::FORBIDDEN
+    );
+    assert!(app.root().join("secret/plan.txt").exists());
+    #[cfg(unix)]
+    {
+        // A link in an open folder cannot lead into the denied one.
+        std::os::unix::fs::symlink(app.root().join("secret"), app.root().join("open/link"))
+            .unwrap();
+        let r = send("GET", "/dav/files/open/link/plan.txt").await;
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    }
 }

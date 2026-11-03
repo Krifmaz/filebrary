@@ -13,8 +13,8 @@ use axum::{
 };
 use filebrary_storage::{Storage, VPath, local::LocalStorage};
 use filebrary_webdav::{
-    AuthError, BasicCredentials, Change, DavAuth, DavConfig, DavPerm, DavServer, DavUser, Denied,
-    Quota,
+    Access, AuthError, BasicCredentials, Change, DavAuth, DavConfig, DavPerm, DavServer, DavUser,
+    Denied, Quota,
 };
 use http_body_util::BodyExt;
 use tempfile::TempDir;
@@ -72,6 +72,7 @@ impl DavAuth for TestAuth {
         source: &str,
         perm: DavPerm,
         path: &VPath,
+        _access: Access,
     ) -> Result<(), Denied> {
         let grants = &self.users[&user.id()].grants;
         let (perms, scope) = grants.get(source).ok_or(Denied::NotFound)?;

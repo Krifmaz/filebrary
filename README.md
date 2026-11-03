@@ -99,8 +99,11 @@ see [docs/src/organize.md](docs/src/organize.md).
 ## WebDAV
 
 Every source is also served over WebDAV (class 2, with locking) at `/dav/`,
-with the same accounts, permissions and folder scopes as the web UI. Log in
-with your Filebrary user name and password (HTTP Basic, so use HTTPS).
+with the same accounts, permissions, folder rules and quotas as the web UI.
+Log in with your Filebrary user name and password (HTTP Basic, so use HTTPS),
+or with an API key as the password: accounts with two-factor authentication
+or single sign-on must use an API key, and its scopes cap what the client may
+do. Deleting moves items to the trash.
 
 | Client          | How to connect                                                        |
 |-----------------|-----------------------------------------------------------------------|

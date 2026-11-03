@@ -24,7 +24,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
     Change, DavConfig,
-    auth::{AuthError, DavAuth, DavPerm, DavUser, Denied},
+    auth::{Access, AuthError, DavAuth, DavPerm, DavUser, Denied},
     ifheader::{IfHeader, list_matches},
     lock::{Lock, LockError, LockManager, Scope, parse_timeout},
     props::{PropError, PropStore},
@@ -131,6 +131,7 @@ fn denied(d: Denied) -> Resp {
     match d {
         Denied::NotFound => status(StatusCode::NOT_FOUND),
         Denied::Forbidden => status(StatusCode::FORBIDDEN),
+        Denied::InsufficientStorage => status(StatusCode::INSUFFICIENT_STORAGE),
     }
 }
 
@@ -211,9 +212,20 @@ impl Ctx<'_> {
         visible: &VPath,
         perm: DavPerm,
     ) -> Result<Resolved, Resp> {
+        self.resolve_as(source, visible, perm, Access::Read).await
+    }
+
+    /// [`Ctx::resolve`] for an operation other than a read.
+    async fn resolve_as(
+        &self,
+        source: &str,
+        visible: &VPath,
+        perm: DavPerm,
+        access: Access,
+    ) -> Result<Resolved, Resp> {
         self.srv
             .auth
-            .authorize(self.user.as_ref(), source, perm, visible)
+            .authorize(self.user.as_ref(), source, perm, visible, access)
             .await
             .map_err(denied)?;
         let scope = self
@@ -936,7 +948,16 @@ impl Inner {
         } else {
             DavPerm::Upload
         };
-        let r = ctx.resolve(source, path, perm).await?;
+        let r = ctx
+            .resolve_as(
+                source,
+                path,
+                perm,
+                Access::Write {
+                    bytes: content_length(ctx),
+                },
+            )
+            .await?;
         if let Some(im) = ctx.header(header::IF_MATCH)
             && !existing
                 .as_ref()
@@ -988,7 +1009,14 @@ impl Inner {
     // ----------------------------------------------------------------- DELETE
 
     async fn delete(&self, ctx: &Ctx<'_>, source: &str, path: &VPath) -> Result<Resp, Resp> {
-        let r = ctx.resolve(source, path, DavPerm::Delete).await?;
+        let r = ctx
+            .resolve_as(
+                source,
+                path,
+                DavPerm::Delete,
+                Access::Tree { follow: false },
+            )
+            .await?;
         if r.key.is_root() || path.is_root() {
             return Err(status(StatusCode::FORBIDDEN));
         }
@@ -1024,7 +1052,9 @@ impl Inner {
         path: &VPath,
         body: Body,
     ) -> Result<Resp, Resp> {
-        let r = ctx.resolve(source, path, DavPerm::Upload).await?;
+        let r = ctx
+            .resolve_as(source, path, DavPerm::Upload, Access::Write { bytes: None })
+            .await?;
         if path.is_root() {
             return Err(status(StatusCode::METHOD_NOT_ALLOWED));
         }
@@ -1085,7 +1115,7 @@ impl Inner {
 
         // From where.
         let src = ctx
-            .resolve(
+            .resolve_as(
                 source,
                 path,
                 if is_move {
@@ -1093,6 +1123,7 @@ impl Inner {
                 } else {
                     DavPerm::Download
                 },
+                Access::Tree { follow: !is_move },
             )
             .await?;
         if path.is_root() && is_move {
@@ -1125,8 +1156,9 @@ impl Inner {
         if existing.is_some() && !overwrite {
             return Err(status(StatusCode::PRECONDITION_FAILED));
         }
+        let bytes = (!src_entry.is_dir()).then_some(src_entry.size);
         let dst = ctx
-            .resolve(
+            .resolve_as(
                 &dsource,
                 &dpath,
                 if existing.is_some() {
@@ -1134,11 +1166,18 @@ impl Inner {
                 } else {
                     DavPerm::Upload
                 },
+                Access::Write { bytes },
             )
             .await?;
         if existing.is_some() {
             // Replacing the destination deletes it first.
-            ctx.resolve(&dsource, &dpath, DavPerm::Delete).await?;
+            ctx.resolve_as(
+                &dsource,
+                &dpath,
+                DavPerm::Delete,
+                Access::Tree { follow: false },
+            )
+            .await?;
         }
         require_parent(&dst).await?;
 
@@ -1276,17 +1315,12 @@ impl Inner {
             Some(Depth::Zero) => false,
             Some(Depth::One) => return Err(status(StatusCode::BAD_REQUEST)),
         };
-        let r = ctx
-            .resolve(
-                source,
-                path,
-                if existing.is_some() {
-                    DavPerm::Edit
-                } else {
-                    DavPerm::Upload
-                },
-            )
-            .await?;
+        let (perm, access) = if existing.is_some() {
+            (DavPerm::Edit, Access::Read)
+        } else {
+            (DavPerm::Upload, Access::Write { bytes: Some(0) })
+        };
+        let r = ctx.resolve_as(source, path, perm, access).await?;
         if existing.is_none() {
             if path.is_root() {
                 return Err(status(StatusCode::CONFLICT));

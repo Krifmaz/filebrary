@@ -54,7 +54,7 @@ use std::{convert::Infallible, sync::Arc};
 use axum::{Router, body::Body, http::Request, response::Response};
 use filebrary_storage::VPath;
 
-pub use auth::{AuthError, BasicCredentials, DavAuth, DavPerm, DavUser, Denied};
+pub use auth::{Access, AuthError, BasicCredentials, DavAuth, DavPerm, DavUser, Denied};
 pub use props::{MemoryPropStore, PropStore};
 
 /// Settings for a WebDAV mount.
