@@ -655,9 +655,19 @@ async fn comments_follow_moves_and_deletes() {
         )
         .await;
     assert_eq!(s, StatusCode::OK);
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM comments")
-        .fetch_one(&ctx.state.db)
+    // Deleting moves the file to the trash, and its thread goes with it.
+    let (_, l) = ctx
+        .call(
+            Some(&alice),
+            Method::GET,
+            "/api/comments?source=files&path=/movies/a.mp4",
+            None,
+        )
+        .await;
+    assert_eq!(l, json!([]));
+    let left: Vec<String> = sqlx::query_scalar("SELECT path FROM comments")
+        .fetch_all(&ctx.state.db)
         .await
         .unwrap();
-    assert_eq!(n, 0);
+    assert!(left.iter().all(|p| !p.starts_with("/movies")), "{left:?}");
 }

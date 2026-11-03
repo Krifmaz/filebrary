@@ -23,9 +23,9 @@
 //!
 //! # Keeping threads attached
 //!
-//! The files code calls [`on_rename`] after a successful move/rename and
-//! [`on_delete`] after a permanent delete (not when moving to the trash, so a
-//! restored file gets its comments back).
+//! The `comments` table is one of the tables [`crate::organize::meta`] keeps
+//! in step with the files, so threads follow moves and renames, go to the
+//! trash and come back on restore, and are dropped when a file is purged.
 
 use axum::{
     Json, Router,
@@ -321,55 +321,6 @@ async fn counts(
     ))
 }
 
-/// Re-points comments after `from` was moved to `to` in `source` (both real
-/// paths). Comments on everything below a moved folder move with it.
-///
-/// # Errors
-///
-/// Database failures.
-pub async fn on_rename(
-    db: &sqlx::SqlitePool,
-    source: &str,
-    from: &VPath,
-    to: &VPath,
-) -> AppResult<()> {
-    let (from, to) = (from.to_string(), to.to_string());
-    let from_prefix = format!("{from}/");
-    sqlx::query(
-        "UPDATE comments SET path = CASE WHEN path = ?1 THEN ?2
-                                          ELSE ?2 || substr(path, length(?1) + 1) END
-         WHERE source = ?3 AND (path = ?1 OR substr(path, 1, length(?4)) = ?4)",
-    )
-    .bind(&from)
-    .bind(&to)
-    .bind(source)
-    .bind(&from_prefix)
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Removes the comments on `path` (a real path) and everything below it,
-/// after a permanent delete.
-///
-/// # Errors
-///
-/// Database failures.
-pub async fn on_delete(db: &sqlx::SqlitePool, source: &str, path: &VPath) -> AppResult<()> {
-    let p = path.to_string();
-    let prefix = format!("{p}/");
-    sqlx::query(
-        "DELETE FROM comments WHERE source = ? AND (path = ? OR substr(path, 1, length(?)) = ?)",
-    )
-    .bind(source)
-    .bind(&p)
-    .bind(&prefix)
-    .bind(&prefix)
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,36 +331,5 @@ mod tests {
         assert_eq!(clean_body("  hi \n").unwrap(), "hi");
         assert!(clean_body(&"x".repeat(MAX_BODY_CHARS + 1)).is_err());
         assert!(clean_body(&"é".repeat(MAX_BODY_CHARS)).is_ok());
-    }
-
-    async fn seed(db: &sqlx::SqlitePool, path: &str) {
-        sqlx::query(
-            "INSERT INTO comments (source, path, body, created_at) VALUES ('s', ?, 'x', 0)",
-        )
-        .bind(path)
-        .execute(db)
-        .await
-        .unwrap();
-    }
-
-    async fn paths(db: &sqlx::SqlitePool) -> Vec<String> {
-        sqlx::query_scalar("SELECT path FROM comments ORDER BY path")
-            .fetch_all(db)
-            .await
-            .unwrap()
-    }
-
-    #[tokio::test]
-    async fn rename_and_delete_follow_files() {
-        let db = db::open_memory().await.unwrap();
-        for p in ["/a", "/a/b.txt", "/ab", "/c"] {
-            seed(&db, p).await;
-        }
-        let v = |s| VPath::parse(s).unwrap();
-        on_rename(&db, "s", &v("a"), &v("z/a2")).await.unwrap();
-        // "/ab" shares a string prefix with "/a" but is not inside it.
-        assert_eq!(paths(&db).await, ["/ab", "/c", "/z/a2", "/z/a2/b.txt"]);
-        on_delete(&db, "s", &v("z")).await.unwrap();
-        assert_eq!(paths(&db).await, ["/ab", "/c"]);
     }
 }

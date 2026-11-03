@@ -13,7 +13,11 @@
 //! | `POST /api/sources/{id}/mkdir {path}` | upload |
 //! | `POST /api/sources/{id}/move {from,to,overwrite?}` | edit |
 //! | `POST /api/sources/{id}/copy {from,to,overwrite?}` | upload (+edit to overwrite) |
-//! | `POST /api/sources/{id}/delete {paths}` | delete |
+//! | `POST /api/sources/{id}/delete {paths}` | delete (moves to the trash) |
+//!
+//! The source's trash folder ([`trash::TRASH_DIR`]) is hidden from listings
+//! and refused as a path. Moves, copies and deletes keep tags and stars
+//! attached ([`meta`]) and every change is recorded in the activity log.
 
 use std::sync::Arc;
 
@@ -30,8 +34,13 @@ use time::OffsetDateTime;
 
 use super::{download, zip};
 use crate::{
+    activity::{Activity, ClientIp, action},
     auth::{AuthUser, Perms, User},
     error::{AppError, AppResult},
+    organize::{
+        self, meta,
+        trash::{self, Removed},
+    },
     state::AppState,
     storage::{Entry, Source, Storage, VPath},
 };
@@ -156,7 +165,9 @@ pub async fn scoped(
     path: &VPath,
 ) -> AppResult<Arc<dyn Storage>> {
     let src = source_for(state, user, id)?;
-    user.require(id, perm, path)?;
+    if trash::is_reserved(&user.require(id, perm, path)?) {
+        return Err(AppError::NotFound);
+    }
     let grant = user.grant(id).ok_or(AppError::NotFound)?;
     if grant.scope.is_root() {
         Ok(src.storage.clone())
@@ -196,10 +207,13 @@ async fn list(
 ) -> AppResult<Json<Listing>> {
     let path = q.vpath()?;
     let st = scoped(&state, &auth.user, &id, Perms::VIEW, &path).await?;
+    let real_root = auth.user.require(&id, Perms::VIEW, &path)?.is_root();
     let mut entries: Vec<EntryDto> = st
         .list(&path)
         .await?
         .into_iter()
+        // The trash folder at the top of the source is never listed.
+        .filter(|e| !(e.name == trash::TRASH_DIR && real_root))
         .map(|e| {
             let visible = path.join(&e.name).unwrap_or_else(|_| path.clone());
             EntryDto::from_entry(e, visible)
@@ -229,6 +243,7 @@ async fn stat(
 async fn download_file(
     State(state): State<AppState>,
     auth: AuthUser,
+    ip: ClientIp,
     Path(id): Path<String>,
     Query(q): Query<PathQuery>,
     headers: HeaderMap,
@@ -236,7 +251,22 @@ async fn download_file(
     let path = q.vpath()?;
     let st = scoped(&state, &auth.user, &id, Perms::DOWNLOAD, &path).await?;
     let inline = q.inline.as_deref().is_some_and(|v| v == "1" || v == "true");
-    download::file_response(st.as_ref(), &path, &headers, inline).await
+    let resp = download::file_response(st.as_ref(), &path, &headers, inline).await?;
+    // Log a download once, not for every seek of a media player.
+    let first_part = headers
+        .get(axum::http::header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .is_none_or(|r| r.trim_start().starts_with("bytes=0-"));
+    if first_part && resp.status().is_success() {
+        Activity::new(action::DOWNLOAD)
+            .user(&auth.user)
+            .at(&id, &auth.user.require(&id, Perms::DOWNLOAD, &path)?)
+            .details(serde_json::json!({ "inline": inline }))
+            .ip(ip.0.as_deref())
+            .record(&state)
+            .await;
+    }
+    Ok(resp)
 }
 
 /// Query for `zip`: repeated `path` and an optional archive `name`.
@@ -251,6 +281,7 @@ pub struct ZipQuery {
 async fn zip_selection(
     State(state): State<AppState>,
     auth: AuthUser,
+    ip: ClientIp,
     Path(id): Path<String>,
     Query(q): Query<ZipQuery>,
 ) -> AppResult<Response> {
@@ -263,6 +294,14 @@ async fn zip_selection(
         .iter()
         .map(|p| VPath::parse(p))
         .collect::<Result<Vec<_>, _>>()?;
+    let mut reals = Vec::with_capacity(items.len());
+    for item in &items {
+        let real = auth.user.require(&id, Perms::DOWNLOAD, item)?;
+        if trash::is_reserved(&real) {
+            return Err(AppError::NotFound);
+        }
+        reals.push(real.to_string());
+    }
     let default_name = match items.as_slice() {
         [one] => one.name().unwrap_or(&id).to_owned(),
         _ => "download".to_owned(),
@@ -271,7 +310,14 @@ async fn zip_selection(
         .name
         .filter(|n| !n.is_empty() && n.len() < 200 && !n.contains(['/', '\\']))
         .unwrap_or(default_name);
-    zip::zip_response(st, items, &name).await
+    let resp = zip::zip_response(st, items, &name).await?;
+    Activity::new(action::DOWNLOAD)
+        .user(&auth.user)
+        .details(serde_json::json!({ "source": id, "zip": reals }))
+        .ip(ip.0.as_deref())
+        .record(&state)
+        .await;
+    Ok(resp)
 }
 
 /// Body for `mkdir`.
@@ -283,6 +329,7 @@ pub struct MkdirBody {
 async fn mkdir(
     State(state): State<AppState>,
     auth: AuthUser,
+    ip: ClientIp,
     Path(id): Path<String>,
     Json(body): Json<MkdirBody>,
 ) -> AppResult<Json<EntryDto>> {
@@ -295,6 +342,12 @@ async fn mkdir(
     }
     st.mkdir(&body.path).await?;
     let e = st.stat(&body.path).await?;
+    Activity::new(action::MKDIR)
+        .user(&auth.user)
+        .at(&id, &auth.user.require(&id, Perms::UPLOAD, &body.path)?)
+        .ip(ip.0.as_deref())
+        .record(&state)
+        .await;
     Ok(Json(EntryDto::from_entry(e, body.path)))
 }
 
@@ -310,23 +363,25 @@ pub struct TransferBody {
 async fn move_entry(
     State(state): State<AppState>,
     auth: AuthUser,
+    ip: ClientIp,
     Path(id): Path<String>,
     Json(body): Json<TransferBody>,
 ) -> AppResult<Json<EntryDto>> {
     let st = scoped(&state, &auth.user, &id, Perms::EDIT, &body.from).await?;
-    auth.user.require(&id, Perms::EDIT, &body.to)?;
+    let from = auth.user.require(&id, Perms::EDIT, &body.from)?;
+    let to = auth.user.require(&id, Perms::EDIT, &body.to)?;
+    if trash::is_reserved(&to) {
+        return Err(AppError::NotFound);
+    }
     st.rename(&body.from, &body.to, body.overwrite).await?;
-    // Keep comment threads attached; the move already happened, so only log failures.
-    let from_real = auth.user.require(&id, Perms::EDIT, &body.from)?;
-    let to_real = auth.user.require(&id, Perms::EDIT, &body.to)?;
-    if body.overwrite
-        && let Err(e) = crate::comments::on_delete(&state.db, &id, &to_real).await
-    {
-        tracing::warn!(error = %e, "dropping comments of an overwritten file");
-    }
-    if let Err(e) = crate::comments::on_rename(&state.db, &id, &from_real, &to_real).await {
-        tracing::warn!(error = %e, "moving comments with their file");
-    }
+    meta::on_move(&state.db, &id, &from, &id, &to).await?;
+    Activity::new(action::MOVE)
+        .user(&auth.user)
+        .at(&id, &from)
+        .target(&to)
+        .ip(ip.0.as_deref())
+        .record(&state)
+        .await;
     let e = st.stat(&body.to).await?;
     Ok(Json(EntryDto::from_entry(e, body.to)))
 }
@@ -334,6 +389,7 @@ async fn move_entry(
 async fn copy_entry(
     State(state): State<AppState>,
     auth: AuthUser,
+    ip: ClientIp,
     Path(id): Path<String>,
     Json(body): Json<TransferBody>,
 ) -> AppResult<Json<EntryDto>> {
@@ -343,8 +399,24 @@ async fn copy_entry(
     } else {
         Perms::UPLOAD
     };
-    auth.user.require(&id, need, &body.to)?;
+    let from = auth.user.require(&id, Perms::DOWNLOAD, &body.from)?;
+    let to = auth.user.require(&id, need, &body.to)?;
+    if trash::is_reserved(&to) {
+        return Err(AppError::NotFound);
+    }
     st.copy(&body.from, &body.to, body.overwrite).await?;
+    if body.overwrite {
+        // The replaced item's tags and stars go with it.
+        meta::on_delete(&state.db, &id, &to).await?;
+    }
+    meta::on_copy(&state.db, &id, &from, &id, &to).await?;
+    Activity::new(action::COPY)
+        .user(&auth.user)
+        .at(&id, &from)
+        .target(&to)
+        .ip(ip.0.as_deref())
+        .record(&state)
+        .await;
     let e = st.stat(&body.to).await?;
     Ok(Json(EntryDto::from_entry(e, body.to)))
 }
@@ -372,6 +444,7 @@ pub struct DeleteResult {
 async fn delete(
     State(state): State<AppState>,
     auth: AuthUser,
+    ip: ClientIp,
     Path(id): Path<String>,
     Json(body): Json<DeleteBody>,
 ) -> AppResult<Json<DeleteResult>> {
@@ -379,24 +452,37 @@ async fn delete(
     if body.paths.iter().any(VPath::is_root) {
         return Err(AppError::bad_request("cannot delete the root"));
     }
-    let st = scoped(&state, &auth.user, &id, Perms::DELETE, &VPath::root()).await?;
+    scoped(&state, &auth.user, &id, Perms::DELETE, &VPath::root()).await?;
     let mut result = DeleteResult {
         deleted: Vec::new(),
         failed: Vec::new(),
     };
     for visible in body.paths {
-        match st.delete(&visible).await {
-            Ok(()) => {
-                // Permanent delete: drop the comments too (a trash would skip this).
-                let real = auth.user.require(&id, Perms::DELETE, &visible)?;
-                if let Err(e) = crate::comments::on_delete(&state.db, &id, &real).await {
-                    tracing::warn!(error = %e, "dropping comments of a deleted file");
-                }
+        // Deletes go to the trash (or are permanent when it is off). The
+        // path is confined first: the trash lives outside the user's scope.
+        let outcome = async {
+            let real = organize::confine(&state, &auth.user, &id, Perms::DELETE, &visible).await?;
+            let removed = trash::remove(&state, Some(auth.user.id), &id, &real).await?;
+            AppResult::Ok((real, removed))
+        }
+        .await;
+        match outcome {
+            Ok((real, removed)) => {
+                let ev = match &removed {
+                    Removed::Trashed(item) => Activity::new(action::TRASH)
+                        .details(serde_json::json!({ "trash_id": item.id })),
+                    Removed::Deleted => Activity::new(action::DELETE),
+                };
+                ev.user(&auth.user)
+                    .at(&id, &real)
+                    .ip(ip.0.as_deref())
+                    .record(&state)
+                    .await;
                 result.deleted.push(visible);
             }
             Err(e) => result.failed.push(DeleteFailure {
                 path: visible,
-                message: AppError::from(e).to_string(),
+                message: e.to_string(),
             }),
         }
     }

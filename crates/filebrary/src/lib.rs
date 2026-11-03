@@ -12,6 +12,8 @@
 //! * [`auth`]: users, permissions, sessions and extractors.
 //! * [`api`]: JSON endpoints under `/api`.
 //! * [`shares`]: share links.
+//! * [`organize`]: trash bin, tags and stars.
+//! * [`activity`]: the activity log.
 //! * [`comments`]: comments on files.
 //! * [`collections`]: multi-item collections that can be shared.
 //! * [`cast`]: cookie-free media URLs for Chromecast/AirPlay.
@@ -20,6 +22,15 @@
 
 #![warn(missing_docs)]
 
+/// Formats an SQL string from *trusted constants only* (table names and SQL
+/// fragments defined in this crate, never user input) and marks it as audited
+/// for sqlx. Values always go through `.bind()`.
+macro_rules! sql_fmt {
+    ($($t:tt)*) => { sqlx::AssertSqlSafe(format!($($t)*)) };
+}
+pub(crate) use sql_fmt;
+
+pub mod activity;
 pub mod api;
 pub mod auth;
 pub mod branding;
@@ -30,6 +41,7 @@ pub mod config;
 pub mod crypto;
 pub mod db;
 pub mod error;
+pub mod organize;
 pub mod shares;
 pub mod state;
 pub use filebrary_storage as storage;
@@ -61,6 +73,7 @@ pub fn spawn_maintenance(state: AppState) -> tokio::task::JoinHandle<()> {
                 Ok(n) => tracing::info!(count = n, "removed stale uploads"),
                 Err(e) => tracing::warn!(error = %e, "purging uploads failed"),
             }
+            organize::maintain(&state).await;
         }
     })
 }
