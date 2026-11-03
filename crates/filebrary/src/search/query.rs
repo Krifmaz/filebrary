@@ -358,12 +358,83 @@ struct HitRow {
     mtime: Option<i64>,
 }
 
-/// Where one source may be searched: the real folder to search under.
+/// Where one source may be searched.
 #[derive(Clone, Debug)]
 struct Area {
     source: String,
+    /// The user's scope (real path); results are shown relative to it.
     scope: VPath,
+    /// The real folder to search under (the scope, or a folder inside it).
     under: VPath,
+    /// Where the user may view: see [`view_regions`].
+    regions: Vec<(VPath, Vec<VPath>)>,
+}
+
+/// The folders (real paths) of `source` where `user` has the view
+/// permission, each with the folders below it where a deeper rule takes it
+/// away again.
+///
+/// Permission rules resolve by the deepest rule above a path, so a path is
+/// viewable exactly when it lies in some region's folder and in none of that
+/// region's exceptions. (A deeper rule that grants view again forms its own
+/// region.)
+fn view_regions(user: &User, source: &str) -> Vec<(VPath, Vec<VPath>)> {
+    let mut points = vec![VPath::root()];
+    if !user.is_admin {
+        points.extend(
+            user.rules
+                .iter()
+                .filter(|r| r.source == source)
+                .map(|r| r.path.clone()),
+        );
+    }
+    points.sort();
+    points.dedup();
+    let (allowed, denied): (Vec<VPath>, Vec<VPath>) = points
+        .into_iter()
+        .partition(|p| user.perms_at(source, p).contains(Perms::VIEW));
+    allowed
+        .into_iter()
+        .map(|a| {
+            let below = denied
+                .iter()
+                .filter(|d| *d != &a && d.starts_with(&a))
+                .cloned()
+                .collect();
+            (a, below)
+        })
+        .collect()
+}
+
+/// Pushes `col = dir OR col` in the descendants of `dir` (always true for the root).
+fn push_at_or_under(qb: &mut QueryBuilder<Sqlite>, col: &str, dir: &VPath) {
+    if dir.is_root() {
+        qb.push("1");
+        return;
+    }
+    let (lo, hi) = descendant_range(dir);
+    qb.push(format_args!("({col} = "))
+        .push_bind(dir.to_string())
+        .push(format_args!(" OR ({col} >= "))
+        .push_bind(lo)
+        .push(format_args!(" AND {col} < "))
+        .push_bind(hi)
+        .push("))");
+}
+
+/// Pushes a condition that holds when the path in `col` is viewable.
+fn push_viewable(qb: &mut QueryBuilder<Sqlite>, col: &str, regions: &[(VPath, Vec<VPath>)]) {
+    qb.push("(0");
+    for (allowed, denied) in regions {
+        qb.push(" OR (");
+        push_at_or_under(qb, col, allowed);
+        for d in denied {
+            qb.push(" AND NOT ");
+            push_at_or_under(qb, col, d);
+        }
+        qb.push(")");
+    }
+    qb.push(")");
 }
 
 /// Runs a search for `user`. `indexed` says whether a source is indexed.
@@ -382,34 +453,36 @@ pub async fn run(
     let mut areas = Vec::new();
     if f.sources.is_empty() {
         for (name, g) in &user.grants {
-            if g.perms.contains(Perms::VIEW) && indexed(name) {
+            if indexed(name) {
                 areas.push(Area {
                     source: name.clone(),
                     scope: g.scope.clone(),
                     under: g.scope.clone(),
+                    regions: view_regions(user, name),
                 });
             }
         }
     } else {
         for name in &f.sources {
             let folder = f.folder.clone().unwrap_or_default();
-            let under = user.require(name, Perms::VIEW, &folder)?;
+            let g = user.grant(name).ok_or(AppError::NotFound)?;
+            if !user.can_traverse(name, &folder) {
+                return Err(AppError::NotFound);
+            }
             if !indexed(name) {
                 return Err(AppError::bad_request(format!(
                     "source {name:?} is not indexed"
                 )));
             }
-            let scope = user
-                .grant(name)
-                .map(|g| g.scope.clone())
-                .unwrap_or_default();
             areas.push(Area {
                 source: name.clone(),
-                scope,
-                under,
+                scope: g.scope.clone(),
+                under: g.scope.join_path(&folder),
+                regions: view_regions(user, name),
             });
         }
     }
+    areas.retain(|a| !a.regions.is_empty());
     if areas.is_empty() {
         return Ok((Vec::new(), false));
     }
@@ -429,17 +502,14 @@ pub async fn run(
                 .push(" AND f.path < ")
                 .push_bind(hi);
         }
-        if !a.scope.is_root() {
-            // A symlink is only shown if its target is inside the scope too.
-            let (lo, hi) = descendant_range(&a.scope);
-            qb.push(" AND (f.target IS NULL OR f.target = ")
-                .push_bind(a.scope.to_string())
-                .push(" OR (f.target >= ")
-                .push_bind(lo)
-                .push(" AND f.target < ")
-                .push_bind(hi)
-                .push("))");
-        }
+        qb.push(" AND ");
+        push_viewable(&mut qb, "f.path", &a.regions);
+        // A symlink is only shown if its target is in scope and viewable too.
+        qb.push(" AND (f.target IS NULL OR (");
+        push_at_or_under(&mut qb, "f.target", &a.scope);
+        qb.push(" AND ");
+        push_viewable(&mut qb, "f.target", &a.regions);
+        qb.push("))");
         qb.push(")");
     }
     qb.push(")");

@@ -53,8 +53,8 @@ impl Ctx {
     /// Creates a user. `grant` is `(perm bits, scope)` on source `files`.
     async fn user(&self, name: &str, admin: bool, grant: Option<(i64, &str)>) -> (i64, Client) {
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO users (username, password_hash, is_admin, created_at)
-             VALUES (?, 'x', ?, 0) RETURNING id",
+            "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
+             VALUES (?, 'x', ?, 0, 0) RETURNING id",
         )
         .bind(name)
         .bind(admin)
@@ -62,15 +62,19 @@ impl Ctx {
         .await
         .unwrap();
         if let Some((perms, scope)) = grant {
-            sqlx::query(
-                "INSERT INTO user_sources (user_id, source, perms, scope) VALUES (?, 'files', ?, ?)",
+            let scope = filebrary::storage::VPath::parse(scope).unwrap();
+            filebrary::auth::permissions::set(
+                &self.state.db,
+                "files",
+                &scope,
+                filebrary::auth::Subject::User(id),
+                filebrary::auth::Perms::from_bits(perms),
             )
-            .bind(id)
-            .bind(perms)
-            .bind(scope)
-            .execute(&self.state.db)
             .await
             .unwrap();
+            filebrary::auth::users::set_scope(&self.state.db, id, "files", &scope)
+                .await
+                .unwrap();
         }
         let s = session::create(&self.state, id, None, None).await.unwrap();
         (
@@ -369,10 +373,15 @@ async fn collections_flow() {
         ["a.mp4", "home"]
     );
     // Losing the share permission drops the items from the link.
-    sqlx::query("UPDATE user_sources SET perms = 3 WHERE user_id = 1")
-        .execute(&ctx.state.db)
-        .await
-        .unwrap();
+    filebrary::auth::permissions::set(
+        &ctx.state.db,
+        "files",
+        &filebrary::storage::VPath::root(),
+        filebrary::auth::Subject::User(1),
+        filebrary::auth::Perms::from_bits(3),
+    )
+    .await
+    .unwrap();
     let alice_user = filebrary::auth::load_user(&ctx.state, 1)
         .await
         .unwrap()

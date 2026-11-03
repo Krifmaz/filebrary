@@ -34,6 +34,8 @@ pub struct Inner {
     /// The full-text content index, or `None` when `[fulltext] enabled =
     /// false` or no source has `content_search` switched on.
     pub content_index: Option<Arc<filebrary_fulltext::ContentIndex>>,
+    /// Login rate limiter and auth hooks.
+    pub auth: crate::auth::AuthRuntime,
 }
 
 impl Deref for AppState {
@@ -77,8 +79,10 @@ impl AppState {
         let names: Vec<String> = sources.keys().cloned().collect();
         let search = Search::new(db.clone(), config.search.clone(), &names);
         let content_index = crate::content::open_index(&config)?;
+        let auth = crate::auth::AuthRuntime::new(&config);
         Ok(Self(Arc::new(Inner {
             search,
+            auth,
             config,
             db,
             sources,

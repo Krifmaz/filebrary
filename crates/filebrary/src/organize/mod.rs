@@ -42,7 +42,7 @@ pub async fn confine(
     perm: Perms,
     path: &VPath,
 ) -> AppResult<VPath> {
-    let backend = files::scoped(state, user, source, perm, path).await?;
+    let backend = files::scoped_entry(state, user, source, perm, path).await?;
     let scope = user
         .grant(source)
         .map(|g| g.scope.clone())

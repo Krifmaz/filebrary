@@ -11,10 +11,11 @@ use axum::{
 };
 use filebrary::{
     AppState,
-    auth::{Perms, session},
+    auth::{Perms, Subject, permissions, session, users},
     config::{Config, SourceConfig, SourceKind},
     db,
     search::scan,
+    storage::VPath,
 };
 use http_body_util::BodyExt;
 use serde_json::Value;
@@ -26,22 +27,22 @@ fn write(root: &Path, rel: &str, body: &str) {
     std::fs::write(p, body).unwrap();
 }
 
-/// Creates a user with VIEW on `files` (scoped) and on `other` (root).
+/// Creates a user with VIEW on `files` (scoped) and on `other` (root), and
+/// returns their session cookie value.
 async fn user(state: &AppState, name: &str, scope: &str) -> String {
     let (id,): (i64,) = sqlx::query_as(
-        "INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, 'x', 0, 0) RETURNING id",
+        "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at) VALUES (?, 'x', 0, 0, 0) RETURNING id",
     )
     .bind(name)
     .fetch_one(&state.db)
     .await
     .unwrap();
     for (source, scope) in [("files", scope), ("other", "/")] {
-        sqlx::query("INSERT INTO user_sources (user_id, source, perms, scope) VALUES (?, ?, ?, ?)")
-            .bind(id)
-            .bind(source)
-            .bind(Perms::VIEW.bits())
-            .bind(scope)
-            .execute(&state.db)
+        let scope = VPath::parse(scope).unwrap();
+        permissions::set(&state.db, source, &scope, Subject::User(id), Perms::VIEW)
+            .await
+            .unwrap();
+        users::set_scope(&state.db, id, source, &scope)
             .await
             .unwrap();
     }
@@ -190,6 +191,24 @@ async fn content_search_end_to_end() {
     paths.sort();
     assert_eq!(paths, ["/budget.csv", "/plan.md"]);
     assert!(e.hits(&team, "content=secrets").await.is_empty());
+
+    // A per-folder rule that removes view on /private hides its matches.
+    let ruled = user(&e.state, "ruled", "/").await;
+    let (rid,): (i64,) = sqlx::query_as("SELECT id FROM users WHERE username = 'ruled'")
+        .fetch_one(&e.state.db)
+        .await
+        .unwrap();
+    permissions::set(
+        &e.state.db,
+        "files",
+        &VPath::parse("/private").unwrap(),
+        Subject::User(rid),
+        Perms::default(),
+    )
+    .await
+    .unwrap();
+    assert!(e.hits(&ruled, "content=secrets").await.is_empty());
+    assert_eq!(e.hits(&ruled, "content=zebra").await.len(), 2);
 
     // Combined with name and type filters.
     let hits = e.hits(&all, "content=zebra&q=plan").await;

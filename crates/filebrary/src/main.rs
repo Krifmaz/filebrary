@@ -49,6 +49,9 @@ async fn main() -> anyhow::Result<()> {
     // Subscribe the content indexer before the file indexer starts publishing.
     filebrary::content::start(&state);
     filebrary::spawn_maintenance(state.clone());
+    filebrary::auth::bootstrap_admin(&state)
+        .await
+        .map_err(|e| anyhow::anyhow!("creating the first administrator: {e}"))?;
     state.search.start(&state);
 
     let listener = tokio::net::TcpListener::bind(listen)

@@ -25,7 +25,7 @@ use filebrary_fulltext::{
 use futures::StreamExt;
 
 use crate::{
-    auth::{Perms, User},
+    auth::User,
     config::Config,
     error::{AppError, AppResult},
     search::IndexEvent,
@@ -246,12 +246,10 @@ pub async fn candidates(
             "content is too long (at most {MAX_CONTENT_QUERY_CHARS} characters)"
         )));
     }
-    let sources: Vec<String> = user
-        .grants
-        .iter()
-        .filter(|(_, g)| g.perms.contains(Perms::VIEW))
-        .map(|(name, _)| name.clone())
-        .collect();
+    // Every source the user has a grant on: per-folder rules can allow
+    // viewing below a root that is not viewable, and the SQL intersection in
+    // `query::run` applies those rules (and the scope) to every candidate.
+    let sources: Vec<String> = user.grants.keys().cloned().collect();
     let q = query.to_owned();
     let hits = tokio::task::spawn_blocking(move || {
         let refs: Vec<&str> = sources.iter().map(String::as_str).collect();

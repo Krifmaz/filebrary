@@ -141,15 +141,18 @@ impl PathQuery {
 /// Resolves a source the user can view.
 pub fn source_for<'a>(state: &'a AppState, user: &User, id: &str) -> AppResult<&'a Source> {
     let src = state.source(id).ok_or(AppError::NotFound)?;
+    // A grant exists only when some rule gives the user something on the
+    // source (possibly only in a subfolder); paths are checked per request.
     match user.grant(id) {
-        Some(g) if g.perms.contains(Perms::VIEW) => Ok(src),
-        _ => Err(AppError::NotFound),
+        Some(_) => Ok(src),
+        None => Err(AppError::NotFound),
     }
 }
 
 /// Tells the search index that `visible` (a path as `user` sees it) changed.
 pub fn index_changed(state: &AppState, user: &crate::auth::User, source: &str, visible: &VPath) {
-    if let Ok(real) = user.require(source, Perms::VIEW, visible) {
+    if user.grant(source).is_some() {
+        let real = user.scope(source).join_path(visible);
         state.search.changed(state, source, &real);
     }
 }
@@ -159,7 +162,9 @@ pub fn index_changed(state: &AppState, user: &crate::auth::User, source: &str, v
 ///
 /// Confining through [`crate::storage::Storage::sub`] (instead of prefixing the
 /// scope) makes the backend check symlinks against the scope, so a link inside
-/// a user's folder cannot reach elsewhere in the source.
+/// a user's folder cannot reach elsewhere in the source. The permission check
+/// itself is [`crate::auth::authorize`], which also checks the rules on the
+/// symlink-resolved path.
 ///
 /// # Errors
 ///
@@ -172,7 +177,34 @@ pub async fn scoped(
     path: &VPath,
 ) -> AppResult<Arc<dyn Storage>> {
     let src = source_for(state, user, id)?;
-    if trash::is_reserved(&user.require(id, perm, path)?) {
+    let real = crate::auth::authorize(state, user, id, perm, path).await?;
+    if trash::is_reserved(&real) {
+        return Err(AppError::NotFound);
+    }
+    let grant = user.grant(id).ok_or(AppError::NotFound)?;
+    if grant.scope.is_root() {
+        Ok(src.storage.clone())
+    } else {
+        Ok(src.storage.sub(&grant.scope).await?)
+    }
+}
+
+/// [`scoped`] for operations on an entry itself (delete, move away): a
+/// final symlink is not followed, see [`crate::auth::authorize_entry`].
+///
+/// # Errors
+///
+/// As [`scoped`].
+pub async fn scoped_entry(
+    state: &AppState,
+    user: &User,
+    id: &str,
+    perm: Perms,
+    path: &VPath,
+) -> AppResult<Arc<dyn Storage>> {
+    let src = source_for(state, user, id)?;
+    let real = crate::auth::authorize_entry(state, user, id, perm, path).await?;
+    if trash::is_reserved(&real) {
         return Err(AppError::NotFound);
     }
     let grant = user.grant(id).ok_or(AppError::NotFound)?;
@@ -221,9 +253,15 @@ async fn list(
         .into_iter()
         // The trash folder at the top of the source is never listed.
         .filter(|e| !(e.name == trash::TRASH_DIR && real_root))
-        .map(|e| {
-            let visible = path.join(&e.name).unwrap_or_else(|_| path.clone());
-            EntryDto::from_entry(e, visible)
+        .filter_map(|e| {
+            let visible = path.join(&e.name).ok()?;
+            // Hide entries a permission rule hides.
+            let shown = if e.is_dir() {
+                auth.user.can_traverse(&id, &visible)
+            } else {
+                auth.user.effective(&id, &visible).contains(Perms::VIEW)
+            };
+            shown.then(|| EntryDto::from_entry(e, visible))
         })
         .collect();
     // Folders first, then case-insensitive by name.
@@ -317,7 +355,10 @@ async fn zip_selection(
         .name
         .filter(|n| !n.is_empty() && n.len() < 200 && !n.contains(['/', '\\']))
         .unwrap_or(default_name);
-    let resp = zip::zip_response(st, items, &name).await?;
+    for item in &items {
+        crate::auth::authorize(&state, &auth.user, &id, Perms::DOWNLOAD, item).await?;
+    }
+    let resp = zip::zip_response(st, items, &name, download_filter(&auth.user, &id)).await?;
     Activity::new(action::DOWNLOAD)
         .user(&auth.user)
         .details(serde_json::json!({ "source": id, "zip": reals }))
@@ -325,6 +366,20 @@ async fn zip_selection(
         .record(&state)
         .await;
     Ok(resp)
+}
+
+/// Keeps what `user` may download (files) or look into (folders) in `source`;
+/// paths are user-visible.
+pub fn download_filter(user: &User, source: &str) -> zip::ZipFilter {
+    let user = user.clone();
+    let source = source.to_owned();
+    Arc::new(move |p: &VPath, is_dir: bool| {
+        if is_dir {
+            user.can_traverse(&source, p)
+        } else {
+            user.effective(&source, p).contains(Perms::DOWNLOAD)
+        }
+    })
 }
 
 /// Body for `mkdir`.
@@ -375,9 +430,10 @@ async fn move_entry(
     Path(id): Path<String>,
     Json(body): Json<TransferBody>,
 ) -> AppResult<Json<EntryDto>> {
-    let st = scoped(&state, &auth.user, &id, Perms::EDIT, &body.from).await?;
-    let from = auth.user.require(&id, Perms::EDIT, &body.from)?;
-    let to = auth.user.require(&id, Perms::EDIT, &body.to)?;
+    let st = scoped_entry(&state, &auth.user, &id, Perms::EDIT, &body.from).await?;
+    let from = crate::auth::authorize_tree(&state, &auth.user, &id, Perms::EDIT, &body.from, false)
+        .await?;
+    let to = crate::auth::authorize(&state, &auth.user, &id, Perms::EDIT, &body.to).await?;
     if trash::is_reserved(&to) {
         return Err(AppError::NotFound);
     }
@@ -408,8 +464,10 @@ async fn copy_entry(
     } else {
         Perms::UPLOAD
     };
-    let from = auth.user.require(&id, Perms::DOWNLOAD, &body.from)?;
-    let to = auth.user.require(&id, need, &body.to)?;
+    let from =
+        crate::auth::authorize_tree(&state, &auth.user, &id, Perms::DOWNLOAD, &body.from, true)
+            .await?;
+    let to = crate::auth::authorize_write(&state, &auth.user, &id, need, &body.to, None).await?;
     if trash::is_reserved(&to) {
         return Err(AppError::NotFound);
     }
@@ -462,7 +520,10 @@ async fn delete(
     if body.paths.iter().any(VPath::is_root) {
         return Err(AppError::bad_request("cannot delete the root"));
     }
-    scoped(&state, &auth.user, &id, Perms::DELETE, &VPath::root()).await?;
+    source_for(&state, &auth.user, &id)?;
+    for p in &body.paths {
+        crate::auth::authorize_tree(&state, &auth.user, &id, Perms::DELETE, p, false).await?;
+    }
     let mut result = DeleteResult {
         deleted: Vec::new(),
         failed: Vec::new(),
