@@ -90,6 +90,16 @@ fn free_port() -> u16 {
         .port()
 }
 
+/// First port of a passive range of 21 ports that no other server in this
+/// test binary uses. Ranges handed out by `free_port() + 20` overlapped
+/// between parallel tests on Windows, which allocates ports in sequence,
+/// so a data connection could reach another test's server and be reset.
+/// The ranges sit below the Windows and Linux ephemeral ranges.
+fn passive_base() -> u16 {
+    static NEXT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(20000);
+    NEXT.fetch_add(21, std::sync::atomic::Ordering::Relaxed)
+}
+
 async fn start(max_login_attempts: u32) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
@@ -105,7 +115,7 @@ async fn start(max_login_attempts: u32) -> Fixture {
         writes: writes.clone(),
     });
     let port = free_port();
-    let pasv = free_port();
+    let pasv = passive_base();
     let cfg = FtpConfig {
         enabled: true,
         listen: SocketAddr::from(([127, 0, 0, 1], port)),
@@ -319,7 +329,7 @@ async fn ftps_required_mode() {
         writes: Arc::default(),
     });
     let port = free_port();
-    let pasv = free_port();
+    let pasv = passive_base();
     let cfg = FtpConfig {
         enabled: true,
         listen: SocketAddr::from(([127, 0, 0, 1], port)),
