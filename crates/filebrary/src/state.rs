@@ -29,6 +29,8 @@ pub struct Inner {
     pub upload_dir: PathBuf,
     /// Upload ids with a chunk currently being written (one writer at a time).
     pub uploads_in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// Login rate limiter and auth hooks.
+    pub auth: crate::auth::AuthRuntime,
     /// Thumbnail and preview generator with its cache (`None` when disabled).
     pub previews: Option<PreviewService>,
 }
@@ -71,12 +73,14 @@ impl AppState {
         let upload_dir = config.data_dir.join("uploads");
         std::fs::create_dir_all(&upload_dir)
             .with_context(|| format!("creating {}", upload_dir.display()))?;
+        let auth = crate::auth::AuthRuntime::new(&config);
         let previews = if config.previews.enabled {
             Some(build_previews(&config)?)
         } else {
             None
         };
         Ok(Self(Arc::new(Inner {
+            auth,
             config,
             db,
             sources,

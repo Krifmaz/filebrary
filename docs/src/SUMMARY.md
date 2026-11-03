@@ -13,6 +13,7 @@
 - [Configuration overview](configuration/overview.md)
 - [Storage sources](configuration/sources.md)
 - [Reverse proxy](configuration/reverse-proxy.md)
+- [Users and permissions](configuration/users.md)
 
 # Features
 

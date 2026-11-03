@@ -1,76 +1,39 @@
 //! HTTP tests for `/api/previews` and `/api/sources/{id}/preview`, against a
 //! temporary data directory.
 
+mod common;
+
 use axum::{
     body::Body,
     http::{HeaderMap, Request, StatusCode, header},
 };
-use filebrary::{
-    AppState,
-    auth::{Perms, session},
-    config::{Config, SourceConfig, SourceKind},
-    db,
-};
+use filebrary::{AppState, auth::Perms};
 use http_body_util::BodyExt;
 use image::{DynamicImage, Rgb, RgbImage};
 use tower::ServiceExt;
 
 struct Fixture {
-    _dir: tempfile::TempDir,
+    app: common::TestApp,
     files: std::path::PathBuf,
     state: AppState,
 }
 
 async fn fixture() -> Fixture {
-    let dir = tempfile::tempdir().unwrap();
-    let files = dir.path().join("files");
-    std::fs::create_dir_all(&files).unwrap();
-    let config = Config {
-        data_dir: dir.path().to_path_buf(),
-        sources: vec![SourceConfig {
-            name: "files".into(),
-            kind: SourceKind::Local,
-            path: files.clone(),
-        }],
-        ..Config::default()
-    };
-    let pool = db::open_memory().await.unwrap();
-    let state = AppState::new(config, pool, [7; 32]).unwrap();
+    let app = common::TestApp::new().await;
     // Canonical path, so symlink tests compare like with like.
-    let files = std::fs::canonicalize(files).unwrap();
-    Fixture {
-        _dir: dir,
-        files,
-        state,
-    }
+    let files = std::fs::canonicalize(app.root()).unwrap();
+    let state = app.state.clone();
+    Fixture { app, files, state }
 }
 
 /// Creates a user with `perms` on the `files` source and returns a cookie.
-async fn login(state: &AppState, name: &str, perms: Perms) -> String {
-    login_scoped(state, name, perms, "/").await
+async fn login(f: &Fixture, name: &str, perms: Perms) -> String {
+    login_scoped(f, name, perms, "/").await
 }
 
 /// Like [`login`], confined to the folder `scope`.
-async fn login_scoped(state: &AppState, name: &str, perms: Perms, scope: &str) -> String {
-    let id: i64 = sqlx::query_scalar(
-        "INSERT INTO users (username, password_hash, is_admin, created_at) \
-         VALUES (?, 'x', 0, 0) RETURNING id",
-    )
-    .bind(name)
-    .fetch_one(&state.db)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO user_sources (user_id, source, perms, scope) VALUES (?, 'files', ?, ?)",
-    )
-    .bind(id)
-    .bind(perms.bits())
-    .bind(scope)
-    .execute(&state.db)
-    .await
-    .unwrap();
-    let s = session::create(state, id, None, None).await.unwrap();
-    format!("{}={}", session::SESSION_COOKIE, s.token)
+async fn login_scoped(f: &Fixture, name: &str, perms: Perms, scope: &str) -> String {
+    f.app.user(name, false, perms, scope).await.cookie
 }
 
 async fn get(
@@ -112,7 +75,7 @@ fn write_photo(path: &std::path::Path) {
 async fn thumbnail_round_trip_with_etag() {
     let f = fixture().await;
     write_photo(&f.files.join("cat photo.jpg"));
-    let cookie = login(&f.state, "alice", Perms::VIEW | Perms::DOWNLOAD).await;
+    let cookie = login(&f, "alice", Perms::VIEW | Perms::DOWNLOAD).await;
     let uri = "/api/sources/files/preview?path=/cat%20photo.jpg";
 
     let (st, h, body) = get(&f.state, uri, &cookie, None).await;
@@ -142,7 +105,7 @@ async fn thumbnail_round_trip_with_etag() {
 async fn previews_need_download_permission() {
     let f = fixture().await;
     write_photo(&f.files.join("a.jpg"));
-    let viewer = login(&f.state, "bob", Perms::VIEW).await;
+    let viewer = login(&f, "bob", Perms::VIEW).await;
     let uri = "/api/sources/files/preview?path=/a.jpg";
     let (st, _, _) = get(&f.state, uri, &viewer, None).await;
     assert_eq!(st, StatusCode::FORBIDDEN);
@@ -153,7 +116,7 @@ async fn previews_need_download_permission() {
 #[tokio::test]
 async fn traversal_and_symlinks_are_refused() {
     let f = fixture().await;
-    let cookie = login(&f.state, "carol", Perms::VIEW | Perms::DOWNLOAD).await;
+    let cookie = login(&f, "carol", Perms::VIEW | Perms::DOWNLOAD).await;
     for path in [
         "/../secret.jpg",
         "/%2e%2e/secret.jpg",
@@ -179,7 +142,7 @@ async fn traversal_and_symlinks_are_refused() {
 async fn unsupported_files_say_no_preview() {
     let f = fixture().await;
     std::fs::write(f.files.join("notes.txt"), "hi").unwrap();
-    let cookie = login(&f.state, "dan", Perms::VIEW | Perms::DOWNLOAD).await;
+    let cookie = login(&f, "dan", Perms::VIEW | Perms::DOWNLOAD).await;
     let uri = "/api/sources/files/preview?path=/notes.txt";
     let (st, _, body) = get(&f.state, uri, &cookie, None).await;
     assert_eq!(st, StatusCode::NOT_FOUND);
@@ -192,7 +155,7 @@ async fn unsupported_files_say_no_preview() {
 #[tokio::test]
 async fn capabilities_report_image_support() {
     let f = fixture().await;
-    let cookie = login(&f.state, "eve", Perms::VIEW).await;
+    let cookie = login(&f, "eve", Perms::VIEW).await;
     let (st, _, body) = get(&f.state, "/api/previews", &cookie, None).await;
     assert_eq!(st, StatusCode::OK);
     let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -216,7 +179,7 @@ async fn symlinks_cannot_leave_the_users_scope() {
         f.files.join("alice/peek.jpg"),
     )
     .unwrap();
-    let cookie = login_scoped(&f.state, "alice", Perms::VIEW | Perms::DOWNLOAD, "/alice").await;
+    let cookie = login_scoped(&f, "alice", Perms::VIEW | Perms::DOWNLOAD, "/alice").await;
 
     let (st, _, _) = get(
         &f.state,

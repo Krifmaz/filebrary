@@ -158,7 +158,8 @@ impl Target {
         vp: &VPath,
     ) -> AppResult<Target> {
         let storage = files::scoped(state, user, id, Perms::DOWNLOAD, vp).await?;
-        let key_path = user.require(id, Perms::DOWNLOAD, vp)?;
+        // The resolved real path: two links to one file share a cache entry.
+        let key_path = crate::auth::authorize(state, user, id, Perms::DOWNLOAD, vp).await?;
         Ok(Target {
             storage,
             path: vp.clone(),
