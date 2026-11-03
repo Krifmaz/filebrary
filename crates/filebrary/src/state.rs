@@ -46,6 +46,8 @@ pub struct Inner {
     pub started_at: std::time::Instant,
     /// Login rate limiter and auth hooks.
     pub auth: crate::auth::AuthRuntime,
+    /// SSO, LDAP, 2FA, API key and quota settings and caches.
+    pub identity: crate::identity::Identity,
     /// Thumbnail and preview generator with its cache (`None` when disabled).
     pub previews: Option<PreviewService>,
 }
@@ -93,6 +95,7 @@ impl AppState {
         let names: Vec<String> = sources.keys().cloned().collect();
         let search = Search::new(db.clone(), config.search.clone(), &names);
         let auth = crate::auth::AuthRuntime::new(&config);
+        let identity = crate::identity::Identity::new(&config);
         let previews = if config.previews.enabled {
             Some(build_previews(&config)?)
         } else {
@@ -101,6 +104,7 @@ impl AppState {
         Ok(Self(Arc::new(Inner {
             search,
             auth,
+            identity,
             config,
             db,
             sources,

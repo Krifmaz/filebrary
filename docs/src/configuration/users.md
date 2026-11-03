@@ -76,7 +76,15 @@ The server refuses to remove, demote or disable the last enabled administrator.
 
 ## Storage quotas
 
-> **Planned for Phase 3.** See [Feature status](../status.md).
+Each user can have a storage quota, and
+[`default_quota`](reference.md#default_quota) sets one for everyone else.
+Uploads that would exceed it are refused with `507 quota_exceeded`. See
+[Storage quotas](../guide/authentication.md#storage-quotas).
 
-Each user can have a storage quota. Uploads that would exceed it are
-refused, and a notification can be sent when a user is close to it.
+| Endpoint | What it does |
+|---|---|
+| `GET /api/me/quota` | Your `{limit, used, free}`. |
+| `GET/PUT /api/users/{id}/quota` | Read or set a user's limit: `{"limit": "50G"}`, bytes, or `null` for unlimited. |
+| `POST /api/users/{id}/quota/rescan` | Measure the user's usage now. |
+| `DELETE /api/users/{id}/totp` | Turn off two-factor for a user who lost their device. |
+| `GET /api/users/{id}/api-keys`, `DELETE /api/api-keys/{id}` | See and revoke a user's API keys. |

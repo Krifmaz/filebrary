@@ -20,6 +20,7 @@ path = "src/main.rs"
 
 [dependencies]
 filebrary-storage = { path = "../filebrary-storage" }
+filebrary-identity = { path = "../filebrary-identity" }
 filebrary-events = { path = "../filebrary-events" }
 filebrary-ftp = { path = "../filebrary-ftp" }
 filebrary-preview = { path = "../filebrary-preview" }
@@ -85,6 +86,10 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 # Walks the `Config` type so `tests/docs_config.rs` can check every setting is documented.
 serde-reflection = "0.6.0"
 tempfile = { workspace = true }
+axum = { workspace = true, features = ["form"] }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
 tower = { version = "0.5.3", features = ["util"] }
 
 http-body-util = "0.1.5"
