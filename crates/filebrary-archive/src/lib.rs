@@ -2,7 +2,7 @@
 //! extracting them, read a single entry, and create zip or tar.gz archives.
 //!
 //! Everything here is synchronous and works on `Read + Seek` sources so it can
-//! run inside [`tokio::task::spawn_blocking`]. Nothing is written to disk
+//! run inside `tokio::task::spawn_blocking`. Nothing is written to disk
 //! except the output stream the caller hands in, and entry names taken from an
 //! archive are never used as filesystem paths: they are cleaned with
 //! [`clean_entry_path`] and only ever compared or displayed.
