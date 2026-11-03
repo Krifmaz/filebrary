@@ -439,7 +439,8 @@ async fn custom_jobs_replace_and_files() {
             custom(
                 "upper",
                 "sed",
-                &["-i", "s/a/A/g", "{input}"],
+                // `-i.bak` (suffix attached) works with both GNU and BSD sed.
+                &["-i.bak", "s/a/A/g", "{input}"],
                 CustomOutput::Replace,
             ),
             custom(
