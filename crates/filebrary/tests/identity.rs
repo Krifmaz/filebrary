@@ -19,7 +19,7 @@ use common::{TestApp, json};
 use filebrary::{
     AppState,
     auth::{Perms, users},
-    config::{Config, SourceConfig, SourceKind},
+    config::{Config, SourceConfig},
     db,
 };
 use filebrary_identity::{base32, totp};
@@ -440,11 +440,7 @@ async fn sso_app(issuer: &str, extra: Value) -> (tempfile::TempDir, AppState, Ro
     let config = Config {
         data_dir: dir.path().join("data"),
         public_url: Some("http://files.test".into()),
-        sources: vec![SourceConfig {
-            name: "files".into(),
-            kind: SourceKind::Local,
-            path: files,
-        }],
+        sources: vec![SourceConfig::local("files", files)],
         oidc: Some(serde_json::from_value(oidc).unwrap()),
         ..Config::default()
     };
