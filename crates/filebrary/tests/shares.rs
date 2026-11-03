@@ -50,6 +50,7 @@ async fn setup() -> Env {
             name: "files".into(),
             kind: SourceKind::Local,
             path: root.clone(),
+            content_search: false,
         }],
         ..Config::default()
     };
