@@ -1,4 +1,4 @@
-# Thumbnails and previews
+# Previews and conversions
 
 Filebrary makes thumbnails for the file grid, larger previews for formats the
 browser cannot show itself, and browser-playable streams for video and audio
@@ -19,7 +19,7 @@ it cannot play. Everything is generated on first request and cached.
 
 "Built in" formats are decoded in pure Rust and work in every build. The
 external tools are looked up on `PATH` at start-up and the result is logged
-(`preview tools ffmpeg=yes ...`). The `-full` [Docker image](install/docker.md)
+(`preview tools ffmpeg=yes ...`). The `-full` [Docker image](../install/docker.md)
 includes all of them; the slim image includes none, so it previews images and
 RAW files only. Without Docker, install `ffmpeg`, `poppler-utils`,
 `libreoffice` and `libheif` tools from your package manager.
@@ -35,7 +35,8 @@ instead of re-encoded. Seeking restarts the stream at the chosen time.
 
 ## Settings
 
-All settings live in the `[previews]` table.
+All settings live in the `[previews]` table; see the
+[settings reference](../configuration/reference.md#previews).
 
 | Setting | Env variable | Default | Meaning |
 |---|---|---|---|
@@ -85,3 +86,23 @@ at any time while the server is stopped; it is not part of backups.
 | `GET /api/sources/{id}/stream?path=&start=&audio=` | fragmented MP4 from `start` seconds |
 
 A file without a preview answers `404` with `{"error": "no_preview"}`.
+
+## Conversions
+
+> **Planned for Phase 3.** See [Feature status](../status.md).
+
+Conversions run as background [jobs](jobs.md), with progress shown in the UI:
+
+* **Documents** to PDF.
+* **Video**: transcode to another codec or remux into another container.
+* **Photos**: resize and change format.
+
+## Casting
+
+Video and audio open in a player with a **Cast** button when a Chromecast
+(in Chrome) or AirPlay device (in Safari) is nearby. Casting uses the
+browser's Remote Playback API, so no third-party script is loaded. The
+device streams from a signed URL that expires after 6 hours and stops
+working as soon as the user loses access to the file. Set
+[`public_url`](../configuration/reference.md#public_url) so the device can
+reach the right address.

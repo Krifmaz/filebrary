@@ -69,6 +69,9 @@ tempfile = { workspace = true }
 
 [dev-dependencies]
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+# Walks the `Config` type so `tests/docs_config.rs` can check every setting is documented.
+serde-reflection = "0.6.0"
+tempfile = { workspace = true }
 tower = { version = "0.5.3", features = ["util"] }
 
 http-body-util = "0.1.5"

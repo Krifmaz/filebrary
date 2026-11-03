@@ -1,0 +1,86 @@
+# Filebrary example configuration.
+#
+# Every setting is optional; the values below are the defaults unless marked
+# "example". Settings are described in full in the settings reference:
+# https://krifmaz.github.io/filebrary/configuration/reference.html
+#
+# Environment variables (FILEBRARY_*) override this file.
+
+# --- Server -----------------------------------------------------------------
+
+# Address and port to listen on. "0.0.0.0:8080" accepts connections from
+# other machines. (Default: "127.0.0.1:8080".)
+listen = "0.0.0.0:8080" # example
+
+# Database, upload staging area and secret key. Back this up.
+data_dir = "/var/lib/filebrary" # example (default: "./data")
+
+# The URL users open. Needed behind a reverse proxy; makes cookies Secure
+# when it starts with https://.
+public_url = "https://files.example.com" # example (default: not set)
+
+# "text" or "json".
+log_format = "text"
+
+# --- Sessions and sign-in ---------------------------------------------------
+
+# Idle time before a login expires, in hours.
+session_ttl_hours = 168
+
+# Force the Secure cookie flag. Leave unset to follow public_url.
+# secure_cookies = true
+
+# Trust X-Forwarded-For. Only behind a reverse proxy you control.
+trust_proxy_headers = false
+
+# Failed logins allowed per client address per window.
+login_max_attempts = 5
+login_window_secs = 300
+
+# First administrator, created only when there are no users yet. Without a
+# password, a random one is logged once. Prefer FILEBRARY_ADMIN_PASSWORD.
+admin_username = "admin"
+# admin_password = "change-me"
+
+# --- Uploads ----------------------------------------------------------------
+
+# Largest resumable-upload chunk, in MiB (1-4096).
+max_chunk_mib = 64
+
+# Largest file accepted through a public drop link, in MiB.
+max_drop_upload_mib = 1024
+
+# Discard unfinished uploads after this many hours.
+upload_expiry_hours = 24
+
+# --- Trash and activity log -------------------------------------------------
+
+# Days before trashed items are purged; 0 makes deletes permanent.
+trash_retention_days = 30
+
+# Days activity-log events are kept; 0 keeps them forever.
+activity_retention_days = 365
+
+# --- Previews ---------------------------------------------------------------
+# Thumbnails and previews. Video, HEIC, PDF and Office need the tools in the
+# -full image (ffmpeg, heif-dec, pdftoppm, soffice).
+
+[previews]
+enabled = true
+cache_mib = 2048        # LRU cache in <data_dir>/cache/previews
+thumb_size = 256        # 32-1024 px
+large_size = 1920       # 256-8192 px
+max_parallel = 0        # 0 = one per CPU, at most 8
+max_remote_mib = 1024   # largest remote file copied locally for a preview
+
+# --- Sources ----------------------------------------------------------------
+# With no [[sources]], <data_dir>/files is served as "files".
+
+[[sources]]
+name = "files"        # a-z, 0-9, '-', '_'; 1-32 characters; unique
+kind = "local"        # the default
+path = "/srv/files"
+
+[[sources]]
+name = "media"
+path = "/mnt/pool/media"   # a mergerfs or other FUSE mount works too
