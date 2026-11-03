@@ -16,8 +16,8 @@ top linking here.
 | Installable web app (PWA) | 1 | In progress for v0.1 |
 | Indexed search with filters, kept fresh with inotify | 2 | Planned |
 | Thumbnails and previews (images incl. HEIC/RAW, video, audio, PDF, Office) | 2 | Planned |
-| Trash bin with restore and automatic purging | 2 | Planned |
-| Tags, stars, activity log | 2 | Planned |
+| Trash bin with restore and automatic purging | 2 | Done, in the next release |
+| Tags, stars, activity log | 2 | Done, in the next release |
 | Text editor | 2 | Planned |
 | WebDAV server | 2 | Planned |
 | S3-compatible, SFTP and SMB sources | 3 | Planned |

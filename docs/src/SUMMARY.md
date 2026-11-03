@@ -22,6 +22,7 @@
 - [Users, groups and permissions](guide/users.md)
 - [Signing in](guide/authentication.md)
 - [Working with files](guide/files.md)
+- [Trash, tags, stars and activity](organize.md)
 - [Sharing](guide/sharing.md)
 - [Search](guide/search.md)
 - [Previews and conversions](guide/previews.md)

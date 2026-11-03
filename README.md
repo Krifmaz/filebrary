@@ -38,5 +38,19 @@ cargo build --release
 `FILEBRARY_LISTEN` (`0.0.0.0:8080`), `FILEBRARY_DATA_DIR`, `FILEBRARY_SOURCES`
 (`files=/srv;media=/mnt/media`), `FILEBRARY_PUBLIC_URL`,
 `FILEBRARY_SECURE_COOKIES`, `FILEBRARY_LOG` (filter, e.g. `debug`),
-`FILEBRARY_LOG_FORMAT` (`text`|`json`). `filebrary healthcheck` probes
+`FILEBRARY_LOG_FORMAT` (`text`|`json`), `FILEBRARY_TRASH_RETENTION_DAYS`
+(`30`; `0` makes deletes permanent), `FILEBRARY_ACTIVITY_RETENTION_DAYS`
+(`365`; `0` keeps events forever). `filebrary healthcheck` probes
 `/healthz` for container health checks.
+
+## Trash, tags, stars and activity
+
+Deleting moves items to a hidden per-source folder (`/.filebrary-trash`), from
+which they can be restored (to the original place or elsewhere, with optional
+auto-rename) until they are purged after `trash_retention_days`. Files can carry
+any number of shared tags; stars are personal bookmarks. Tags and stars follow
+files through moves, copies and the trash. Every change is written to an
+activity log (who, what, where, when, from which address) that admins see in
+full and other users see for the folders they can view. Endpoints:
+`/api/trash`, `/api/tags`, `/api/stars`, `/api/annotations`, `/api/activity`;
+see [docs/src/organize.md](docs/src/organize.md).

@@ -32,28 +32,19 @@ Use the context menu or the toolbar on a selection. Moving and copying work
 within a source and between sources. You need **edit** to rename or move,
 **upload** on the target to copy, and **delete** to delete.
 
-## Trash
+## Trash, stars, tags and activity
 
-> **Planned for Phase 2.** See [Feature status](../status.md).
+Deleted items go to the trash and can be restored; it is emptied
+automatically after [`trash_retention_days`](../configuration/reference.md#trash_retention_days).
+**Star** items to bookmark them, **tag** them with any number of shared
+tags, and see who did what in the **activity log**. All of this, with its
+API, is on [Trash, tags, stars and activity](../organize.md).
 
-Deleted items go to the trash, where they can be restored to their original
-place. The trash is emptied automatically after a configurable time.
+## Comments
 
-## Stars, tags and comments
+> **Planned for Phase 4.** See [Feature status](../status.md).
 
-> **Planned for Phases 2 and 4.** See [Feature status](../status.md).
-
-* **Star** a file or folder to pin it to the *Starred* list.
-* **Tag** items with any number of tags, and filter or search by tag.
-* **Comment** on a file to leave notes for other users.
-
-## Activity log
-
-> **Planned for Phase 2.** See [Feature status](../status.md).
-
-Records who uploaded, downloaded, renamed, moved, shared or deleted what,
-and when. Administrators see everything; users see activity on what they
-can view.
+Comment on a file to leave notes for other users.
 
 ## Text editor
 

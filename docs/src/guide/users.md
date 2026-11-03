@@ -25,7 +25,7 @@ folder inside it. A grant on a folder applies to everything below it.
 | **download** | Open and download files, including zip downloads of a selection. |
 | **upload** | Create files and folders. |
 | **edit** | Rename, move and change existing files (including in the text editor). |
-| **delete** | Delete files and folders (to the trash, once the trash is available). |
+| **delete** | Delete files and folders (to the [trash](../organize.md#trash-bin)). |
 | **share** | Create [share links](sharing.md) for what the user can see. |
 
 A user can only share what they can download, and a share link never grants

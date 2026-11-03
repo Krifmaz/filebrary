@@ -48,6 +48,14 @@ max_drop_upload_mib = 1024
 # Discard unfinished uploads after this many hours.
 upload_expiry_hours = 24
 
+# --- Trash and activity log -------------------------------------------------
+
+# Days before trashed items are purged; 0 makes deletes permanent.
+trash_retention_days = 30
+
+# Days activity-log events are kept; 0 keeps them forever.
+activity_retention_days = 365
+
 # --- Sources ----------------------------------------------------------------
 # With no [[sources]], <data_dir>/files is served as "files".
 

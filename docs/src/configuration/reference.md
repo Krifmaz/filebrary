@@ -187,6 +187,30 @@ staged chunks deleted from [`data_dir`](#data_dir).
 | Default     | `24`                                    |
 | Environment | none (file only)                        |
 
+## Trash and activity log
+
+### `trash_retention_days`
+
+Days a deleted item stays in the trash before it is purged automatically.
+`0` turns the trash off, so deletes are permanent. Purging runs hourly. See
+[Trash, tags, stars and activity](../organize.md).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, `0` to `36500`                 |
+| Default     | `30`                                    |
+| Environment | `FILEBRARY_TRASH_RETENTION_DAYS`        |
+
+### `activity_retention_days`
+
+Days activity-log events are kept. `0` keeps them forever.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer, `0` to `36500`                 |
+| Default     | `365`                                   |
+| Environment | `FILEBRARY_ACTIVITY_RETENTION_DAYS`     |
+
 ## Sources
 
 ### `sources`
