@@ -10,6 +10,7 @@
 //! | `/api/sources/{id}/text`      | [`text`] (editor load/save) | editor |
 //! | `/api/auth/...`, `/api/users`, `/api/groups` | [`crate::auth::routes`] | auth |
 //! | `/api/auth/methods`, `/api/auth/oidc/...`, `/api/me/totp...`, `/api/me/api-keys...`, `/api/me/quota`, `/api/users/{id}/{totp,api-keys,quota}`, `/api/api-keys/{id}` | [`crate::identity::routes`] | identity |
+//! | `/api/previews`, `/api/sources/{id}/{preview,media,stream}` | [`previews`] | previews |
 //! | `/api/shares`                  | [`crate::shares::api_router`]    | shares  |
 //! | `/api/public/shares/{token}`   | [`crate::shares::public_router`] | shares  |
 //! | `/api/jobs`, `/api/jobs/{id}/...` | [`crate::jobs::api`]   | jobs    |
@@ -30,6 +31,7 @@
 pub mod archive;
 pub mod download;
 pub mod files;
+pub mod previews;
 pub mod text;
 pub mod uploads;
 pub mod zip;
@@ -44,6 +46,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health", get(health))
         .merge(files::routes())
+        .merge(previews::routes())
         .merge(uploads::routes())
         .merge(text::routes())
         .merge(archive::routes())

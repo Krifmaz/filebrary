@@ -3,6 +3,7 @@
 use std::{collections::BTreeMap, ops::Deref, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
+use filebrary_preview::{PreviewCache, PreviewConfig, PreviewService, Tools};
 use sqlx::SqlitePool;
 
 use crate::{
@@ -49,6 +50,8 @@ pub struct Inner {
     pub auth: crate::auth::AuthRuntime,
     /// SSO, LDAP, 2FA, API key and quota settings and caches.
     pub identity: crate::identity::Identity,
+    /// Thumbnail and preview generator with its cache (`None` when disabled).
+    pub previews: Option<PreviewService>,
 }
 
 impl Deref for AppState {
@@ -96,6 +99,11 @@ impl AppState {
         let jobs = crate::jobs::JobQueue::new(&config.jobs);
         let auth = crate::auth::AuthRuntime::new(&config);
         let identity = crate::identity::Identity::new(&config);
+        let previews = if config.previews.enabled {
+            Some(build_previews(&config)?)
+        } else {
+            None
+        };
         Ok(Self(Arc::new(Inner {
             search,
             jobs,
@@ -111,6 +119,7 @@ impl AppState {
             notifier,
             metrics,
             started_at: std::time::Instant::now(),
+            previews,
         })))
     }
 
@@ -148,4 +157,28 @@ fn open_source(sc: &crate::config::SourceConfig) -> anyhow::Result<Arc<dyn Stora
             SmbStorage::new(sc.smb.as_ref().ok_or_else(missing)?).with_context(|| what("SMB"))?,
         ),
     })
+}
+
+/// Sets up the preview service: finds the external tools on `PATH` and opens
+/// the cache under `<data_dir>/cache/previews`.
+fn build_previews(config: &Config) -> anyhow::Result<PreviewService> {
+    let ps = &config.previews;
+    let dir = config.data_dir.join("cache").join("previews");
+    let cache = PreviewCache::new(&dir, ps.cache_mib.saturating_mul(1 << 20))
+        .with_context(|| format!("creating {}", dir.display()))?;
+    let temp_dir = config.data_dir.join("cache").join("tmp");
+    std::fs::create_dir_all(&temp_dir)
+        .with_context(|| format!("creating {}", temp_dir.display()))?;
+    let mut cfg = PreviewConfig {
+        temp_dir,
+        thumb_size: ps.thumb_size,
+        large_size: ps.large_size,
+        ..PreviewConfig::default()
+    };
+    if ps.max_parallel > 0 {
+        cfg.max_parallel = ps.max_parallel;
+    }
+    let tools = Tools::detect();
+    tracing::info!(tools = %tools.summary(), "preview tools");
+    Ok(PreviewService::new(cfg, tools, cache))
 }

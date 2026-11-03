@@ -24,6 +24,7 @@ filebrary-identity = { path = "../filebrary-identity" }
 filebrary-events = { path = "../filebrary-events" }
 filebrary-ftp = { path = "../filebrary-ftp" }
 filebrary-archive = { path = "../filebrary-archive" }
+filebrary-preview = { path = "../filebrary-preview" }
 
 # Web
 axum = { workspace = true, features = ["matched-path"] }
@@ -75,6 +76,7 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 uuid = { version = "1.29.0", features = ["v4"] }
+tempfile = { workspace = true }
 
 # Operations: metrics, OpenAPI, TLS provider for outgoing notifications
 metrics = "0.24.3"
@@ -86,6 +88,7 @@ libc = "0.2"
 
 [dev-dependencies]
 suppaftp = { version = "8", default-features = false, features = ["tokio"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 # Walks the `Config` type so `tests/docs_config.rs` can check every setting is documented.
 serde-reflection = "0.6.0"
 tempfile = { workspace = true }

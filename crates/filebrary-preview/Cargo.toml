@@ -1,0 +1,26 @@
+[package]
+name = "filebrary-preview"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Thumbnails and previews for Filebrary: images, RAW, HEIC, video, audio, PDF and Office files, with an on-disk cache."
+publish = false
+
+[dependencies]
+# Pure Rust decoders only. HEIC/AVIF, PDF, video and Office go through
+# external tools (heif-dec, ffmpeg, pdftoppm, soffice) that ship in the
+# conversion image; the slim image links no C libraries for previews.
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp", "tiff", "bmp", "ico"] }
+tokio = { workspace = true, features = ["process"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = "0.4.3"
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tempfile = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["process", "rt-multi-thread", "macros"] }
