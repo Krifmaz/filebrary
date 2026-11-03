@@ -1,0 +1,128 @@
+# Tag release: create the version tag for a release and run the release
+# build, without anyone pushing a tag by hand.
+#
+# Two ways in:
+#
+# * Push a branch named `release/vX.Y.Z` (or `release/vX.Y.Z-rc.1`). The tag
+#   `vX.Y.Z` is created on the branch's head commit.
+# * Run this workflow by hand (workflow_dispatch) with a tag and a commit, to
+#   tag a commit that predates this workflow.
+#
+# The workspace version in Cargo.toml at that commit must match the tag. A
+# tag that already exists on the same commit is left alone (nothing is
+# rebuilt; use the Release workflow's own manual run for that); a tag that
+# exists on a different commit fails the run.
+#
+# A tag pushed with GITHUB_TOKEN does not start other workflows, so the
+# release build is called directly as a reusable workflow.
+name: Tag release
+
+on:
+  push:
+    branches: ["release/v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to create, e.g. v0.1.0
+        required: true
+      sha:
+        description: Commit to tag (full or short SHA, or a branch name)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tag-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Create tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      created: ${{ steps.create.outputs.created }}
+    steps:
+      - name: Work out tag and commit
+        id: plan
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_SHA: ${{ inputs.sha }}
+          BRANCH: ${{ github.ref_name }}
+          PUSH_SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$EVENT" == workflow_dispatch ]]; then
+            tag="$INPUT_TAG"
+            ref="$INPUT_SHA"
+          else
+            tag="${BRANCH#release/}"
+            ref="$PUSH_SHA"
+          fi
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'$tag' is not a version tag like v1.2.3 or v1.2.3-rc.1"
+            exit 1
+          fi
+          # Resolve short SHAs and branch names to a full commit SHA.
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$ref" --jq '.sha')"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.plan.outputs.sha }}
+          fetch-depth: 1
+
+      - name: Check Cargo.toml version
+        id: check
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          # First `version = "..."` in the root manifest is [workspace.package].
+          version="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -n1)"
+          want="${TAG#v}"
+          if [[ "$version" != "$want" && "$version" != "${want%%-*}" ]]; then
+            echo "::error::Cargo.toml at $sha has version $version, but the tag is $TAG"
+            exit 1
+          fi
+          echo "Tagging $sha (Cargo.toml version $version) as $TAG"
+
+      - name: Create tag
+        id: create
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          SHA: ${{ steps.check.outputs.sha }}
+        run: |
+          existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha' 2>/dev/null || true)"
+          if [[ -n "$existing" ]]; then
+            # An annotated tag points at a tag object; resolve it to its commit.
+            commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq '.sha')"
+            if [[ "$commit" == "$SHA" ]]; then
+              echo "::notice::$TAG already points at $SHA; nothing to do"
+              echo "created=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::$TAG already exists on $commit, not $SHA. Release a new version instead."
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$SHA" > /dev/null
+          echo "::notice::Created $TAG on $SHA"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: Release
+    needs: tag
+    if: needs.tag.outputs.created == 'true'
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
