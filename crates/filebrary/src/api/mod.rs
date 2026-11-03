@@ -7,6 +7,7 @@
 //! | `/api/health`                  | here                      | core    |
 //! | `/api/sources`, `/api/sources/{id}/...` | [`files`]        | files   |
 //! | `/api/sources/{id}/uploads`, `/api/uploads/{uid}` | [`uploads`] | files |
+//! | `/api/sources/{id}/text`      | [`text`] (editor load/save) | editor |
 //! | `/api/auth/...`, `/api/users`, `/api/groups` | [`crate::auth::routes`] | auth |
 //! | `/api/previews`, `/api/sources/{id}/{preview,media,stream}` | [`previews`] | previews |
 //! | `/api/shares`                  | [`crate::shares::api_router`]    | shares  |
@@ -17,6 +18,7 @@
 //! | `/api/collections`             | [`crate::collections`]    | social  |
 //! | `/api/cast`, `/api/public/cast/{token}/{name}` | [`crate::cast`] | social |
 //! | `/api/branding`, `/api/admin/branding`, `/api/me/theme` | [`crate::branding`] | social |
+//! | `/api/search`, `/api/search/...` | [`crate::search::api`]  | search  |
 //!
 //! Errors are JSON: `{"error": "<machine code>", "message": "<human text>"}`.
 //! Paths are passed as `path` query parameters (or JSON fields), absolute
@@ -26,6 +28,7 @@
 pub mod download;
 pub mod files;
 pub mod previews;
+pub mod text;
 pub mod uploads;
 pub mod zip;
 
@@ -41,7 +44,9 @@ pub fn router() -> Router<AppState> {
         .merge(files::routes())
         .merge(previews::routes())
         .merge(uploads::routes())
+        .merge(text::routes())
         .merge(crate::auth::routes::routes())
+        .merge(crate::search::api::routes())
         .nest("/shares", crate::shares::api_router())
         .nest("/public/shares", crate::shares::public_router())
         .merge(crate::organize::api::routes())

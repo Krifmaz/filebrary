@@ -8,6 +8,7 @@ use sqlx::SqlitePool;
 
 use crate::{
     config::{Config, SourceKind},
+    search::Search,
     storage::{
         Source, Storage, local::LocalStorage, s3::S3Storage, sftp::SftpStorage, smb::SmbStorage,
     },
@@ -29,6 +30,8 @@ pub struct Inner {
     pub secret: [u8; 32],
     /// Directory where resumable uploads are staged.
     pub upload_dir: PathBuf,
+    /// Indexed search. Background indexing starts with [`crate::search::Search::start`].
+    pub search: Search,
     /// Upload ids with a chunk currently being written (one writer at a time).
     pub uploads_in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
     /// Event bus: publish upload, share, quota and job events here; the
@@ -87,6 +90,8 @@ impl AppState {
             Some(dispatcher.spawn(&events))
         };
         let metrics = crate::ops::metrics::Metrics::install();
+        let names: Vec<String> = sources.keys().cloned().collect();
+        let search = Search::new(db.clone(), config.search.clone(), &names);
         let auth = crate::auth::AuthRuntime::new(&config);
         let previews = if config.previews.enabled {
             Some(build_previews(&config)?)
@@ -94,6 +99,7 @@ impl AppState {
             None
         };
         Ok(Self(Arc::new(Inner {
+            search,
             auth,
             config,
             db,

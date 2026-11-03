@@ -23,9 +23,11 @@ npm run lint       # eslint
 | `src/theme.ts` | Light / dark / system theme, stored per browser |
 | `src/viewers.ts` | Registry where feature modules plug in file viewers (editor, previews) |
 | `src/features/` | Feature modules; import each from `features/index.ts` |
+| `src/editor/` | CodeMirror text editor viewer (lazy-loaded) and its load/save client |
 | `src/components/` | Pages and dialogs |
 | `public/sw.js` | Service worker: caches the app shell, never `/api` |
 
 Theme colours are CSS variables on `:root` in `src/styles.css`
 (`--bg`, `--surface`, `--surface-2`, `--text`, `--muted`, `--border`,
-`--accent`, `--accent-contrast`, `--danger`, `--radius`).
+`--accent`, `--accent-contrast`, `--danger`, `--radius`). The editor's syntax
+colours are `--cm-*` variables in `src/editor/editor.css`.

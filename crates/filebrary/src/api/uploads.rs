@@ -326,6 +326,7 @@ async fn finish(state: &AppState, auth: &AuthUser, uid: &str) -> AppResult<Uploa
     // Whatever happened, the staged data is consumed or useless now.
     remove(state, uid).await?;
     let written = result?;
+    super::files::index_changed(state, &auth.user, &row.source, &visible);
     let entry = st.stat(&visible).await?;
     state.events.publish(filebrary_events::Event::Upload {
         user: auth.user.username.clone(),

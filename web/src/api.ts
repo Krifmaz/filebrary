@@ -74,6 +74,8 @@ export interface Share {
   downloads: number;
   upload_only: boolean;
   has_password: boolean;
+  /** Set for a link to a whole collection (then `source` and `paths` are empty). */
+  collection_id?: number | null;
   created_at: string;
 }
 

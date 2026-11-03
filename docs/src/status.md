@@ -14,11 +14,11 @@ top linking here.
 | Share links (password, expiry, download limit, upload-only drop links) | 1 | In progress for v0.1 |
 | Docker image, standalone binaries for Linux, macOS, Windows | 1 | In progress for v0.1 |
 | Installable web app (PWA) | 1 | In progress for v0.1 |
-| Indexed search with filters, kept fresh with inotify | 2 | Planned |
+| Indexed search with filters, kept fresh with inotify | 2 | Done, in the next release |
 | Thumbnails and previews (images incl. HEIC/RAW, video, audio, PDF, Office) | 2 | Done, in the next release |
 | Trash bin with restore and automatic purging | 2 | Done, in the next release |
 | Tags, stars, activity log | 2 | Done, in the next release |
-| Text editor | 2 | Planned |
+| Text editor | 2 | Done, in the next release |
 | WebDAV server | 2 | Planned |
 | S3-compatible, SFTP and SMB sources | 3 | Done, in the next release |
 | OIDC single sign-on, LDAP, TOTP two-factor, API keys, storage quotas | 3 | Planned |
