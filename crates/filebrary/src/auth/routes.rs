@@ -507,7 +507,9 @@ async fn set_home(
     known_source(&state, &h.source)?;
     let u = users::get(&state.db, id).await?;
     let path = assign_home(&state, &u, &h).await?;
-    Ok(Json(json!({ "source": h.source, "path": path.to_string() })))
+    Ok(Json(
+        json!({ "source": h.source, "path": path.to_string() }),
+    ))
 }
 
 async fn get_user(

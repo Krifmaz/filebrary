@@ -335,7 +335,9 @@ pub async fn update(db: &SqlitePool, id: i64, upd: &UserUpdate) -> AppResult<Use
     }
     let (is_admin, read_only) = match (upd.role, upd.is_admin) {
         (Some(_), Some(_)) => {
-            return Err(AppError::bad_request("give either role or is_admin, not both"));
+            return Err(AppError::bad_request(
+                "give either role or is_admin, not both",
+            ));
         }
         (Some(r), None) => r.flags(),
         (None, Some(a)) => (a, cur.read_only && !a),
