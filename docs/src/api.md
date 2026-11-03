@@ -17,15 +17,17 @@ you can do in the UI you can script.
   `{"error": "not_found", "message": "..."}`.
 * Requests from the browser use the session cookie and must send the CSRF
   token on every request that changes something.
-* Scripts will use [API keys](guide/authentication.md#api-keys) in the
-  `Authorization: Bearer <key>` header once they are available.
+* Scripts use [API keys](guide/authentication.md#api-keys) in the
+  `Authorization: Bearer fbk_...` header instead of a cookie; no CSRF token
+  is needed. A key can do only what its scopes and its owner allow.
 
 ## Endpoint groups
 
 | Path | Purpose |
 |---|---|
 | `GET /healthz`, `GET /api/health` | Health check, no authentication. Returns `{"status":"ok","version":"..."}`. |
-| `/api/auth/...` | Sign in, sign out, current user. |
+| `/api/auth/...` | Sign in, sign out, current user, available sign-in methods (`/api/auth/methods`), SSO (`/api/auth/oidc/login`, `/api/auth/oidc/callback`). |
+| `/api/me/totp...`, `/api/me/api-keys...`, `/api/me/quota` | Your two-factor settings, API keys and quota. |
 | `/api/users`, `/api/groups` | User and group management (administrators). |
 | `/api/shares` | Managing your share links. |
 | `/api/public/shares/{token}` | Anonymous access to a share link. |

@@ -17,7 +17,6 @@
 - [Storage sources](configuration/sources.md)
 - [Reverse proxy](configuration/reverse-proxy.md)
 - [Users and permissions](configuration/users.md)
-- [Single sign-on, 2FA, API keys and quotas](configuration/sso.md)
 
 # Using Filebrary
 

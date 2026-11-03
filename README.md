@@ -82,7 +82,7 @@ generated and printed once in the log. Log in and change it.
   limit get `507 quota_exceeded`.
 
 The logic lives in `crates/filebrary-identity`; details in
-`docs/src/configuration/sso.md`.
+`docs/src/guide/authentication.md`.
 
 The admin API is under `/api/users`, `/api/groups` and `/api/permissions`
 (see `crates/filebrary/src/auth/routes.rs`).
