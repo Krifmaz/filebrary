@@ -3,7 +3,10 @@
  * its keyboard shortcut in the tooltip.
  */
 import "./view.css";
+import { Icon, type IconName } from "../../ui/Icon";
 import { VIEW_INFO, VIEW_MODES, type ViewMode } from "./viewMode";
+
+const ICONS: Record<ViewMode, IconName> = { details: "list", compact: "rows", small: "gridSmall", medium: "grid", large: "square" };
 
 /** Props for {@link ViewSwitcher}. */
 export interface ViewSwitcherProps {
@@ -14,7 +17,7 @@ export interface ViewSwitcherProps {
 /** A radio group of view-mode buttons. */
 export function ViewSwitcher({ mode, onChange }: ViewSwitcherProps) {
   return (
-    <div className="view-switcher" role="radiogroup" aria-label="View">
+    <div className="segmented view-switcher" role="radiogroup" aria-label="View">
       {VIEW_MODES.map((m) => (
         <button
           key={m}
@@ -26,7 +29,7 @@ export function ViewSwitcher({ mode, onChange }: ViewSwitcherProps) {
           aria-label={VIEW_INFO[m].label}
           onClick={() => onChange(m)}
         >
-          <span aria-hidden>{VIEW_INFO[m].icon}</span>
+          <Icon name={ICONS[m]} />
         </button>
       ))}
     </div>

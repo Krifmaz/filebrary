@@ -44,5 +44,6 @@
 
 - [Feature status](status.md)
 - [Contributing](contributing.md)
+- [Web UI design system](dev/ui.md)
 - [Releasing](releasing.md)
 - [Licence](licence.md)

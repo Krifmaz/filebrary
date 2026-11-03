@@ -1,0 +1,179 @@
+/*
+ * Design tokens: the single source of colours, type, spacing, radii,
+ * shadows, motion and layout sizes for the whole web UI. Components use
+ * only these variables, never raw values, so a theme or the admin's
+ * branding changes everything at once.
+ *
+ * The look follows Encore (github.com/Krifmaz/encore): charcoal surfaces
+ * with cream text and a cream/gold accent in the dark theme, cool neutrals
+ * with a charcoal accent in the light theme.
+ *
+ * Colour tokens in `THEME_VARS` (features/theme/branding.ts) may be
+ * overridden by branding and custom palettes; every other colour here is
+ * derived from them with color-mix(), so overrides flow through.
+ *
+ * Every text/background pair used by components meets WCAG AA (4.5:1) in
+ * both built-in themes.
+ */
+
+/* ------------------------------------------------------------------ scale */
+:root {
+  /* Spacing: a 4px grid. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Type. Inter when installed, else the system UI font. */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  --text-xs: 11.5px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 19px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --weight-regular: 400;
+  --weight-medium: 550;
+  --weight-semibold: 650;
+  --weight-bold: 750;
+  --weight-heavy: 800;
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --tracking-tight: -0.01em;
+  --tracking-caps: 0.06em;
+
+  /* Radii. */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+  /* Back-compat aliases used by older feature styles. */
+  --radius: var(--radius-md);
+
+  /* Motion. */
+  --duration-fast: 0.12s;
+  --duration: 0.18s;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Layers. */
+  --z-sticky: 10;
+  --z-drawer: 40;
+  --z-overlay: 50;
+  --z-menu: 60;
+  --z-toast: 70;
+
+  /* Layout and control sizes. */
+  --sidebar-w: 248px;
+  --topbar-h: 60px;
+  --content-max: 1440px;
+  --control-h: 36px;
+  --control-h-sm: 30px;
+  --control-h-lg: 44px;
+  --icon-sm: 16px;
+  --icon-md: 18px;
+  --icon-lg: 22px;
+}
+
+/* ----------------------------------------------------------- light colours */
+:root {
+  --bg: #f6f6fb;
+  --surface: #ffffff;
+  --surface-2: #f0f0f7;
+  --text: #16161f;
+  --muted: #5d5d75;
+  --border: #e2e2ee;
+  --accent: #2a2a2d;
+  --accent-contrast: #f0ead6;
+  --accent-soft: #ece7d8;
+  --danger: #dc2626;
+  --ok: #15803d;
+  --faint: #6e6e88;
+  --warn: #b45309;
+  --info: #0369a1;
+  --overlay: rgb(20 20 40 / 0.35);
+  --shadow-sm: 0 1px 2px rgb(20 20 50 / 0.06);
+  --shadow-md: 0 10px 30px rgb(20 20 50 / 0.08);
+  --shadow-lg: 0 24px 60px rgb(20 20 50 / 0.16);
+  color-scheme: light;
+}
+
+/* ------------------------------------------------------------ dark colours */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161617;
+    --surface: #222224;
+    --surface-2: #2a2a2d;
+    --text: #f0ead6;
+    --muted: #aaa493;
+    --border: #353538;
+    --accent: #f0ead6;
+    --accent-contrast: #16161f;
+    --accent-soft: #3a382f;
+    --danger: #f87171;
+    --ok: #22c55e;
+    --faint: #8f8a76;
+    --warn: #f59e0b;
+    --info: #38bdf8;
+    --overlay: rgb(5 5 10 / 0.6);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-md: 0 10px 30px rgb(0 0 0 / 0.35);
+    --shadow-lg: 0 24px 60px rgb(0 0 0 / 0.5);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #161617;
+  --surface: #222224;
+  --surface-2: #2a2a2d;
+  --text: #f0ead6;
+  --muted: #aaa493;
+  --border: #353538;
+  --accent: #f0ead6;
+  --accent-contrast: #16161f;
+  --accent-soft: #3a382f;
+  --danger: #f87171;
+  --ok: #22c55e;
+  --faint: #8f8a76;
+  --warn: #f59e0b;
+  --info: #38bdf8;
+  --overlay: rgb(5 5 10 / 0.6);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-md: 0 10px 30px rgb(0 0 0 / 0.35);
+  --shadow-lg: 0 24px 60px rgb(0 0 0 / 0.5);
+  color-scheme: dark;
+}
+
+/* Custom palettes set only THEME_VARS; the rest follows from them. */
+:root[data-theme="custom"] {
+  --faint: var(--muted);
+  --warn: #d97706;
+  --info: #0284c7;
+  --overlay: rgb(0 0 0 / 0.45);
+}
+
+/* ---------------------------------------------------------- derived tokens */
+:root {
+  --surface-3: color-mix(in srgb, var(--surface-2) 80%, var(--text) 6%);
+  --border-strong: color-mix(in srgb, var(--border) 70%, var(--text) 30%);
+  --danger-soft: color-mix(in srgb, var(--danger) 14%, transparent);
+  --ok-soft: color-mix(in srgb, var(--ok) 14%, transparent);
+  --warn-soft: color-mix(in srgb, var(--warn) 14%, transparent);
+  --info-soft: color-mix(in srgb, var(--info) 14%, transparent);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+  /* Primary buttons: a soft two-stop gradient whose second stop follows --accent. */
+  --grad: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 80%, #b08d4a));
+  --wash: radial-gradient(900px 500px at 10% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
+    radial-gradient(900px 500px at 100% 100%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 60%);
+  /* Back-compat alias. */
+  --shadow: var(--shadow-md);
+}

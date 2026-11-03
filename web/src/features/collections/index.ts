@@ -5,6 +5,7 @@ import { registerAction } from "../../actions";
 registerAction({
   id: "collections.add",
   label: "Add to collection",
+  icon: "collection",
   priority: 5,
   enabled: ({ selected }) => selected.length > 0,
   dialog: lazy(() => import("./AddToCollection")),

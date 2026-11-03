@@ -12,6 +12,8 @@ export type Route =
   | { name: "home" }
   | { name: "files"; source: string; path: string }
   | { name: "shares" }
+  | { name: "starred" }
+  | { name: "search"; q: string; type: string }
   | { name: "collections" }
   | { name: "appearance" }
   | { name: "public"; token: string; path: string }
@@ -55,6 +57,8 @@ export function parse(pathname: string, search = ""): Route {
   if (segs.length === 0) return { name: "home" };
   if (segs[0] === "login") return { name: "login", next: q.get("next") ?? "/" };
   if (segs[0] === "shares" && segs.length === 1) return { name: "shares" };
+  if (segs[0] === "starred" && segs.length === 1) return { name: "starred" };
+  if (segs[0] === "search" && segs.length === 1) return { name: "search", q: q.get("q") ?? "", type: q.get("type") ?? "" };
   if (segs[0] === "collections" && segs.length === 1) return { name: "collections" };
   if (segs[0] === "settings" && segs[1] === "appearance" && segs.length === 2) return { name: "appearance" };
   if (segs[0] === "files" && segs[1]) {

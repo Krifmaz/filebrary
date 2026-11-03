@@ -6,6 +6,9 @@ describe("router", () => {
     expect(parse("/")).toEqual({ name: "home" });
     expect(parse("/login", "?next=%2Ffiles%2Fa")).toEqual({ name: "login", next: "/files/a" });
     expect(parse("/shares")).toEqual({ name: "shares" });
+    expect(parse("/starred")).toEqual({ name: "starred" });
+    expect(parse("/search", "?q=cat&type=image")).toEqual({ name: "search", q: "cat", type: "image" });
+    expect(parse("/search")).toEqual({ name: "search", q: "", type: "" });
     expect(parse("/files/local")).toEqual({ name: "files", source: "local", path: "/" });
     expect(parse("/files/local/a%20b/c")).toEqual({ name: "files", source: "local", path: "/a b/c" });
     expect(parse("/s/tok/sub")).toEqual({ name: "public", token: "tok", path: "/sub" });
