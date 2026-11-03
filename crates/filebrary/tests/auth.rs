@@ -91,7 +91,7 @@ impl App {
         }
     }
 
-    async fn login(&self, user: &str, pw: &str) -> Result<Client, Resp> {
+    async fn login(&self, user: &str, pw: &str) -> Result<Client, Box<Resp>> {
         let r = self
             .call(
                 &Client::default(),
@@ -101,7 +101,7 @@ impl App {
             )
             .await;
         if r.status != StatusCode::OK {
-            return Err(r);
+            return Err(Box::new(r));
         }
         let set = r.headers.get(header::SET_COOKIE).unwrap().to_str().unwrap();
         assert!(set.contains("HttpOnly"), "{set}");
