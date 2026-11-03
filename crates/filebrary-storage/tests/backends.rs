@@ -15,6 +15,12 @@
 //! instead of skipping when a variable is missing. `scripts/test-backends.sh`
 //! starts the three servers in Docker and runs these tests.
 
+// Without remote backends only the local test remains.
+#![cfg_attr(
+    not(any(feature = "s3", feature = "sftp", feature = "smb")),
+    allow(unused)
+)]
+
 use filebrary_storage::{Storage, VPath, conformance, local::LocalStorage};
 
 fn env(name: &str) -> Option<String> {

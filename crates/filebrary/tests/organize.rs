@@ -9,7 +9,7 @@ use axum::{
 use filebrary::{
     AppState,
     auth::{Perms, session},
-    config::{Config, SourceConfig, SourceKind},
+    config::{Config, SourceConfig},
     db,
     organize::{self, trash::TRASH_DIR},
 };
@@ -42,11 +42,7 @@ async fn env_with(trash_days: u64) -> Env {
     let config = Config {
         data_dir: dir.path().join("data"),
         trash_retention_days: trash_days,
-        sources: vec![SourceConfig {
-            name: "files".into(),
-            kind: SourceKind::Local,
-            path: root.clone(),
-        }],
+        sources: vec![SourceConfig::local("files", root.clone())],
         ..Config::default()
     };
     std::fs::create_dir_all(&config.data_dir).unwrap();

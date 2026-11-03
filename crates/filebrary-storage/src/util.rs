@@ -1,11 +1,11 @@
 //! Small helpers shared by the backends, so that every backend applies the
+//! same rules to the same edge cases.
 
 // Only the remote backends use these; a build without them has nothing to share.
 #![cfg_attr(
     not(any(feature = "s3", feature = "sftp", feature = "smb")),
     allow(dead_code)
 )]
-//! same rules to the same edge cases.
 
 use std::{io, ops::Range};
 
