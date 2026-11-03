@@ -102,6 +102,9 @@ async fn create(
     for p in &req.paths {
         let visible = VPath::parse(p)?;
         let real = user.require(&req.source, needed, &visible)?;
+        if crate::organize::trash::is_reserved(&real) {
+            return Err(AppError::NotFound.into());
+        }
         if paths.contains(&real) {
             continue;
         }

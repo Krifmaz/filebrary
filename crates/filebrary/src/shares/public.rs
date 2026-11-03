@@ -50,6 +50,7 @@ use crate::{
     api::{download, zip},
     auth::{self, Perms},
     error::AppError,
+    organize::trash,
     state::AppState,
     storage::{Entry, Storage, StorageError, VPath},
 };
@@ -91,6 +92,8 @@ pub struct ShareItem {
     pub scoped: Arc<dyn Storage>,
     /// Path of the item inside `scoped`.
     pub visible: VPath,
+    /// Path of the item inside the source itself.
+    pub real: VPath,
 }
 
 /// A share that is alive and usable right now.
@@ -109,32 +112,38 @@ pub enum Target {
     Item {
         /// The item.
         item: ShareItem,
-        /// Real path inside the item's source.
+        /// Path inside the item's (confined) storage.
         path: VPath,
+        /// The same location as a path inside the source itself.
+        real: VPath,
     },
 }
 
 impl LiveShare {
-    /// Maps a share-relative path to a target. Unknown names are `NotFound`.
+    /// Maps a share-relative path to a target. Unknown names, and anything
+    /// inside the source's trash folder, are `NotFound`.
     pub fn locate(&self, rel: &VPath) -> ShareResult<Target> {
-        if let [only] = self.items.as_slice() {
-            return Ok(Target::Item {
-                item: only.clone(),
-                path: only.path.join_path(rel),
-            });
-        }
-        let Some((first, rest)) = rel.components().split_first() else {
-            return Ok(Target::Root);
+        let (item, inner) = if let [only] = self.items.as_slice() {
+            (only, rel.clone())
+        } else {
+            let Some((first, rest)) = rel.components().split_first() else {
+                return Ok(Target::Root);
+            };
+            let item = self
+                .items
+                .iter()
+                .find(|i| &i.name == first)
+                .ok_or_else(ShareError::not_found)?;
+            (item, VPath::parse(&rest.join("/"))?)
         };
-        let item = self
-            .items
-            .iter()
-            .find(|i| &i.name == first)
-            .ok_or_else(ShareError::not_found)?;
-        let rest = VPath::parse(&rest.join("/"))?;
+        let real = item.real.join_path(&inner);
+        if trash::is_reserved(&real) {
+            return Err(ShareError::not_found());
+        }
         Ok(Target::Item {
             item: item.clone(),
-            path: item.path.join_path(&rest),
+            path: item.path.join_path(&inner),
+            real,
         })
     }
 
@@ -208,6 +217,7 @@ pub async fn resolve(state: &AppState, token: &str) -> ShareResult<LiveShare> {
             path,
             scoped: scoped.clone(),
             visible,
+            real: real.clone(),
         });
     }
     Ok(LiveShare { share, items })
@@ -329,7 +339,7 @@ async fn info(
             }
             (live.name(), true, None, Some(entries))
         }
-        Target::Item { item, path } => {
+        Target::Item { item, path, real } => {
             let entry = item.storage.stat(&path).await?;
             let name = if rel.is_root() {
                 live.name()
@@ -338,6 +348,10 @@ async fn info(
             };
             if entry.is_dir() {
                 let mut list = item.storage.list(&path).await?;
+                // Never show the source's trash folder.
+                if real.is_root() {
+                    list.retain(|e| e.name != trash::TRASH_DIR);
+                }
                 list.sort_by(|a, b| {
                     b.is_dir()
                         .cmp(&a.is_dir())
@@ -413,7 +427,7 @@ async fn download(
 
     // Resolve what will be sent before counting, so a bad path costs nothing.
     let file = match &target {
-        Target::Item { item, path } => {
+        Target::Item { item, path, .. } => {
             let e = item.storage.stat(path).await?;
             (!e.is_dir()).then_some(e)
         }
@@ -429,10 +443,10 @@ async fn download(
     }
 
     match (target, file) {
-        (Target::Item { item, path }, Some(_)) => {
+        (Target::Item { item, path, .. }, Some(_)) => {
             Ok(download::file_response(item.storage.as_ref(), &path, &headers, q.inline).await?)
         }
-        (Target::Item { item, path }, None) => {
+        (Target::Item { item, path, real }, None) => {
             let name = if rel.is_root() {
                 live.name()
             } else {
@@ -441,7 +455,11 @@ async fn download(
             if path.is_root() {
                 // The whole shared folder: archive its children under its name.
                 let children = item.storage.list(&path).await?;
-                let mut paths: Vec<VPath> = children.into_iter().map(|c| c.path).collect();
+                let mut paths: Vec<VPath> = children
+                    .into_iter()
+                    .filter(|c| !(real.is_root() && c.name == trash::TRASH_DIR))
+                    .map(|c| c.path)
+                    .collect();
                 paths.sort();
                 if paths.is_empty() {
                     // An empty folder: archive it through the owner's scope.
@@ -517,7 +535,10 @@ async fn upload(
     let [file_name] = name.components() else {
         return Err(ShareError::bad_request("path must be a single file name"));
     };
-    let Target::Item { item, path: dir } = live.locate(&VPath::root())? else {
+    let Target::Item {
+        item, path: dir, ..
+    } = live.locate(&VPath::root())?
+    else {
         return Err(ShareError::not_found());
     };
 

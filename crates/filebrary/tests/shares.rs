@@ -826,3 +826,56 @@ async fn management_requires_login_and_csrf() {
         .await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn trash_is_never_shared() {
+    let env = setup().await;
+    let (_, admin) = env.user("alice", true, Perms::ALL, "/").await;
+    std::fs::create_dir_all(env.root.join(".filebrary-trash/x")).unwrap();
+    std::fs::write(env.root.join(".filebrary-trash/x/gone.txt"), b"deleted").unwrap();
+
+    let (s, _) = env
+        .api(
+            &admin,
+            Method::POST,
+            "/api/shares",
+            Some(json!({"source": "files", "paths": ["/.filebrary-trash/x"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+
+    // A share of the whole source hides the trash folder.
+    let share = env
+        .create(&admin, json!({"source": "files", "paths": ["/"]}))
+        .await;
+    let token = share["token"].as_str().unwrap();
+    let (_, _, b) = env.get(&format!("/api/public/shares/{token}")).await;
+    let names: Vec<_> = json(&b)["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(names.contains(&"docs".to_owned()));
+    assert!(!names.contains(&".filebrary-trash".to_owned()), "{names:?}");
+    for p in [".filebrary-trash", ".filebrary-trash/x/gone.txt"] {
+        let (s, _, _) = env
+            .get(&format!("/api/public/shares/{token}/download?path={p}"))
+            .await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{p}");
+        let (s, _, _) = env
+            .get(&format!("/api/public/shares/{token}?path={p}"))
+            .await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{p}");
+    }
+    let (s, _, b) = env
+        .get(&format!("/api/public/shares/{token}/download"))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let zip = zip::ZipArchive::new(std::io::Cursor::new(b)).unwrap();
+    assert!(
+        zip.file_names()
+            .all(|n| !n.unwrap().contains(".filebrary-trash")),
+        "zip must not contain the trash"
+    );
+}
