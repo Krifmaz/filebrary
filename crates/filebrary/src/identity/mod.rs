@@ -13,7 +13,7 @@
 //! | `after_password` | TOTP code check; refuses local password logins when `oidc.disable_password_login` is on (administrators excepted) |
 //! | `resolve_bearer` | `Authorization: Bearer fbk_...` API keys |
 //! | `bearer_ceiling` | maps a key's scopes to the most it may do |
-//! | `before_write` | reserves quota for the bytes about to be written |
+//! | `before_write` | reserves quota for the bytes about to be written, and publishes `QuotaNearFull` when usage crosses `notifications.quota_warning_percent` |
 
 pub mod routes;
 
@@ -372,9 +372,42 @@ impl AuthHooks for IdentityHooks {
                 return Ok(());
             };
             let b = i64::try_from(b).map_err(|_| AppError::bad_request("size too large"))?;
-            quota::reserve(&state.db, user.id, b, state.identity.default_quota()).await?;
+            let after =
+                match quota::reserve(&state.db, user.id, b, state.identity.default_quota()).await {
+                    Ok(q) => q,
+                    Err(e @ idn::Error::QuotaExceeded { .. }) => {
+                        metrics::counter!("filebrary_quota_exceeded_total").increment(1);
+                        return Err(e.into());
+                    }
+                    Err(e) => return Err(e.into()),
+                };
+            notify_if_near_full(state, &user.username, after, b);
             Ok(())
         })
+    }
+}
+
+/// Publishes [`filebrary_events::Event::QuotaNearFull`] when a write of
+/// `written` bytes took the user's usage (now `after.used`) across the
+/// configured warning threshold, so the user is told once, not on every
+/// upload.
+fn notify_if_near_full(state: &AppState, username: &str, after: quota::Quota, written: i64) {
+    let Some(limit) = after.limit else {
+        return;
+    };
+    let pct = state.config.notifications.quota_warning_percent;
+    let used = u64::try_from(after.used).unwrap_or(0);
+    let before = used.saturating_sub(u64::try_from(written).unwrap_or(0));
+    let limit = u64::try_from(limit).unwrap_or(0);
+    if filebrary_events::quota_crossed(before, used, limit, pct) {
+        state
+            .events
+            .publish(filebrary_events::Event::QuotaNearFull {
+                user: username.to_owned(),
+                used_bytes: used,
+                quota_bytes: limit,
+                threshold_percent: pct,
+            });
     }
 }
 

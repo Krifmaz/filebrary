@@ -139,7 +139,10 @@ Each user can have a storage limit. Set a default for everyone with
 `default_quota = "10G"`, and change it per user in the admin pages or with
 `PUT /api/users/{id}/quota` (`{"limit": "50G"}`, a number of bytes, or `null`
 for unlimited). Uploads that would go over the limit fail with `507
-quota_exceeded`.
+quota_exceeded`. When an upload takes a user past
+[`notifications.quota_warning_percent`](../configuration/reference.md#notificationsquota_warning_percent)
+of their limit (90% by default), a `quota_near_full`
+[notification](notifications.md) is sent once.
 
 Usage is counted as files are uploaded. Every [`quota_rescan_hours`](../configuration/reference.md#quota_rescan_hours) (default
 6) Filebrary measures the real size of each user's home folder (their scope

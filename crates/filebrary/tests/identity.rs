@@ -325,11 +325,27 @@ async fn quotas_limit_uploads() {
             j!({ "path": name, "size": size }),
         )
     };
+    let mut events = t.state.events.subscribe();
     let (st, body) = json(t.send(upload("big.bin", 61)).await).await;
     assert_eq!(st, StatusCode::INSUFFICIENT_STORAGE, "{body}");
     assert_eq!(body["error"], "quota_exceeded");
-    let resp = t.send(upload("ok.bin", 60)).await;
+    // 40 + 15 = 55%: below the 90% warning threshold, no event.
+    let resp = t.send(upload("ok.bin", 15)).await;
     assert_eq!(resp.status(), StatusCode::OK);
+    assert!(events.try_recv().is_err());
+    // 55 + 45 = 100%: crosses 90% once, so one QuotaNearFull event.
+    let resp = t.send(upload("ok2.bin", 45)).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let notice = events.try_recv().unwrap();
+    assert_eq!(
+        notice.event,
+        filebrary_events::Event::QuotaNearFull {
+            user: "fred".into(),
+            used_bytes: 100,
+            quota_bytes: 100,
+            threshold_percent: 90,
+        }
+    );
     let (_, q) = json(t.send(c.get("/api/me/quota")).await).await;
     assert_eq!(q["used"], 100);
 
