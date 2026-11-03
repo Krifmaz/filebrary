@@ -50,10 +50,12 @@ differ from a bare binary:
 | `FILEBRARY_DATA_DIR` | `/data`            | `./data`              |
 | `FILEBRARY_SOURCES`  | `files=/srv`       | `files=<data_dir>/files` |
 
-Because environment variables beat the file, `[[sources]]` in a TOML file
-has no effect inside the image while `FILEBRARY_SOURCES` is set. In Docker,
-list your sources in `FILEBRARY_SOURCES` instead, for example
-`-e FILEBRARY_SOURCES="files=/srv;media=/mnt/media"`.
+Environment variables beat the file, so while the image's
+`FILEBRARY_SOURCES` is in effect, `[[sources]]` in a mounted TOML file is
+ignored. Either list your sources in the variable
+(`-e FILEBRARY_SOURCES="files=/srv;media=/mnt/media"`), or clear it with
+`-e FILEBRARY_SOURCES=` so the file's `[[sources]]` are used. An empty value
+counts as unset.
 
 ## Command line
 

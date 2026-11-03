@@ -71,3 +71,5 @@ serde-reflection = "0.6.0"
 tempfile = { workspace = true }
 tower = { version = "0.5.3", features = ["util"] }
 
+http-body-util = "0.1.5"
+serde_json = { workspace = true }

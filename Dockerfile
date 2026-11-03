@@ -53,9 +53,12 @@ RUN mkdir -p /rootfs/data /rootfs/srv && chown 65532:65532 /rootfs/data /rootfs/
 # Full image: ffmpeg + LibreOffice for previews and conversions
 # ---------------------------------------------------------------------------
 FROM alpine:${ALPINE_VERSION} AS full
-RUN apk add --no-cache ca-certificates tzdata ffmpeg libreoffice-common \
-        libreoffice-writer libreoffice-calc libreoffice-impress \
-        font-noto ttf-dejavu \
+# Tools the preview and conversion code looks up on PATH at startup:
+# ffmpeg/ffprobe (video, audio), pdftoppm (PDF), soffice (Office -> PDF),
+# heif-dec (HEIC).
+RUN apk add --no-cache ca-certificates tzdata ffmpeg poppler-utils \
+        libreoffice-common libreoffice-writer libreoffice-calc libreoffice-impress \
+        libheif-tools font-noto ttf-dejavu \
  && addgroup -S -g 65532 nonroot \
  && adduser -S -D -H -u 65532 -G nonroot -h /data nonroot
 COPY --from=build --chown=65532:65532 /rootfs/data /data

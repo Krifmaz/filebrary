@@ -7,16 +7,16 @@
 | Kind | Thumbnails and preview | Needs |
 |---|---|---|
 | Images (JPEG, PNG, GIF, WebP, AVIF, …) | yes | built in |
-| HEIC and camera RAW | yes | built in |
+| HEIC and camera RAW | yes | libheif (`-full` image) for HEIC |
 | Video | thumbnail, playback with seeking | ffmpeg (`-full` image) |
 | Audio | playback with seeking, cover art | built in; ffmpeg for some formats |
-| PDF | page preview | built in |
+| PDF | page preview | poppler (`-full` image) |
 | Office documents (Word, Excel, PowerPoint, OpenDocument) | converted to PDF, then previewed | LibreOffice (`-full` image) |
 
 Thumbnails and converted previews are cached in the data directory, so each
 file is converted once. Use the `-full` [Docker image](../install/docker.md)
-for video and Office previews, or install ffmpeg and LibreOffice next to the
-binary.
+for video, PDF, HEIC and Office previews, or install ffmpeg, poppler,
+libheif and LibreOffice next to the binary.
 
 ## Conversions
 

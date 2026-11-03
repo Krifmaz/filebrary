@@ -217,7 +217,9 @@ The same with an environment variable:
 FILEBRARY_SOURCES="files=/srv/files;media=/mnt/pool/media"
 ```
 
-Setting `FILEBRARY_SOURCES` replaces every source from the file.
+A non-empty `FILEBRARY_SOURCES` replaces every source from the file. An
+empty value counts as unset, so `FILEBRARY_SOURCES=` lets the file's
+`[[sources]]` apply even in the Docker image, which sets the variable.
 
 ### `sources[].name`
 

@@ -181,7 +181,8 @@ impl Config {
                 _ => bail!("invalid value for FILEBRARY_LOG_FORMAT: {v:?} (use text or json)"),
             };
         }
-        if let Some(v) = get("FILEBRARY_SOURCES") {
+        // An empty value counts as unset, so a mounted config file's [[sources]] can win.
+        if let Some(v) = get("FILEBRARY_SOURCES").filter(|v| !v.trim().is_empty()) {
             self.sources = parse_sources(&v)?;
         }
         Ok(())
