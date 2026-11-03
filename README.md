@@ -34,6 +34,25 @@ cargo build --release
 ./target/release/filebrary            # serves ./data/files on 127.0.0.1:8080
 ```
 
+## Text editor
+
+Text and code files open in a CodeMirror editor in the web UI, with syntax
+highlighting for about 100 languages, search (Ctrl/Cmd+F), line wrapping and
+Ctrl/Cmd+S to save. Users with the `edit` permission can save; everyone else
+with `download` gets a read-only view. Files up to 5 MiB that are valid UTF-8
+open in the editor; others are offered as a download.
+
+Saving never silently overwrites someone else's change. The server hands out a
+strong ETag (from the file's SHA-256) when the file is opened, and a save must
+carry it in `If-Match`. If the file changed in the meantime (another tab, user,
+WebDAV client or a change on disk), the save is refused with `412` and the
+editor offers to load the other version or overwrite it.
+
+API: `GET /api/sources/{id}/text?path=...` returns
+`{path, content, etag, size, modified}`; `PUT` on the same URL takes the raw
+text and `If-Match: <etag>` (or `If-None-Match: *` to create a file). A `PUT`
+without either header is refused with `428`.
+
 ## Configuration (short)
 
 `--config file.toml` / `FILEBRARY_CONFIG`, plus environment overrides:
