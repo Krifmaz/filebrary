@@ -482,6 +482,7 @@ async fn symlink_cannot_escape_user_scope() {
         .await,
     )
     .await;
-    assert_eq!(s, StatusCode::OK);
+    // The whole batch is refused up front, since the link leads out of scope.
+    assert_eq!(s, StatusCode::FORBIDDEN);
     assert!(t.root().join("home/alice/private.txt").exists());
 }

@@ -18,7 +18,7 @@ use serde::Deserialize;
 use super::SourceStatus;
 use super::query::{self, Filters, SearchParams, SearchResults};
 use crate::{
-    auth::{AdminUser, AuthUser, Perms},
+    auth::{AdminUser, AuthUser},
     error::{AppError, AppResult},
     state::AppState,
 };
@@ -53,13 +53,11 @@ async fn search(
     let filters = Filters::from_params(&params)?;
     let (hits, has_more) =
         query::run(&state.db, &auth.user, &filters, |s| state.search.indexes(s)).await?;
-    let indexing = state.search.status().iter().any(|s| {
-        s.scanning
-            && auth
-                .user
-                .grant(&s.source)
-                .is_some_and(|g| g.perms.contains(Perms::VIEW))
-    });
+    let indexing = state
+        .search
+        .status()
+        .iter()
+        .any(|s| s.scanning && auth.user.grant(&s.source).is_some());
     Ok(Json(SearchResults {
         hits,
         has_more,
@@ -74,11 +72,7 @@ async fn status(State(state): State<AppState>, auth: AuthUser) -> Json<Vec<Sourc
             .search
             .status()
             .into_iter()
-            .filter(|s| {
-                auth.user
-                    .grant(&s.source)
-                    .is_some_and(|g| g.perms.contains(Perms::VIEW))
-            })
+            .filter(|s| auth.user.grant(&s.source).is_some())
             .map(|mut s| {
                 if !auth.user.is_admin {
                     s.last_error = None; // may contain host paths

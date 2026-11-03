@@ -9,10 +9,11 @@ use axum::{
 };
 use filebrary::{
     AppState,
-    auth::{Perms, session},
+    auth::{Perms, Subject, permissions, session, users},
     config::{Config, SourceConfig, SourceKind},
     db,
     search::scan,
+    storage::VPath,
 };
 use http_body_util::BodyExt;
 use serde_json::Value;
@@ -34,7 +35,7 @@ fn write(root: &Path, rel: &str, bytes: usize) {
 
 async fn user(state: &AppState, name: &str, admin: bool, grant: Option<(Perms, &str)>) -> String {
     let (id,): (i64,) = sqlx::query_as(
-        "INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, 'x', ?, 0) RETURNING id",
+        "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at) VALUES (?, 'x', ?, 0, 0) RETURNING id",
     )
     .bind(name)
     .bind(admin)
@@ -42,18 +43,21 @@ async fn user(state: &AppState, name: &str, admin: bool, grant: Option<(Perms, &
     .await
     .unwrap();
     if let Some((perms, scope)) = grant {
-        sqlx::query(
-            "INSERT INTO user_sources (user_id, source, perms, scope) VALUES (?, 'files', ?, ?)",
-        )
-        .bind(id)
-        .bind(perms.bits())
-        .bind(scope)
-        .execute(&state.db)
-        .await
-        .unwrap();
+        let scope = VPath::parse(scope).unwrap();
+        permissions::set(&state.db, "files", &scope, Subject::User(id), perms)
+            .await
+            .unwrap();
+        users::set_scope(&state.db, id, "files", &scope)
+            .await
+            .unwrap();
     }
     let sess = session::create(state, id, None, None).await.unwrap();
-    format!("{}|{}", sess.token, sess.csrf_token)
+    format!("{id}|{}|{}", sess.token, sess.csrf_token)
+}
+
+/// The user id inside a token made by [`user`].
+fn uid(token: &str) -> i64 {
+    token.split('|').next().unwrap().parse().unwrap()
 }
 
 async fn env(watch: bool) -> Env {
@@ -92,7 +96,7 @@ async fn env(watch: bool) -> Env {
 }
 
 fn cookie(token: &str) -> String {
-    let t = token.split_once('|').map_or(token, |(t, _)| t);
+    let t = token.split('|').nth(1).unwrap_or(token);
     format!("{}={t}", session::SESSION_COOKIE)
 }
 
@@ -119,7 +123,7 @@ impl Env {
     }
 
     async fn post(&self, token: &str, uri: &str, body: Value) -> StatusCode {
-        let csrf = token.split_once('|').map_or("", |(_, c)| c);
+        let csrf = token.split('|').nth(2).unwrap_or("");
         let req = Request::post(uri)
             .header(header::COOKIE, cookie(token))
             .header("x-csrf-token", csrf)
@@ -554,4 +558,61 @@ async fn file_api_operations_reach_the_index() {
         e.paths(a, "q=report").await == ["/docs/report-final.pdf"]
     })
     .await;
+}
+
+#[tokio::test]
+async fn deeper_permission_rules_hide_and_reveal_folders() {
+    let e = env(false).await;
+    write(&e.root, "home/bob/private/diary.txt", 1);
+    write(&e.root, "home/bob/private/shared/diary-extract.txt", 1);
+    e.scan().await;
+    let bob = uid(&e.bob);
+    let set = |path: &'static str, perms: Perms| {
+        let db = e.state.db.clone();
+        async move {
+            permissions::set(
+                &db,
+                "files",
+                &VPath::parse(path).unwrap(),
+                Subject::User(bob),
+                perms,
+            )
+            .await
+            .unwrap();
+        }
+    };
+    assert_eq!(e.paths(&e.bob, "q=diary&sort=path").await.len(), 2);
+
+    // Taking view away below his scope hides that folder from search ...
+    set("/home/bob/private", Perms::NONE).await;
+    assert!(e.paths(&e.bob, "q=diary").await.is_empty());
+    assert!(e.paths(&e.bob, "q=private").await.is_empty());
+    assert_eq!(e.paths(&e.bob, "q=todo").await, ["/todo.txt"]);
+    // ... and a deeper rule can give it back for a subfolder.
+    set("/home/bob/private/shared", Perms::VIEW).await;
+    assert_eq!(
+        e.paths(&e.bob, "q=diary").await,
+        ["/private/shared/diary-extract.txt"]
+    );
+    // Searching under a folder he can only pass through works; under a
+    // hidden one it finds nothing.
+    assert_eq!(
+        e.paths(&e.bob, "source=files&path=/private&q=diary").await,
+        ["/private/shared/diary-extract.txt"]
+    );
+
+    // A symlink to a hidden place is hidden too.
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(
+            e.root.join("home/bob/private/diary.txt"),
+            e.root.join("home/bob/diary-link.txt"),
+        )
+        .unwrap();
+        e.scan().await;
+        assert_eq!(
+            e.paths(&e.bob, "q=diary").await,
+            ["/private/shared/diary-extract.txt"]
+        );
+    }
 }

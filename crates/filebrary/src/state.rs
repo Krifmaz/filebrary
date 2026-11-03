@@ -31,6 +31,8 @@ pub struct Inner {
     pub search: Search,
     /// Upload ids with a chunk currently being written (one writer at a time).
     pub uploads_in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// Login rate limiter and auth hooks.
+    pub auth: crate::auth::AuthRuntime,
 }
 
 impl Deref for AppState {
@@ -73,8 +75,10 @@ impl AppState {
             .with_context(|| format!("creating {}", upload_dir.display()))?;
         let names: Vec<String> = sources.keys().cloned().collect();
         let search = Search::new(db.clone(), config.search.clone(), &names);
+        let auth = crate::auth::AuthRuntime::new(&config);
         Ok(Self(Arc::new(Inner {
             search,
+            auth,
             config,
             db,
             sources,

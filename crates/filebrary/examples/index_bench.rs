@@ -84,19 +84,15 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let t = Instant::now();
-    let user = filebrary::auth::User {
-        id: 1,
-        username: "a".into(),
-        is_admin: true,
-        grants: [(
-            "files".to_owned(),
-            filebrary::auth::Grant {
-                perms: filebrary::auth::Perms::ALL,
-                scope: filebrary::storage::VPath::root(),
-            },
-        )]
-        .into(),
-    };
+    let (id,): (i64,) = sqlx::query_as(
+        "INSERT INTO users (username, password_hash, is_admin, created_at, updated_at) VALUES ('a', 'x', 1, 0, 0) RETURNING id",
+    )
+    .fetch_one(&state.db)
+    .await?;
+    let user = filebrary::auth::load_user(&state, id)
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+        .expect("user");
     let f =
         filebrary::search::query::Filters::from_params(&filebrary::search::query::SearchParams {
             q: Some("0012345".into()),
