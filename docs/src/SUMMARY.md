@@ -14,6 +14,10 @@
 - [Storage sources](configuration/sources.md)
 - [Reverse proxy](configuration/reverse-proxy.md)
 
+# Features
+
+- [Trash, tags, stars and activity](organize.md)
+
 # Operations
 
 - [Upgrading and backups](operations.md)
