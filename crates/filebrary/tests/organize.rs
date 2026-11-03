@@ -697,3 +697,110 @@ async fn symlinks_cannot_escape_the_scope() {
     assert!(e.root.join("private/p.txt").exists());
     assert!(!e.root.join("home/bob/link").exists());
 }
+
+/// The files routes use the trash, keep tags attached and log activity.
+#[tokio::test]
+async fn files_routes_are_wired_in() {
+    let e = env().await;
+    e.call(
+        &e.bob,
+        Method::PUT,
+        "/api/tags/file",
+        Some(json!({"source": "files", "path": "b.txt", "tags": ["keep"]})),
+    )
+    .await;
+    let (s, v) = e
+        .call(
+            &e.bob,
+            Method::POST,
+            "/api/sources/files/move",
+            Some(json!({"from": "/b.txt", "to": "/docs/c.txt"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (_, t) = e
+        .call(
+            &e.bob,
+            Method::GET,
+            "/api/tags/file?source=files&path=/docs/c.txt",
+            None,
+        )
+        .await;
+    assert_eq!(t[0]["name"], "keep");
+    let (s, v) = e
+        .call(
+            &e.bob,
+            Method::POST,
+            "/api/sources/files/copy",
+            Some(json!({"from": "/docs/c.txt", "to": "/d.txt"})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    let (_, t) = e
+        .call(
+            &e.bob,
+            Method::GET,
+            "/api/tags/file?source=files&path=/d.txt",
+            None,
+        )
+        .await;
+    assert_eq!(t[0]["name"], "keep");
+
+    // Delete goes to the trash, which the admin's root listing hides.
+    let (s, v) = e
+        .call(
+            &e.bob,
+            Method::POST,
+            "/api/sources/files/delete",
+            Some(json!({"paths": ["/docs/c.txt"]})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["deleted"][0], "/docs/c.txt");
+    let (_, list) = e.call(&e.bob, Method::GET, "/api/trash", None).await;
+    assert_eq!(list[0]["path"], "/docs/c.txt");
+    let (_, listing) = e
+        .call(
+            &e.admin,
+            Method::GET,
+            "/api/sources/files/list?path=/",
+            None,
+        )
+        .await;
+    assert!(
+        listing["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|x| x["name"] != TRASH_DIR),
+        "{listing}"
+    );
+    let (s, _) = e
+        .call(
+            &e.admin,
+            Method::GET,
+            &format!("/api/sources/files/list?path=/{TRASH_DIR}"),
+            None,
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = e
+        .call(
+            &e.admin,
+            Method::POST,
+            "/api/sources/files/move",
+            Some(json!({"from": "/secret.txt", "to": format!("/{TRASH_DIR}/x")})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+
+    let (_, ev) = e.call(&e.bob, Method::GET, "/api/activity", None).await;
+    let actions: Vec<_> = ev["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["action"].as_str().unwrap())
+        .collect();
+    assert_eq!(actions, ["trash", "copy", "move", "tag"]);
+    assert_eq!(ev["items"][2]["target"], "/docs/c.txt");
+}
