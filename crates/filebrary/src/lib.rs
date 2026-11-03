@@ -10,6 +10,7 @@
 //! * [`db`]: SQLite pool and migrations (one `migrations/` dir for the workspace).
 //! * [`state`]: [`state::AppState`], shared by all handlers.
 //! * [`auth`]: users, permissions, sessions and extractors.
+//! * [`identity`]: OIDC, LDAP, TOTP 2FA, API keys and quotas (on top of [`auth`]).
 //! * [`api`]: JSON endpoints under `/api`.
 //! * [`shares`]: share links.
 //! * [`ops`]: health, metrics, logging, OpenAPI, notifications admin, FTP glue.
@@ -44,6 +45,7 @@ pub mod config;
 pub mod crypto;
 pub mod db;
 pub mod error;
+pub mod identity;
 pub mod jobs;
 pub mod ops;
 pub mod organize;

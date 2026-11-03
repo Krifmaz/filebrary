@@ -125,8 +125,21 @@ async fn store_output(
 ) -> JobResult<Value> {
     ctx.check_cancel()?;
     ctx.progress(0.97, Some("saving")).await;
-    let written = stage::upload_new(r.output_storage.as_ref(), &r.dest, &r.stem, ext, out).await?;
     let user = ctx.user().await?;
+    let writer = stage::Writer {
+        state: &ctx.state,
+        user: &user,
+        source: &t.source,
+    };
+    let written = stage::upload_new(
+        &writer,
+        r.output_storage.as_ref(),
+        &r.dest,
+        &r.stem,
+        ext,
+        out,
+    )
+    .await?;
     ctx.record_write(
         &user,
         &t.source,

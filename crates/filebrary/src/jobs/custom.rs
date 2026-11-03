@@ -173,10 +173,17 @@ impl JobHandler for CustomJob {
         ctx.check_cancel()?;
         ctx.progress(0.9, Some("saving")).await;
 
+        let writer = stage::Writer {
+            state: &ctx.state,
+            user: &user,
+            source: &p.source,
+        };
         let mut result = json!({ "output": out.stdout_tail });
         match self.0.output {
             CustomOutput::None => {}
             CustomOutput::Replace => {
+                let bytes = tokio::fs::metadata(&input).await?.len();
+                writer.check(Perms::EDIT, &real, bytes).await?;
                 stage::upload(storage.as_ref(), &real, &input, true).await?;
                 ctx.record_write(
                     &user,
@@ -201,8 +208,15 @@ impl JobHandler for CustomJob {
                     }
                     let fname = e.file_name().to_string_lossy().into_owned();
                     let (stem, fext) = stage::split_name(&fname);
-                    let path =
-                        stage::upload_new(storage.as_ref(), &parent, stem, fext, &e.path()).await?;
+                    let path = stage::upload_new(
+                        &writer,
+                        storage.as_ref(),
+                        &parent,
+                        stem,
+                        fext,
+                        &e.path(),
+                    )
+                    .await?;
                     ctx.record_write(
                         &user,
                         &p.source,

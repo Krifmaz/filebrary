@@ -20,6 +20,7 @@ Preview it locally with `mdbook serve docs`.
 | `crates/filebrary-ftp`     | Optional FTP/FTPS server over the storage trait.              |
 | `crates/filebrary-storage` | `Storage` trait, `VPath` path validation; local, S3, SFTP and SMB backends. |
 | `crates/filebrary-archive` | Browse zip/tar/tar.gz/7z; create zip and tar.gz (pure Rust). |
+| `crates/filebrary-identity` | TOTP 2FA, API keys, quotas, LDAP and OIDC logic and storage. |
 | `migrations/`              | SQLite migrations for the whole workspace (one history).      |
 | `web/`                     | React + TypeScript + Vite PWA, built into `web/dist`.         |
 | `docs/`                    | mdBook documentation.                                         |
@@ -93,6 +94,23 @@ generated and printed once in the log. Log in and change it.
   lead into a hidden folder.
 - A user can also be confined to a folder (scope) per source; the paths
   they see start there.
+
+## Single sign-on, 2FA, API keys and quotas
+
+- **OpenID Connect** (`[oidc]`): sign in with Authelia, Authentik, Keycloak,
+  Google, Entra and others. Accounts link by issuer and `sub`; admin rights
+  and group membership can follow the provider's groups.
+- **LDAP** (`[ldap]`): search-then-bind against OpenLDAP, Active Directory,
+  FreeIPA or lldap, over `ldaps://` or StartTLS.
+- **TOTP 2FA**: any authenticator app, with ten single-use recovery codes.
+- **API keys**: `Authorization: Bearer fbk_...`, with scopes
+  (`files:read`, `files:write`, `files:delete`, `shares`, `admin`) that cap
+  what the key can do; never more than its owner.
+- **Quotas**: per-user limits (`default_quota = "10G"`); uploads over the
+  limit get `507 quota_exceeded`.
+
+The logic lives in `crates/filebrary-identity`; details in
+`docs/src/guide/authentication.md`.
 
 The admin API is under `/api/users`, `/api/groups` and `/api/permissions`
 (see `crates/filebrary/src/auth/routes.rs`).

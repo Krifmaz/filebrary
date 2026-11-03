@@ -20,6 +20,7 @@ path = "src/main.rs"
 
 [dependencies]
 filebrary-storage = { path = "../filebrary-storage" }
+filebrary-identity = { path = "../filebrary-identity" }
 filebrary-events = { path = "../filebrary-events" }
 filebrary-ftp = { path = "../filebrary-ftp" }
 filebrary-archive = { path = "../filebrary-archive" }
@@ -88,6 +89,10 @@ suppaftp = { version = "8", default-features = false, features = ["tokio"] }
 # Walks the `Config` type so `tests/docs_config.rs` can check every setting is documented.
 serde-reflection = "0.6.0"
 tempfile = { workspace = true }
+axum = { workspace = true, features = ["form"] }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
 tower = { version = "0.5.3", features = ["util"] }
 
 http-body-util = "0.1.5"

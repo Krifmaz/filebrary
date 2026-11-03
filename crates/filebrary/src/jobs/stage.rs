@@ -40,6 +40,26 @@ pub async fn resolve(
     Ok((storage, vp))
 }
 
+/// As [`resolve`] for an operation on a whole tree (packing a folder): also
+/// refuses when a deeper folder rule takes `perm` away somewhere below, so
+/// hidden subfolders are never copied out.
+///
+/// # Errors
+///
+/// As [`resolve`], plus `Forbidden` for such a folder.
+pub async fn resolve_tree(
+    state: &AppState,
+    user: &User,
+    source: &str,
+    path: &str,
+    perm: Perms,
+) -> AppResult<(Arc<dyn Storage>, VPath)> {
+    let vp = VPath::parse(path)?;
+    crate::auth::authorize_tree(state, user, source, perm, &vp, true).await?;
+    let storage = crate::api::files::scoped(state, user, source, perm, &vp).await?;
+    Ok((storage, vp))
+}
+
 /// Splits a file name into stem and extension (`"a.tar.gz"` gives
 /// `("a.tar", "gz")`; a leading dot is part of the stem).
 pub fn split_name(name: &str) -> (&str, &str) {
@@ -139,22 +159,51 @@ pub async fn upload(
     Ok(storage.write(dst, Box::pin(f), overwrite).await?)
 }
 
+/// Who a job writes for: used to run the same write checks as an upload
+/// (per-folder rules and storage quotas, see
+/// [`crate::auth::authorize_write`]) before a job saves a file.
+pub struct Writer<'a> {
+    /// Server state.
+    pub state: &'a AppState,
+    /// The user the job runs for.
+    pub user: &'a User,
+    /// The source written to.
+    pub source: &'a str,
+}
+
+impl Writer<'_> {
+    /// Checks that `perm` may write `bytes` bytes at the user-visible `path`
+    /// (and reserves quota for them).
+    ///
+    /// # Errors
+    ///
+    /// `Forbidden` from a folder rule or a full quota.
+    pub async fn check(&self, perm: Perms, path: &VPath, bytes: u64) -> JobResult<()> {
+        crate::auth::authorize_write(self.state, self.user, self.source, perm, path, Some(bytes))
+            .await?;
+        Ok(())
+    }
+}
+
 /// Uploads `src` as a new file in `dir` named `stem.ext` (or a free variant)
-/// and returns the path written.
+/// and returns the path written. The write is checked with `writer` first.
 ///
 /// # Errors
 ///
-/// As [`unique_target`] and [`upload`]. If another writer takes the name in
-/// between, the next free name is tried.
+/// As [`unique_target`], [`Writer::check`] and [`upload`]. If another writer
+/// takes the name in between, the next free name is tried.
 pub async fn upload_new(
+    writer: &Writer<'_>,
     storage: &dyn Storage,
     dir: &VPath,
     stem: &str,
     ext: &str,
     src: &Path,
 ) -> JobResult<VPath> {
+    let bytes = tokio::fs::metadata(src).await?.len();
     for _ in 0..5 {
         let target = unique_target(storage, dir, stem, ext).await?;
+        writer.check(Perms::UPLOAD, &target, bytes).await?;
         match upload(storage, &target, src, false).await {
             Ok(_) => return Ok(target),
             Err(JobError::Failed(m)) if m.contains("already exists") => continue,

@@ -79,7 +79,7 @@ impl JobHandler for CreateArchive {
             }
             first_name.get_or_insert_with(|| vp.name().unwrap_or("archive").to_owned());
             let (storage, vp) =
-                stage::resolve(state, user, &p.source, path, Perms::DOWNLOAD).await?;
+                stage::resolve_tree(state, user, &p.source, path, Perms::DOWNLOAD).await?;
             storage.stat(&vp).await?;
         }
         let (storage, dest) =
@@ -126,7 +126,7 @@ impl JobHandler for CreateArchive {
         let mut storage = None;
         for path in &p.paths {
             let (st, vp) =
-                stage::resolve(&ctx.state, &user, &p.source, path, Perms::DOWNLOAD).await?;
+                stage::resolve_tree(&ctx.state, &user, &p.source, path, Perms::DOWNLOAD).await?;
             let base = vp.parent().unwrap_or_default();
             for e in stage::walk(st.as_ref(), &vp, limit, &ctx.cancel).await? {
                 let rel = e
@@ -211,7 +211,19 @@ impl JobHandler for CreateArchive {
             CreateFormat::Zip => (name.to_owned(), "zip"),
             CreateFormat::TarGz => (format!("{name}.tar"), "gz"),
         };
-        let written = stage::upload_new(out_storage.as_ref(), &dest, &stem, ext, &out_path).await?;
+        let written = stage::upload_new(
+            &stage::Writer {
+                state: &ctx.state,
+                user: &user,
+                source: &p.source,
+            },
+            out_storage.as_ref(),
+            &dest,
+            &stem,
+            ext,
+            &out_path,
+        )
+        .await?;
         ctx.record_write(
             &user,
             &p.source,

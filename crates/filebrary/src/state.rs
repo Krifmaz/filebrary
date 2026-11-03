@@ -47,6 +47,8 @@ pub struct Inner {
     pub jobs: crate::jobs::JobQueue,
     /// Login rate limiter and auth hooks.
     pub auth: crate::auth::AuthRuntime,
+    /// SSO, LDAP, 2FA, API key and quota settings and caches.
+    pub identity: crate::identity::Identity,
 }
 
 impl Deref for AppState {
@@ -93,10 +95,12 @@ impl AppState {
         let search = Search::new(db.clone(), config.search.clone(), &names);
         let jobs = crate::jobs::JobQueue::new(&config.jobs);
         let auth = crate::auth::AuthRuntime::new(&config);
+        let identity = crate::identity::Identity::new(&config);
         Ok(Self(Arc::new(Inner {
             search,
             jobs,
             auth,
+            identity,
             config,
             db,
             sources,

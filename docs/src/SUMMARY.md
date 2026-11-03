@@ -44,4 +44,5 @@
 
 - [Feature status](status.md)
 - [Contributing](contributing.md)
+- [Releasing](releasing.md)
 - [Licence](licence.md)
