@@ -29,6 +29,10 @@ path = "/srv"
 | `trust_proxy_headers` | `FILEBRARY_TRUST_PROXY_HEADERS` | `false` | Trust `X-Forwarded-For`. Enable only behind a proxy you control. |
 | `session_ttl_hours` | `FILEBRARY_SESSION_TTL_HOURS` | `168` | How long a login lasts without activity. |
 | `log_format` | `FILEBRARY_LOG_FORMAT` | `text` | `text`, or `json` for structured logs. |
+| `trash_retention_days` | `FILEBRARY_TRASH_RETENTION_DAYS` | `30` | Days a deleted item stays in the trash before it is purged. `0` turns the trash off: deletes are permanent. See [Trash, tags, stars and activity](../organize.md). |
+| `activity_retention_days` | `FILEBRARY_ACTIVITY_RETENTION_DAYS` | `365` | Days activity-log events are kept. `0` keeps them forever. |
+| `previews.enabled` | `FILEBRARY_PREVIEWS` | `true` | Thumbnails and previews. See [Thumbnails and previews](../previews.md) for the other `[previews]` settings. |
+| `previews.cache_mib` | `FILEBRARY_PREVIEW_CACHE_MIB` | `2048` | Size limit of the preview cache. |
 | (none) | `FILEBRARY_LOG` | `info` | Log filter, e.g. `debug` or `info,sqlx=warn`. |
 
 Settings for later features are documented here as they land.

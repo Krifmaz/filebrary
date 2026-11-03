@@ -85,6 +85,11 @@ pub struct Config {
     pub login_window_secs: u64,
     /// Log format.
     pub log_format: LogFormat,
+    /// Days a deleted item stays in the trash before it is purged.
+    /// `0` turns the trash off: deletes are permanent.
+    pub trash_retention_days: u64,
+    /// Days activity-log events are kept. `0` keeps them forever.
+    pub activity_retention_days: u64,
     /// Storage sources.
     pub sources: Vec<SourceConfig>,
     /// Thumbnails and previews (`[previews]` table).
@@ -138,6 +143,8 @@ impl Default for Config {
             login_max_attempts: 5,
             login_window_secs: 300,
             log_format: LogFormat::Text,
+            trash_retention_days: 30,
+            activity_retention_days: 365,
             sources: Vec::new(),
             previews: PreviewSettings::default(),
         }
@@ -215,6 +222,12 @@ impl Config {
                 _ => bail!("invalid value for FILEBRARY_LOG_FORMAT: {v:?} (use text or json)"),
             };
         }
+        if let Some(v) = get("FILEBRARY_TRASH_RETENTION_DAYS") {
+            self.trash_retention_days = parse("FILEBRARY_TRASH_RETENTION_DAYS", &v)?;
+        }
+        if let Some(v) = get("FILEBRARY_ACTIVITY_RETENTION_DAYS") {
+            self.activity_retention_days = parse("FILEBRARY_ACTIVITY_RETENTION_DAYS", &v)?;
+        }
         if let Some(v) = get("FILEBRARY_PREVIEWS") {
             self.previews.enabled = parse_bool("FILEBRARY_PREVIEWS", &v)?;
         }
@@ -251,6 +264,9 @@ impl Config {
         }
         if self.max_chunk_mib == 0 || self.max_chunk_mib > 4096 {
             bail!("max_chunk_mib must be between 1 and 4096");
+        }
+        if self.trash_retention_days > 36_500 || self.activity_retention_days > 36_500 {
+            bail!("retention days must be at most 36500");
         }
         if !(32..=1024).contains(&self.previews.thumb_size)
             || !(256..=8192).contains(&self.previews.large_size)
