@@ -36,6 +36,11 @@ pub async fn serve(uri: Uri) -> Response {
     })
 }
 
+/// The bytes of an embedded UI file, if present (used to patch the PWA manifest).
+pub fn embedded(path: &str) -> Option<Vec<u8>> {
+    Assets::get(path).map(|a| a.data.into_owned())
+}
+
 fn file(path: &str) -> Option<Response> {
     let asset = Assets::get(if path.is_empty() { "index.html" } else { path })?;
     let mime = asset.metadata.mimetype().to_owned();
