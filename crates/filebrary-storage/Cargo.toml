@@ -1,0 +1,25 @@
+[package]
+name = "filebrary-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Storage trait, path validation and backends for Filebrary."
+
+[dependencies]
+async-trait = "0.1.92"
+bytes = "1.12.1"
+futures = { version = "0.3.34", default-features = false, features = ["std", "async-await"] }
+mime_guess = "2.0.5"
+serde = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { version = "0.7.20", features = ["io", "io-util"] }
+tracing = { workspace = true }
+uuid = { version = "1.29.0", features = ["v4"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tempfile = { workspace = true }

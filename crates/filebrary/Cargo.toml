@@ -1,0 +1,71 @@
+[package]
+name = "filebrary"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "A small, fast, self-hosted file manager with a web UI, shipped as one binary."
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["file-manager", "self-hosted", "webui", "sharing"]
+categories = ["web-programming::http-server", "filesystem"]
+
+[lib]
+name = "filebrary"
+path = "src/lib.rs"
+
+[[bin]]
+name = "filebrary"
+path = "src/main.rs"
+
+[dependencies]
+filebrary-storage = { path = "../filebrary-storage" }
+
+# Web
+axum = { workspace = true }
+axum-extra = { workspace = true }
+tower = { version = "0.5.3", default-features = false, features = ["util"] }
+tower-http = { version = "0.7.1", default-features = false, features = ["trace", "set-header", "limit", "catch-panic"] }
+hyper = { version = "1.12.0", default-features = false }
+http-body-util = "0.1.5"
+tokio = { workspace = true }
+tokio-util = { version = "0.7.20", features = ["io", "io-util"] }
+futures = { version = "0.3.34", default-features = false, features = ["std", "async-await"] }
+bytes = "1.12.1"
+async-trait = "0.1.92"
+rust-embed = { version = "8.13.0", features = ["mime-guess"] }
+mime_guess = "2.0.5"
+percent-encoding = "2.3.2"
+httpdate = "1.0.3"
+
+# Data
+sqlx = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { version = "1.1.8", default-features = false, features = ["parse", "serde"] }
+time = { workspace = true }
+
+# Security
+argon2 = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+subtle = { workspace = true }
+base64 = { workspace = true }
+hex = "0.4.3"
+
+# Archives (pure Rust deflate backend, no C libraries)
+zip = { version = "9.3.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+# CLI, errors, logs
+clap = { version = "4.6.7", features = ["derive", "env"] }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+uuid = { version = "1.29.0", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tower = { version = "0.5.3", features = ["util"] }
+

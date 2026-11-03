@@ -1,0 +1,38 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/Krifmaz/filebrary"
+
+# Shared versions: member crates should use `dep = { workspace = true }` for
+# anything listed here so the whole workspace stays on one version.
+[workspace.dependencies]
+axum = { version = "0.8.9", default-features = false, features = ["http1", "http2", "json", "query", "tokio", "macros", "tracing"] }
+axum-extra = { version = "0.12.6", default-features = false, features = ["cookie", "query"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "fs", "io-util", "net", "signal", "sync", "time"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite-bundled", "migrate", "macros", "derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+time = { version = "0.3.55", features = ["formatting", "serde"] }
+argon2 = "0.6.0"
+rand = "0.10.3"
+sha2 = "0.11.1"
+hmac = "0.13.0"
+subtle = "2.6.1"
+base64 = "0.23.1"
+thiserror = "2.0.21"
+anyhow = "1.0.104"
+tracing = "0.1.44"
+tempfile = "3.27.0"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
