@@ -236,6 +236,21 @@ Days activity-log events are kept. `0` keeps them forever.
 | Default     | `365`                                   |
 | Environment | `FILEBRARY_ACTIVITY_RETENTION_DAYS`     |
 
+## WebDAV
+
+### `webdav`
+
+Serve WebDAV (class 2, with locking) at `/dav/`, for Windows Explorer,
+macOS Finder, rclone and other clients. It uses the same accounts,
+permissions, scopes and login rate limit as the web UI. See
+[WebDAV](../guide/webdav.md).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean                                 |
+| Default     | `true`                                  |
+| Environment | `FILEBRARY_WEBDAV`                      |
+
 ## Two-factor login and quotas
 
 ### `totp_issuer`

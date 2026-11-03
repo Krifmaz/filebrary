@@ -1,0 +1,30 @@
+[package]
+name = "filebrary-webdav"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "WebDAV class 1 and 2 server for Filebrary, built on the storage trait."
+
+[dependencies]
+filebrary-storage = { path = "../filebrary-storage" }
+async-trait = "0.1.92"
+axum = { workspace = true }
+base64 = { workspace = true }
+bytes = "1.12.1"
+futures = { version = "0.3.34", default-features = false, features = ["std", "async-await"] }
+httpdate = "1.0.3"
+percent-encoding = "2.3.2"
+roxmltree = "0.21.2"
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { version = "0.7.20", features = ["io", "io-util"] }
+tower = { version = "0.5.3", default-features = false, features = ["util"] }
+tracing = { workspace = true }
+uuid = { version = "1.29.0", features = ["v4"] }
+
+[dev-dependencies]
+http-body-util = "0.1.5"
+tempfile = { workspace = true }

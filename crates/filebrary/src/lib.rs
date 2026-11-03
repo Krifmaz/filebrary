@@ -12,6 +12,7 @@
 //! * [`auth`]: users, permissions, sessions and extractors.
 //! * [`identity`]: OIDC, LDAP, TOTP 2FA, API keys and quotas (on top of [`auth`]).
 //! * [`api`]: JSON endpoints under `/api`.
+//! * [`dav`]: WebDAV at `/dav`, on the `filebrary-webdav` crate.
 //! * [`shares`]: share links.
 //! * [`ops`]: health, metrics, logging, OpenAPI, notifications admin, FTP glue.
 //! * [`jobs`]: background job queue, conversions, archives and custom jobs.
@@ -43,6 +44,7 @@ pub mod collections;
 pub mod comments;
 pub mod config;
 pub mod crypto;
+pub mod dav;
 pub mod db;
 pub mod error;
 pub mod identity;
@@ -87,7 +89,12 @@ pub fn spawn_maintenance(state: AppState) -> tokio::task::JoinHandle<()> {
 /// Builds the complete application router.
 pub fn app(state: AppState) -> Router {
     state.jobs.start(&state);
-    let router = Router::new()
+    let mut router = Router::new();
+    // WebDAV at /dav (see `dav`), kept in its own block.
+    if state.config.webdav {
+        router = router.merge(dav::router(&state));
+    }
+    let router = router
         .nest("/api", api::router().merge(ops::api_routes()))
         .route("/healthz", get(api::health))
         .route("/health", get(api::health))

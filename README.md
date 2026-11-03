@@ -20,6 +20,7 @@ Preview it locally with `mdbook serve docs`.
 | `crates/filebrary-ftp`     | Optional FTP/FTPS server over the storage trait.              |
 | `crates/filebrary-storage` | `Storage` trait, `VPath` path validation; local, S3, SFTP and SMB backends. |
 | `crates/filebrary-archive` | Browse zip/tar/tar.gz/7z; create zip and tar.gz (pure Rust). |
+| `crates/filebrary-webdav`  | WebDAV class 1 and 2 server over the `Storage` trait.         |
 | `crates/filebrary-identity` | TOTP 2FA, API keys, quotas, LDAP and OIDC logic and storage. |
 | `crates/filebrary-preview` | Thumbnails, previews, media info, transcoding, preview cache. |
 | `migrations/`              | SQLite migrations for the whole workspace (one history).      |
@@ -65,7 +66,8 @@ without either header is refused with `428`.
 `FILEBRARY_LOG_FORMAT` (`text`|`json`), `FILEBRARY_TRASH_RETENTION_DAYS`
 (`30`; `0` makes deletes permanent), `FILEBRARY_ACTIVITY_RETENTION_DAYS`
 (`365`; `0` keeps events forever), `FILEBRARY_PREVIEWS` (`true`|`false`),
-`FILEBRARY_PREVIEW_CACHE_MIB` (default `2048`), `FILEBRARY_JOB_WORKERS`,
+`FILEBRARY_PREVIEW_CACHE_MIB` (default `2048`), `FILEBRARY_WEBDAV`
+(`true`|`false`), `FILEBRARY_JOB_WORKERS`,
 `FILEBRARY_JOB_RETAIN_DAYS`, `FILEBRARY_FFMPEG`, `FILEBRARY_FFPROBE`,
 `FILEBRARY_SOFFICE`. `filebrary healthcheck` probes
 `/healthz` for container health checks.
@@ -180,6 +182,28 @@ Idle memory of a release build with one local source is about 12 MB RSS
   system or a custom palette; administrators set the product name, logo,
   default theme and the colours of each theme, which also brand the login
   page, share pages and the installed PWA.
+
+## WebDAV
+
+Every source is also served over WebDAV (class 2, with locking) at `/dav/`,
+with the same accounts, permissions, folder rules and quotas as the web UI.
+Log in with your Filebrary user name and password (HTTP Basic, so use HTTPS),
+or with an API key as the password: accounts with two-factor authentication
+or single sign-on must use an API key, and its scopes cap what the client may
+do. Deleting moves items to the trash.
+
+| Client          | How to connect                                                        |
+|-----------------|-----------------------------------------------------------------------|
+| Windows Explorer| *Map network drive* → `https://files.example.com/dav/files/`          |
+| macOS Finder    | *Go → Connect to Server* → `https://files.example.com/dav/`           |
+| rclone          | `rclone config`, type `webdav`, vendor `other`, URL `https://files.example.com/dav/` |
+| GNOME / KDE     | `davs://files.example.com/dav/`                                       |
+
+`/dav/` lists your sources; `/dav/<source>/...` is a source. Windows only
+sends Basic credentials over HTTPS unless `BasicAuthLevel` is raised in the
+registry. Turn WebDAV off with `webdav = false` or `FILEBRARY_WEBDAV=false`.
+See [crates/filebrary-webdav](crates/filebrary-webdav/README.md) for what is
+implemented and how methods map to permissions.
 
 ## Search
 

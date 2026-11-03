@@ -185,6 +185,8 @@ pub struct Config {
     pub login_max_attempts: u32,
     /// Window for login rate limiting, in seconds.
     pub login_window_secs: u64,
+    /// Serve WebDAV at `/dav` (Windows Explorer, macOS Finder, rclone, ...).
+    pub webdav: bool,
     /// Name of the administrator created on first start (when there are no users).
     pub admin_username: String,
     /// Password for that first administrator. Unset: a random one is
@@ -272,6 +274,7 @@ impl Default for Config {
             upload_expiry_hours: 24,
             login_max_attempts: 5,
             login_window_secs: 300,
+            webdav: true,
             admin_username: "admin".to_owned(),
             admin_password: None,
             log_format: LogFormat::Text,
@@ -353,6 +356,9 @@ impl Config {
         }
         if let Some(v) = get("FILEBRARY_SESSION_TTL_HOURS") {
             self.session_ttl_hours = parse("FILEBRARY_SESSION_TTL_HOURS", &v)?;
+        }
+        if let Some(v) = get("FILEBRARY_WEBDAV") {
+            self.webdav = parse_bool("FILEBRARY_WEBDAV", &v)?;
         }
         if let Some(v) = get("FILEBRARY_ADMIN_USERNAME") {
             self.admin_username = v;
