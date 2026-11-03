@@ -194,9 +194,12 @@ async fn create(
     Json(req): Json<CreateComment>,
 ) -> AppResult<(StatusCode, Json<Comment>)> {
     let body = clean_body(&req.body)?;
-    let real = resolve(&auth.user, &req.source, &req.path, Perms::DOWNLOAD)?;
-    let src = state.source(&req.source).ok_or(AppError::NotFound)?;
-    src.storage.stat(&real).await?;
+    let visible = VPath::parse(&req.path)?;
+    let real = auth.user.require(&req.source, Perms::DOWNLOAD, &visible)?;
+    crate::api::files::scoped(&state, &auth.user, &req.source, Perms::DOWNLOAD, &visible)
+        .await?
+        .stat(&visible)
+        .await?;
     let now = db::now();
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO comments (source, path, user_id, body, created_at)

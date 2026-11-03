@@ -3,4 +3,7 @@
  * so they can register viewers and other extensions. Add one import line per
  * feature to keep merge conflicts small.
  */
-export {};
+import "./theme";
+import "./comments";
+import "./collections";
+import "./cast";

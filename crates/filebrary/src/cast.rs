@@ -30,6 +30,7 @@ use axum::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 
+use crate::api::files::scoped;
 use crate::{
     auth::{AuthUser, Perms, load_user},
     crypto, db,
@@ -119,11 +120,12 @@ async fn create(
     auth: AuthUser,
     Json(req): Json<CastRequest>,
 ) -> AppResult<Json<CastUrl>> {
-    let real = auth
-        .user
-        .require(&req.source, Perms::DOWNLOAD, &VPath::parse(&req.path)?)?;
-    let src = state.source(&req.source).ok_or(AppError::NotFound)?;
-    let entry = src.storage.stat(&real).await?;
+    let visible = VPath::parse(&req.path)?;
+    let real = auth.user.require(&req.source, Perms::DOWNLOAD, &visible)?;
+    let entry = scoped(&state, &auth.user, &req.source, Perms::DOWNLOAD, &visible)
+        .await?
+        .stat(&visible)
+        .await?;
     if entry.is_dir() {
         return Err(AppError::bad_request("folders cannot be cast"));
     }
@@ -209,15 +211,15 @@ async fn serve(
     let user = load_user(&state, c.u).await?.ok_or(AppError::NotFound)?;
     let real = VPath::parse(&c.p).map_err(|_| AppError::NotFound)?;
     let visible = user.visible_path(&c.s, &real).ok_or(AppError::NotFound)?;
-    user.require(&c.s, Perms::DOWNLOAD, &visible)
+    let storage = scoped(&state, &user, &c.s, Perms::DOWNLOAD, &visible)
+        .await
         .map_err(|_| AppError::NotFound)?;
-    let src = state.source(&c.s).ok_or(AppError::NotFound)?;
-    let entry = src.storage.stat(&real).await?;
+    let entry = storage.stat(&visible).await?;
     if entry.is_dir() {
         return Err(AppError::NotFound);
     }
     let range = parse_range(headers.get(header::RANGE), entry.size)?;
-    let stream = src.storage.read(&real, range.clone()).await?;
+    let stream = storage.read(&visible, range.clone()).await?;
     let mut resp = Response::new(Body::from_stream(stream));
     let h = resp.headers_mut();
     let mime = guess_mime(&entry.name);

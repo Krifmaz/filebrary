@@ -1,6 +1,7 @@
 /** The sign-in page: username, password, and a TOTP code when the server asks. */
 import { useState } from "react";
 import { api, ApiError, type User } from "../api";
+import { BrandMark } from "../features/theme/Brand";
 
 /** Props for {@link Login}. */
 export interface LoginProps {
@@ -40,8 +41,7 @@ export function Login({ onLogin }: LoginProps) {
     <main className="login">
       <form className="card login-card" onSubmit={submit}>
         <div className="brand big">
-          <img src="/icon.svg" alt="" width={40} height={40} />
-          <span>Filebrary</span>
+          <BrandMark size={40} />
         </div>
         <label>
           Username

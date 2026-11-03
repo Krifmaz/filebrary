@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError, type PublicShare as Info } from "../api";
 import { crumbs, formatDate, formatSize, iconFor } from "../paths";
 import { encodePath, navigate } from "../router";
+import { BrandMark } from "../features/theme/Brand";
 
 /** Props for {@link PublicShare}. */
 export interface PublicShareProps {
@@ -55,8 +56,7 @@ export function PublicShare({ token, path }: PublicShareProps) {
     <main className="public">
       <header className="public-head">
         <div className="brand">
-          <img src="/icon.svg" alt="" width={28} height={28} />
-          <span>Filebrary</span>
+          <BrandMark size={28} />
         </div>
       </header>
       <section className="card public-card">

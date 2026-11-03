@@ -41,7 +41,7 @@ use crate::{
 };
 
 /// CSS custom properties that themes may set (defined in `web/src/styles.css`).
-pub const THEME_VARS: [&str; 9] = [
+pub const THEME_VARS: [&str; 11] = [
     "--bg",
     "--surface",
     "--surface-2",
@@ -50,7 +50,9 @@ pub const THEME_VARS: [&str; 9] = [
     "--border",
     "--accent",
     "--accent-contrast",
+    "--accent-soft",
     "--danger",
+    "--ok",
 ];
 
 /// Largest logo accepted, in bytes.

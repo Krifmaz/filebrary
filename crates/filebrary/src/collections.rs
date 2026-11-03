@@ -29,6 +29,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::api::files::scoped;
 use crate::{
     auth::{AuthUser, Perms, User},
     db,
@@ -305,14 +306,17 @@ async fn resolve_items(
     }
     let mut out = Vec::with_capacity(items.len());
     for it in items {
-        let real = user.require(&it.source, Perms::VIEW, &VPath::parse(&it.path)?)?;
+        let visible = VPath::parse(&it.path)?;
+        let real = user.require(&it.source, Perms::VIEW, &visible)?;
         if real.is_root() {
             return Err(AppError::bad_request(
                 "add folders inside a source, not the source itself",
             ));
         }
-        let src = state.source(&it.source).ok_or(AppError::NotFound)?;
-        src.storage.stat(&real).await?;
+        scoped(state, user, &it.source, Perms::VIEW, &visible)
+            .await?
+            .stat(&visible)
+            .await?;
         out.push((it.source.clone(), real));
     }
     Ok(out)
@@ -366,11 +370,12 @@ async fn load(state: &AppState, user: &User, id: i64, name: String) -> AppResult
             continue;
         };
         let visible = user.visible_path(&source, &real);
-        let entry = match (&visible, state.source(&source)) {
-            (Some(v), Some(src)) if user.require(&source, Perms::VIEW, v).is_ok() => {
-                src.storage.stat(&real).await.ok()
-            }
-            _ => None,
+        let entry = match &visible {
+            Some(v) => match scoped(state, user, &source, Perms::VIEW, v).await {
+                Ok(st) => st.stat(v).await.ok(),
+                Err(_) => None,
+            },
+            None => None,
         };
         items.push(Item {
             id: item_id,
@@ -390,7 +395,9 @@ async fn load(state: &AppState, user: &User, id: i64, name: String) -> AppResult
 pub struct ShareableItem {
     /// Source name.
     pub source: String,
-    /// Real path inside the source.
+    /// Path as the *owner* sees it: serve it through
+    /// `api::files::scoped(state, owner, source, perm, &path)`, never by
+    /// prefixing a real path onto the unconfined source.
     pub path: VPath,
     /// Final path component, used as the item's name in the link.
     pub name: String,
@@ -435,19 +442,21 @@ pub async fn share_items(state: &AppState, owner: &User, id: i64) -> AppResult<V
         let Ok(real) = VPath::parse(&path) else {
             continue;
         };
-        let allowed = owner.visible_path(&source, &real).is_some_and(|v| {
-            owner
-                .require(&source, Perms::SHARE | Perms::DOWNLOAD, &v)
-                .is_ok()
-        });
-        if !allowed || state.source(&source).is_none() {
+        let Some(visible) = owner.visible_path(&source, &real) else {
+            continue;
+        };
+        if owner
+            .require(&source, Perms::SHARE | Perms::DOWNLOAD, &visible)
+            .is_err()
+            || state.source(&source).is_none()
+        {
             continue;
         }
         let base = real.name().unwrap_or("item").to_owned();
         let name = unique_name(&base, |n| out.iter().any(|i| i.name == n));
         out.push(ShareableItem {
             source,
-            path: real,
+            path: visible,
             name,
         });
     }

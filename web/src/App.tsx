@@ -11,14 +11,21 @@ import { SharesPage } from "./components/SharesPage";
 import { UploadPanel } from "./components/UploadPanel";
 import { filesUrl, navigate, useRoute } from "./router";
 import { useTheme } from "./theme";
+import { CollectionsPage } from "./features/collections/CollectionsPage";
+import { AppearancePage } from "./features/theme/AppearancePage";
+import { useBranding, useUserColours } from "./features/theme/branding";
+import { syncUserTheme } from "./features/theme/sync";
+import { BrandMark } from "./features/theme/Brand";
 import { UploadManager } from "./upload";
 
-const THEME_LABEL = { system: "◐ Auto", light: "☀ Light", dark: "☾ Dark" } as const;
+const THEME_LABEL = { system: "◐ Auto", light: "☀ Light", dark: "☾ Dark", custom: "🎨 Custom" } as const;
 
 /** The application shell. */
 export function App() {
   const route = useRoute();
-  const [theme, cycleTheme] = useTheme();
+  const branding = useBranding();
+  const userColours = useUserColours();
+  const [theme, cycleTheme] = useTheme(Object.keys(branding.custom).length > 0 || Object.keys(userColours).length > 0);
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [sources, setSources] = useState<Source[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +45,10 @@ export function App() {
     // Only on first load; later 401s arrive through the handler.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    void syncUserTheme(!!user);
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -85,8 +96,7 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <a className="brand" href="/" onClick={(e) => { e.preventDefault(); navigate("/"); }}>
-          <img src="/icon.svg" alt="" width={28} height={28} />
-          <span>Filebrary</span>
+          <BrandMark />
         </a>
         {sources && sources.length > 1 && (
           <select
@@ -104,6 +114,12 @@ export function App() {
         <a href="/shares" className={route.name === "shares" ? "active" : undefined} onClick={(e) => { e.preventDefault(); navigate("/shares"); }}>
           Shares
         </a>
+        <a href="/collections" className={route.name === "collections" ? "active" : undefined} onClick={(e) => { e.preventDefault(); navigate("/collections"); }}>
+          Collections
+        </a>
+        <a href="/settings/appearance" className={route.name === "appearance" ? "active" : undefined} onClick={(e) => { e.preventDefault(); navigate("/settings/appearance"); }}>
+          Appearance
+        </a>
         <button className="ghost" onClick={cycleTheme} title="Change theme">{THEME_LABEL[theme]}</button>
         <span className="muted user">{user.username}</span>
         <button className="ghost" onClick={logout}>Sign out</button>
@@ -118,6 +134,8 @@ export function App() {
           <p className="muted">No storage sources are available to you. Ask an administrator for access.</p>
         )}
         {route.name === "shares" && <SharesPage />}
+        {route.name === "collections" && <CollectionsPage />}
+        {route.name === "appearance" && <AppearancePage isAdmin={user.is_admin} />}
         {route.name === "notFound" && <p className="muted">Page not found.</p>}
       </main>
       <UploadPanel manager={uploads} />
