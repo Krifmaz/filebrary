@@ -13,7 +13,8 @@ ALTER TABLE sessions ADD COLUMN persistent INTEGER NOT NULL DEFAULT 1;
 -- Per-user preferences that are not the theme (see user_themes).
 CREATE TABLE user_preferences (
     user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    -- How folders open: 'list' or 'grid'.
-    view_mode  TEXT    NOT NULL DEFAULT 'list',
+    -- How folders open by default: 'details', 'compact', 'small',
+    -- 'medium' or 'large' (the web UI's view modes).
+    view_mode  TEXT    NOT NULL DEFAULT 'details',
     updated_at INTEGER NOT NULL
 );

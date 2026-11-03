@@ -433,18 +433,18 @@ async fn preferences_round_trip() {
     let (a, _) = app(Some("bootstrap-pass-1")).await;
     let c = a.login("admin", "bootstrap-pass-1").await;
     let r = a.call(&c, Method::GET, "/api/me/preferences", None).await;
-    assert_eq!(r.body, json!({"view_mode": "list"}));
+    assert_eq!(r.body, json!({"view_mode": "details"}));
     let r = a
         .call(
             &c,
             Method::PUT,
             "/api/me/preferences",
-            Some(json!({"view_mode": "grid"})),
+            Some(json!({"view_mode": "large"})),
         )
         .await;
     assert_eq!(r.status, StatusCode::OK);
     let r = a.call(&c, Method::GET, "/api/me/preferences", None).await;
-    assert_eq!(r.body, json!({"view_mode": "grid"}));
+    assert_eq!(r.body, json!({"view_mode": "large"}));
     let r = a
         .call(
             &c,

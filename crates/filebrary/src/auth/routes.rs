@@ -352,25 +352,45 @@ async fn my_permissions(me: AuthUser, Query(q): Query<PermQuery>) -> AppResult<J
 
 // ---- preferences ----
 
-/// How folders open in the web UI.
+/// How folders open in the web UI (the modes of its view switcher).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ViewMode {
-    /// Rows with details.
-    List,
-    /// Tiles with thumbnails.
-    Grid,
+    /// A table with sortable columns.
+    Details,
+    /// A compact multi-column list.
+    Compact,
+    /// Small tiles.
+    Small,
+    /// Medium tiles with thumbnails.
+    Medium,
+    /// Large tiles with thumbnails.
+    Large,
 }
 
 impl ViewMode {
+    const ALL: [Self; 5] = [
+        Self::Details,
+        Self::Compact,
+        Self::Small,
+        Self::Medium,
+        Self::Large,
+    ];
+
     fn parse(s: &str) -> Self {
-        if s == "grid" { Self::Grid } else { Self::List }
+        Self::ALL
+            .into_iter()
+            .find(|m| m.as_str() == s)
+            .unwrap_or(Self::Details)
     }
 
     fn as_str(self) -> &'static str {
         match self {
-            Self::List => "list",
-            Self::Grid => "grid",
+            Self::Details => "details",
+            Self::Compact => "compact",
+            Self::Small => "small",
+            Self::Medium => "medium",
+            Self::Large => "large",
         }
     }
 }
@@ -391,7 +411,7 @@ async fn get_prefs(State(state): State<AppState>, me: AuthUser) -> AppResult<Jso
             .fetch_optional(&state.db)
             .await?;
     Ok(Json(Preferences {
-        view_mode: mode.as_deref().map_or(ViewMode::List, ViewMode::parse),
+        view_mode: mode.as_deref().map_or(ViewMode::Details, ViewMode::parse),
     }))
 }
 

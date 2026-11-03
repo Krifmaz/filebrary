@@ -32,9 +32,11 @@ and the main groups of endpoints.
 | `GET /metrics` | Prometheus metrics. See [Metrics](operations/monitoring.md#metrics). |
 | `/api/admin/notifications` | List notification targets and send a test (administrators). |
 | `GET /api/openapi.json`, `/api/docs` | This API, as OpenAPI and as a page. |
-| `/api/auth/...` | Sign in, sign out, current user, available sign-in methods (`/api/auth/methods`), SSO (`/api/auth/oidc/login`, `/api/auth/oidc/callback`). |
+| `GET/POST /api/setup` | First-run setup: whether it is waiting, and creating the first administrator with the setup token (no authentication; works once). |
+| `/api/auth/...` | Sign in (`remember` for a persistent session), sign out, current user, available sign-in methods (`/api/auth/methods`), SSO (`/api/auth/oidc/login`, `/api/auth/oidc/callback`). |
+| `/api/me/password`, `/api/me/preferences`, `/api/me/theme` | Change your password; your default view mode and theme. |
 | `/api/me/totp...`, `/api/me/api-keys...`, `/api/me/quota` | Your two-factor settings, API keys and quota. |
-| `/api/users`, `/api/groups` | User and group management (administrators). |
+| `/api/users`, `/api/groups`, `/api/permissions` | Users (roles, home folders, password resets), groups and permission rules (administrators). |
 | `/api/shares` | Managing your share links. |
 | `/api/public/shares/{token}` | Anonymous access to a share link. |
 | files, uploads, downloads | Browsing, chunked uploads, downloads with ranges, zip of a selection. |

@@ -6,9 +6,11 @@ Passwords are hashed with **argon2id** and must be at least 8 characters.
 They are never stored or logged in clear text. After sign-in the browser
 gets a session cookie that is `HttpOnly`, `SameSite=Lax`, and `Secure` when
 served over HTTPS (see
-[`secure_cookies`](../configuration/reference.md#secure_cookies)). Sessions
-expire after [`session_ttl_hours`](../configuration/reference.md#session_ttl_hours)
-of inactivity. Every request that changes something must send the CSRF
+[`secure_cookies`](../configuration/reference.md#secure_cookies)). With
+**Remember me** ticked the session survives closing the browser and expires
+after [`session_ttl_hours`](../configuration/reference.md#session_ttl_hours)
+of inactivity; without it the browser forgets the session when it closes,
+and it expires after at most 12 hours of inactivity. Every request that changes something must send the CSRF
 token in the `X-CSRF-Token` header, which the web UI does for you.
 Disabling a user or resetting their password ends all their sessions.
 
@@ -26,7 +28,9 @@ Every user with a password (local or LDAP) can turn on a second factor in
 their settings. Any authenticator app works (Aegis, 2FAS, Google
 Authenticator, 1Password, Bitwarden...).
 
-1. **Settings → Two-factor → Set up** shows a QR code.
+1. **Settings → Security → Set up two-factor sign-in** shows a key to add to
+   the app, and a link that opens it in an authenticator app on the same
+   device.
 2. Enter a code from the app to switch it on. Filebrary then shows ten
    recovery codes once; keep them somewhere safe. Each works once, in place
    of a code.

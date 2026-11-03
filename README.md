@@ -75,10 +75,24 @@ in the config file (`kind = "s3"` with a `[sources.s3]` table, and so on). See
 
 ## Users and permissions
 
-On first start, with no users in the database, Filebrary creates an
-administrator named `admin` (`FILEBRARY_ADMIN_USERNAME` / `admin_username`).
-Its password is `FILEBRARY_ADMIN_PASSWORD` if set; otherwise a random one is
-generated and printed once in the log. Log in and change it.
+There is no default password. On first start, with no users in the
+database, the web UI shows a setup page: choose the administrator's name and
+password and paste the one-time setup token from the log
+(`docker logs filebrary 2>&1 | grep setup_token`). For unattended installs,
+set `FILEBRARY_ADMIN_PASSWORD` instead and the administrator `admin`
+(`FILEBRARY_ADMIN_USERNAME`) is created with it; change it under
+**Settings → Account**.
+
+- Roles: administrator, user and read-only (view and download only,
+  whatever the rules say). Administrators manage accounts on the **Users**
+  page: create, edit, disable, delete, reset passwords, set home folders,
+  per-source permissions and quotas. Every user has **Settings** for their
+  password, two-factor sign-in, API keys, theme and default view.
+- **Remember me** keeps a session after the browser closes
+  (`session_ttl_hours`); otherwise it ends with the browser, or after 12
+  hours.
+- Every API route is tested to refuse logged-out, unauthorised and
+  CSRF-less requests (`crates/filebrary/tests/route_guard.rs`).
 
 - Passwords are hashed with argon2id. Sessions live in an `HttpOnly`,
   `SameSite=Lax` cookie (`Secure` behind HTTPS); state-changing requests
