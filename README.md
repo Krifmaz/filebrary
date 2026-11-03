@@ -18,7 +18,7 @@ Preview it locally with `mdbook serve docs`.
 | `crates/filebrary`         | The server: axum app, config, auth, API, shares, embedded UI. |
 | `crates/filebrary-events`  | Event bus and notifications (webhook, ntfy, email).           |
 | `crates/filebrary-ftp`     | Optional FTP/FTPS server over the storage trait.              |
-| `crates/filebrary-storage` | `Storage` trait, `VPath` path validation, local backend.      |
+| `crates/filebrary-storage` | `Storage` trait, `VPath` path validation; local, S3, SFTP and SMB backends. |
 | `migrations/`              | SQLite migrations for the whole workspace (one history).      |
 | `web/`                     | React + TypeScript + Vite PWA, built into `web/dist`.         |
 | `docs/`                    | mdBook documentation.                                         |
@@ -44,6 +44,10 @@ cargo build --release
 (`30`; `0` makes deletes permanent), `FILEBRARY_ACTIVITY_RETENTION_DAYS`
 (`365`; `0` keeps events forever). `filebrary healthcheck` probes
 `/healthz` for container health checks.
+
+`FILEBRARY_SOURCES` makes local sources only; S3, SFTP and SMB sources are set
+in the config file (`kind = "s3"` with a `[sources.s3]` table, and so on). See
+[Storage sources](docs/src/configuration/sources.md).
 
 ## Users and permissions
 

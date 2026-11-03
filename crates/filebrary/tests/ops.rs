@@ -17,7 +17,7 @@ use axum::{
 use filebrary::{
     AppState,
     auth::{Perms, session},
-    config::{Config, SourceConfig, SourceKind},
+    config::{Config, SourceConfig},
     db,
 };
 use http_body_util::BodyExt;
@@ -36,11 +36,7 @@ async fn app_with(tweak: impl FnOnce(&mut Config)) -> App {
     std::fs::create_dir_all(&files).unwrap();
     let mut config = Config {
         data_dir: dir.path().join("data"),
-        sources: vec![SourceConfig {
-            name: "files".into(),
-            kind: SourceKind::Local,
-            path: files,
-        }],
+        sources: vec![SourceConfig::local("files", files)],
         ..Config::default()
     };
     tweak(&mut config);

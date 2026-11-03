@@ -289,16 +289,19 @@ Which storage backend the source uses.
 
 |             |                                         |
 |-------------|-----------------------------------------|
-| Type        | `"local"`                               |
+| Type        | `"local"`, `"s3"`, `"sftp"` or `"smb"`  |
 | Default     | `"local"`                               |
 
-`local` serves a directory on the host, including FUSE file systems such as
-mergerfs pools. S3-compatible, SFTP and SMB backends are planned; see
-[Feature status](../status.md).
+`local` serves a directory on the host (set [`path`](#sourcespath)),
+including FUSE file systems such as mergerfs pools. The other kinds take
+their settings from the sub-table of the same name:
+[`sources[].s3`](#sourcess3), [`sources[].sftp`](#sourcessftp) or
+[`sources[].smb`](#sourcessmb). A source must have exactly the table that
+matches its kind.
 
 ### `sources[].path`
 
-For `local` sources, the root directory. Users can never reach anything
+For `local` sources, the root directory (leave it unset for other kinds). Users can never reach anything
 outside it: paths are normalised and checked, and symbolic links that point
 outside the root are refused.
 
@@ -310,6 +313,316 @@ outside the root are refused.
 The directory is created at start-up if it does not exist. It must be
 readable (and writable, for uploads) by the user Filebrary runs as. In Docker
 this is the path *inside* the container.
+
+### `sources[].s3`
+
+Settings for an S3-compatible source (`kind = "s3"`): AWS S3, MinIO, Garage,
+SeaweedFS, Ceph RGW, Cloudflare R2, Backblaze B2, Wasabi. See
+[S3-compatible object storage](sources.md#s3-compatible-object-storage).
+
+```toml
+[[sources]]
+name = "photos"
+kind = "s3"
+
+[sources.s3]
+bucket = "family-photos"
+endpoint = "https://minio.lan:9000"
+access_key_id = "AKIA..."
+secret_access_key_file = "/run/secrets/s3_secret"
+```
+
+### `sources[].s3.bucket`
+
+The bucket name.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `sources[].s3.prefix`
+
+A key prefix inside the bucket that acts as the source root, so one bucket can hold several sources. `photos/2024` serves the objects under `photos/2024/`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | empty: the whole bucket |
+
+### `sources[].s3.endpoint`
+
+The endpoint URL of a non-AWS service, such as `http://minio:9000`. Plain `http://` is accepted only when written here; use it only on a trusted network.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | URL |
+| Default     | AWS, from the region |
+
+### `sources[].s3.region`
+
+The region. Most non-AWS services ignore it.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | `"us-east-1"` |
+
+### `sources[].s3.access_key_id`
+
+The access key ID. When unset, credentials come from the standard `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` variables, web identity or instance metadata.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | unset |
+
+### `sources[].s3.secret_access_key`
+
+The secret access key. Prefer [`secret_access_key_file`](#sourcess3secret_access_key_file).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | unset |
+
+### `sources[].s3.secret_access_key_file`
+
+A file holding the secret access key, such as a Docker or systemd secret. Wins over `secret_access_key`. Surrounding whitespace is ignored.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | path |
+| Default     | unset |
+
+### `sources[].s3.session_token`
+
+A session token, for temporary credentials.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | unset |
+
+### `sources[].s3.virtual_hosted_style`
+
+Address the bucket as `bucket.host` instead of `host/bucket`.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean |
+| Default     | `false` when `endpoint` is set (MinIO and most others want path style), `true` on AWS |
+
+### `sources[].sftp`
+
+Settings for an SFTP source (`kind = "sftp"`): a directory on any SSH server.
+One of [`password`](#sourcessftppassword),
+[`password_file`](#sourcessftppassword_file) or
+[`private_key`](#sourcessftpprivate_key) is required, and the server's host
+key must be pinned with [`host_key_fingerprint`](#sourcessftphost_key_fingerprint)
+or [`known_hosts`](#sourcessftpknown_hosts). See [SFTP](sources.md#sftp).
+
+```toml
+[[sources]]
+name = "nas"
+kind = "sftp"
+
+[sources.sftp]
+host = "nas.lan"
+username = "filebrary"
+private_key = "/run/secrets/nas_ed25519"
+root = "/volume1/shared"
+host_key_fingerprint = "SHA256:7cLm9wR4..."
+```
+
+### `sources[].sftp.host`
+
+The server's host name or address.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `sources[].sftp.port`
+
+The SSH port.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer |
+| Default     | `22` |
+
+### `sources[].sftp.username`
+
+The account to log in as.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `sources[].sftp.password`
+
+The account's password. Prefer [`password_file`](#sourcessftppassword_file) or a key.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | unset |
+
+### `sources[].sftp.password_file`
+
+A file holding the password. Wins over `password`. A trailing newline is ignored.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | path |
+| Default     | unset |
+
+### `sources[].sftp.private_key`
+
+A private key file in OpenSSH or PKCS#8 format (Ed25519, ECDSA or RSA). Used instead of a password when set.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | path |
+| Default     | unset |
+
+### `sources[].sftp.private_key_passphrase`
+
+The passphrase of an encrypted private key.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | unset |
+
+### `sources[].sftp.root`
+
+The directory on the server that acts as the source root. Relative paths start at the account's home directory. Symbolic links that resolve outside it are hidden and refused.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | empty: the home directory |
+
+### `sources[].sftp.host_key_fingerprint`
+
+The SHA-256 fingerprint of the server's host key, as `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` prints it (`SHA256:...`). When the key does not match, the connection is refused and the error names the fingerprint the server presented; check it against the server before pinning it.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | unset |
+
+### `sources[].sftp.known_hosts`
+
+A `known_hosts` file to check the host key against, used when `host_key_fingerprint` is unset.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | path |
+| Default     | unset |
+
+### `sources[].sftp.insecure_accept_any_host_key`
+
+Accept any host key. This allows man-in-the-middle attacks; use it only for tests.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | boolean |
+| Default     | `false` |
+
+### `sources[].smb`
+
+Settings for an SMB source (`kind = "smb"`): a folder on a Windows, Samba or
+NAS share, over SMB 2 or 3 with NTLMv2. See
+[SMB](sources.md#smb-windows-shares-samba-nas).
+
+```toml
+[[sources]]
+name = "office"
+kind = "smb"
+
+[sources.smb]
+host = "fileserver.lan"
+share = "Projects"
+username = "filebrary"
+password_file = "/run/secrets/smb"
+```
+
+### `sources[].smb.host`
+
+The server's host name or address (IPv6 addresses work bare or in brackets).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `sources[].smb.port`
+
+The TCP port.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | integer |
+| Default     | `445` |
+
+### `sources[].smb.share`
+
+The share name (one name, no slashes).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | required |
+
+### `sources[].smb.root`
+
+A folder inside the share that acts as the source root. `/` and `\\` both separate folders.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | empty: the share root |
+
+### `sources[].smb.username`
+
+The account to log in as. Leave it empty for guest access.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | empty: guest |
+
+### `sources[].smb.password`
+
+The account's password. Prefer [`password_file`](#sourcessmbpassword_file).
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | unset |
+
+### `sources[].smb.password_file`
+
+A file holding the password. Wins over `password`. A trailing newline is ignored.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | path |
+| Default     | unset |
+
+### `sources[].smb.domain`
+
+The Windows domain or workgroup.
+
+|             |                                         |
+|-------------|-----------------------------------------|
+| Type        | string |
+| Default     | empty |
 
 ## FTP server
 
