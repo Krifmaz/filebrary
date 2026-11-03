@@ -217,6 +217,7 @@ async fn webdav_can_be_turned_off() {
             name: "files".into(),
             kind: filebrary::config::SourceKind::Local,
             path: dir.path().join("files"),
+            ..Default::default()
         }],
         ..Default::default()
     };
