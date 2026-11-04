@@ -63,12 +63,19 @@ use crate::{
 /// Name of the CSRF header clients send on unsafe requests.
 pub const CSRF_HEADER: &str = "x-csrf-token";
 
-/// Auth state kept in [`AppState`]: the login rate limiter and the
-/// installed hooks.
+/// Permissions a read-only account is capped at.
+pub const READ_ONLY_CEILING: Perms = Perms::READ_ONLY;
+
+/// Auth state kept in [`AppState`]: the login rate limiter, the installed
+/// hooks and the first-run setup token.
 pub struct AuthRuntime {
     /// Failed-login limiter.
     pub limiter: ratelimit::LoginRateLimiter,
     hooks: OnceLock<Arc<dyn hooks::AuthHooks>>,
+    /// While the server has no users and no bootstrap password was given:
+    /// the one-time token that `POST /api/setup` needs (see
+    /// [`bootstrap_admin`]). Taken when the first administrator is created.
+    pub(crate) setup_token: tokio::sync::Mutex<Option<String>>,
 }
 
 impl AuthRuntime {
@@ -82,7 +89,13 @@ impl AuthRuntime {
                 max,
             ),
             hooks: OnceLock::new(),
+            setup_token: tokio::sync::Mutex::new(None),
         }
+    }
+
+    /// Whether first-run setup is waiting for its administrator.
+    pub async fn setup_pending(&self) -> bool {
+        self.setup_token.lock().await.is_some()
     }
 
     /// Installs the hooks. Call once at start-up, before serving.
@@ -135,6 +148,8 @@ pub struct User {
     pub auth_source: String,
     /// Administrators have every permission on every source.
     pub is_admin: bool,
+    /// Read-only accounts are capped at [`READ_ONLY_CEILING`].
+    pub read_only: bool,
     /// Sources the user can reach (any rule granting something, or every
     /// source for administrators), with their scope.
     pub grants: BTreeMap<String, Grant>,
@@ -172,9 +187,17 @@ impl User {
         p & self.ceiling
     }
 
-    /// Lowers the ceiling (for an API key) and recomputes the grants.
+    /// The user's role.
+    pub fn role(&self) -> users::Role {
+        users::Role::from_flags(self.is_admin, self.read_only)
+    }
+
+    /// Lowers the ceiling (for an API key) and recomputes the grants. The
+    /// new ceiling is intersected with the current one, so an API key never
+    /// widens what the account itself may do (a read-only user's key stays
+    /// read-only).
     pub fn apply_ceiling(&mut self, ceiling: Perms) {
-        self.ceiling = ceiling;
+        self.ceiling = self.ceiling & ceiling;
         let names: Vec<String> = self.grants.keys().cloned().collect();
         for name in names {
             let scope = self.scope(&name);
@@ -274,14 +297,20 @@ pub async fn load_user(state: &AppState, id: i64) -> AppResult<Option<User>> {
         permissions::rules_for_user(&state.db, id).await?
     };
     let scopes = users::scopes(&state.db, id).await?;
+    let read_only = rec.read_only && !rec.is_admin;
     let mut user = User {
         id: rec.id,
         username: rec.username,
         auth_source: rec.auth_source,
         is_admin: rec.is_admin,
+        read_only,
         grants: BTreeMap::new(),
         rules,
-        ceiling: Perms::ALL,
+        ceiling: if read_only {
+            READ_ONLY_CEILING
+        } else {
+            Perms::ALL
+        },
     };
     for name in state.sources.keys() {
         let scope = scopes.get(name).cloned().unwrap_or_default();
@@ -437,12 +466,19 @@ pub async fn authorize_write(
     Ok(real)
 }
 
-/// Creates the first administrator when the database has no users.
+/// Prepares the first administrator when the database has no users.
 ///
-/// The name comes from `admin_username` (default `admin`) and the password
-/// from `admin_password` / `FILEBRARY_ADMIN_PASSWORD`. Without one, a random
-/// password is generated and logged once at WARN level. Returns the
-/// password when one was generated.
+/// * With `admin_password` / `FILEBRARY_ADMIN_PASSWORD` set, the
+///   administrator `admin_username` (default `admin`) is created with that
+///   password straight away (an optional bootstrap for unattended installs).
+/// * Without one, nobody is created and there is no default password: the
+///   server enters *first-run setup*. A random one-time setup token is
+///   logged once at WARN level, and the web UI's `/setup` page (or
+///   `POST /api/setup`) creates the administrator with a name and password
+///   of the person's choosing, given that token. The token proves that
+///   whoever claims the server can read its logs.
+///
+/// Returns the setup token when setup mode was entered.
 ///
 /// # Errors
 ///
@@ -452,23 +488,20 @@ pub async fn bootstrap_admin(state: &AppState) -> AppResult<Option<String>> {
         return Ok(None);
     }
     let name = state.config.admin_username.as_str();
-    let (password, generated) = match &state.config.admin_password {
-        Some(p) => (p.clone(), false),
-        None => (crypto::random_token::<18>(), true),
-    };
-    users::create(&state.db, name, &password, true).await?;
-    if generated {
-        tracing::warn!(
-            username = name,
-            password = %password,
-            "created the first administrator with a generated password; \
-             log in and change it (it is not shown again)"
-        );
-        Ok(Some(password))
-    } else {
+    if let Some(password) = &state.config.admin_password {
+        users::create(&state.db, name, password, true).await?;
         tracing::info!(username = name, "created the first administrator");
-        Ok(None)
+        return Ok(None);
     }
+    let token = crypto::random_token::<18>();
+    *state.auth.setup_token.lock().await = Some(token.clone());
+    tracing::warn!(
+        setup_token = %token,
+        "no users yet: open the web UI, choose an administrator name and \
+         password on the setup page and enter this setup token there \
+         (it is shown once per start)"
+    );
+    Ok(Some(token))
 }
 
 /// The client's address: the first `X-Forwarded-For` entry when
@@ -662,6 +695,7 @@ mod tests {
             username: "bob".into(),
             auth_source: "local".into(),
             is_admin: false,
+            read_only: false,
             grants,
             rules,
             ceiling: Perms::ALL,

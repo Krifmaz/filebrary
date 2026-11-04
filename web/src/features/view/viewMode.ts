@@ -141,3 +141,18 @@ export function previewKind(entry: Pick<Entry, "name" | "is_dir">): PreviewKind 
   if (dot <= 0) return undefined;
   return EXT_KIND.get(entry.name.slice(dot + 1).toLowerCase());
 }
+
+/**
+ * Sets the user's default mode (from their saved preference) without
+ * touching folder-specific choices.
+ */
+export function setDefaultViewMode(user: number | string, mode: ViewMode, store = defaultStore()): void {
+  if (!isMode(mode)) return;
+  const s = read(store, user);
+  s.default = mode;
+  try {
+    store?.setItem(storageKey(user), JSON.stringify(s));
+  } catch {
+    // Not fatal.
+  }
+}

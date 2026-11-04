@@ -1501,7 +1501,7 @@ checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
 name = "filebrary"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1559,7 +1559,7 @@ dependencies = [
 
 [[package]]
 name = "filebrary-archive"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "flate2",
  "serde",
@@ -1571,7 +1571,7 @@ dependencies = [
 
 [[package]]
 name = "filebrary-events"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "futures",
@@ -1594,7 +1594,7 @@ dependencies = [
 
 [[package]]
 name = "filebrary-ftp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1619,7 +1619,7 @@ dependencies = [
 
 [[package]]
 name = "filebrary-fulltext"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "calamine",
  "pdf-extract",
@@ -1635,7 +1635,7 @@ dependencies = [
 
 [[package]]
 name = "filebrary-identity"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -1659,7 +1659,7 @@ dependencies = [
 
 [[package]]
 name = "filebrary-preview"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hex",
  "image",
@@ -1674,7 +1674,7 @@ dependencies = [
 
 [[package]]
 name = "filebrary-storage"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1700,7 +1700,7 @@ dependencies = [
 
 [[package]]
 name = "filebrary-webdav"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "axum",

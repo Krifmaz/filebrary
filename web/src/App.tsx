@@ -21,6 +21,11 @@ import { AppearancePage } from "./features/theme/AppearancePage";
 import { useBranding, useUserColours } from "./features/theme/branding";
 import { syncUserTheme } from "./features/theme/sync";
 import { UploadManager } from "./upload";
+import { SetupPage } from "./features/accounts/SetupPage";
+import { SettingsPage } from "./features/accounts/SettingsPage";
+import { UsersPage } from "./features/accounts/UsersPage";
+import { accountsApi } from "./features/accounts/api";
+import { setDefaultViewMode } from "./features/view/viewMode";
 
 /** The application shell. */
 export function App() {
@@ -31,6 +36,8 @@ export function App() {
   const [sources, setSources] = useState<Source[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Whether first-run setup is waiting (checked once the visitor is signed out).
+  const [setup, setSetup] = useState<boolean | undefined>(undefined);
   const [uploads] = useState(() => new UploadManager({ onComplete: () => setRefreshKey((n) => n + 1) }));
 
   useEffect(() => {
@@ -51,16 +58,42 @@ export function App() {
     void syncUserTheme(!!user);
   }, [user]);
 
+  // Signed out: is this a fresh install waiting for its administrator?
+  useEffect(() => {
+    if (user !== null || setup !== undefined) return;
+    accountsApi
+      .setupStatus()
+      .then((s) => setSetup(s.needed))
+      .catch(() => setSetup(false));
+  }, [user, setup]);
+
+  // Signed in: apply the saved default view mode on this device.
+  useEffect(() => {
+    if (!user) return;
+    accountsApi
+      .preferences()
+      .then((p) => setDefaultViewMode(user.id, p.view_mode))
+      .catch(() => {});
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
     api.sources().then(setSources).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }, [user]);
 
-  // Send signed-out visitors to the login page, remembering where they were going.
+  // Send signed-out visitors to the login page (or setup), remembering where they were going.
   useEffect(() => {
-    if (user === null && route.name !== "login" && route.name !== "public") {
-      navigate(`/login?next=${encodeURIComponent(location.pathname + location.search)}`, true);
+    if (user !== null || route.name === "public" || setup === undefined) return;
+    if (setup && route.name !== "setup") navigate("/setup", true);
+    else if (!setup && route.name !== "login") {
+      const here = route.name === "setup" ? "/" : location.pathname + location.search;
+      navigate(`/login?next=${encodeURIComponent(here)}`, true);
     }
+  }, [user, route.name, setup]);
+
+  // Setup and login pages are for signed-out visitors only.
+  useEffect(() => {
+    if (user && route.name === "setup") navigate("/", true);
   }, [user, route.name]);
 
   const onLogin = useCallback(
@@ -84,7 +117,22 @@ export function App() {
   if (route.name === "public") return <><PublicShare token={route.token} path={route.path} /><Toaster /></>;
   if (error && user === undefined) return <main className="center"><ErrorState error={error} onRetry={() => location.reload()} /></main>;
   if (user === undefined) return <main className="center" aria-busy="true"><Spinner size="lg" label="Loading" /></main>;
-  if (user === null) return <><Login onLogin={onLogin} /><Toaster /></>;
+  if (user === null && setup === undefined) return <main className="center" aria-busy="true"><Spinner size="lg" label="Loading" /></main>;
+  if (user === null && setup) {
+    return (
+      <>
+        <SetupPage
+          onDone={(u) => {
+            setSetup(false);
+            setUser(u);
+            navigate("/settings/account", true);
+          }}
+        />
+        <Toaster />
+      </>
+    );
+  }
+  if (user === null) return <><Login onLogin={onLogin} next={route.name === "login" ? route.next : "/"} /><Toaster /></>;
 
   const current = route.name === "files" ? sources?.find((s) => s.id === route.source) : undefined;
   const hasCustom = Object.keys(branding.custom).length > 0 || Object.keys(userColours).length > 0;
@@ -107,6 +155,13 @@ export function App() {
         {route.name === "shares" && <SharesPage />}
         {route.name === "collections" && <CollectionsPage />}
         {route.name === "appearance" && <AppearancePage isAdmin={user.is_admin} />}
+        {route.name === "settings" && <SettingsPage user={user} tab={route.tab} />}
+        {route.name === "users" && user.is_admin && <UsersPage me={user} sources={sources} />}
+        {route.name === "users" && !user.is_admin && (
+          <EmptyState icon="lock" title="Administrators only" actions={<Button onClick={() => navigate("/")}>Back to overview</Button>}>
+            Ask an administrator if you need an account changed.
+          </EmptyState>
+        )}
         {route.name === "notFound" && (
           <EmptyState icon="alert" title="Page not found" actions={<Button onClick={() => navigate("/")}>Back to overview</Button>}>
             The address may be mistyped, or the page has moved.

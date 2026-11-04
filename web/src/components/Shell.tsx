@@ -81,7 +81,10 @@ export function Shell({ user, sources, route, hasCustom, onLogout, children }: S
   const themes: Theme[] = hasCustom ? ["system", "light", "dark", "custom"] : ["system", "light", "dark"];
   const userMenu: MenuEntry[] = [
     { heading: user.username },
+    { label: "Account settings", icon: "user", onSelect: () => navigate("/settings/account") },
+    { label: "Security", icon: "lock", onSelect: () => navigate("/settings/security") },
     { label: "Appearance", icon: "palette", onSelect: () => navigate("/settings/appearance") },
+    ...(user.is_admin ? [{ label: "Users", icon: "user" as const, onSelect: () => navigate("/admin/users") }] : []),
     { separator: true },
     { heading: "Theme" },
     ...themes.map((t) => ({ label: THEME_LABEL[t], icon: THEME_ICON[t], checked: getTheme() === t, onSelect: () => setTheme(t) })),
@@ -125,9 +128,10 @@ export function Shell({ user, sources, route, hasCustom, onLogout, children }: S
           <NavLink href="/starred" icon="star" label="Starred" active={route.name === "starred"} onNavigate={close} />
           <NavLink href="/shares" icon="share" label="Shared" active={route.name === "shares"} onNavigate={close} />
           <NavLink href="/collections" icon="collection" label="Collections" active={route.name === "collections"} onNavigate={close} />
+          {user.is_admin && <NavLink href="/admin/users" icon="user" label="Users" active={route.name === "users"} onNavigate={close} />}
         </nav>
         <div className="sidebar-foot">
-          <NavLink href="/settings/appearance" icon="settings" label="Settings" active={route.name === "appearance"} onNavigate={close} />
+          <NavLink href="/settings/account" icon="settings" label="Settings" active={route.name === "settings" || route.name === "appearance"} onNavigate={close} />
         </div>
       </aside>
       <div className="scrim" onClick={close} aria-hidden />
