@@ -48,6 +48,17 @@ export interface Entry {
   mime?: string | null;
 }
 
+/** What the server's preview service can do (`GET /api/previews`). */
+export interface PreviewCapabilities {
+  enabled: boolean;
+  /** Longest side of `thumb` images, in pixels. */
+  thumb_size?: number;
+  large_size?: number;
+  /** File kind (`image`, `video`, `pdf`, ...) → whether it is supported. */
+  kinds?: Record<string, boolean>;
+  transcode?: boolean;
+}
+
 /** The contents of one directory. */
 export interface Listing {
   path: string;
@@ -256,6 +267,14 @@ export const api = {
   /** URL that downloads one file (supports Range requests). */
   downloadUrl: (source: string, path: string, inline = false) =>
     `${src(source)}/download${query({ path, inline: inline ? "1" : undefined })}`,
+  /** Which file kinds the server can make thumbnails and previews for. */
+  previewCapabilities: () => request<PreviewCapabilities>("GET", "/api/previews"),
+  /**
+   * URL of a preview image. `version` (e.g. the modification time) only
+   * busts the browser cache when the file changes; the server ignores it.
+   */
+  previewUrl: (source: string, path: string, variant: "thumb" | "large" | "pdf" = "thumb", version?: string) =>
+    `${src(source)}/preview${query({ path, variant, v: version })}`,
   /** URL that streams a zip of the given paths. */
   zipUrl: (source: string, paths: string[]) => `${src(source)}/zip${query({ path: paths })}`,
 

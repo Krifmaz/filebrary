@@ -6,7 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import { type Share } from "../../api";
 import { Dialog } from "../../components/Dialog";
 import { copyText, localToIso } from "../../components/ShareDialog";
-import { formatSize, iconFor, parent } from "../../paths";
+import { formatSize, parent } from "../../paths";
+import { Badge, Button, EmptyState, ErrorState, Icon, IconButton, PageHeader, SkeletonRows, fileIcon } from "../../ui";
 import { filesUrl, navigate } from "../../router";
 import { collectionsApi, type Collection, type CollectionSummary } from "./api";
 
@@ -44,84 +45,91 @@ export function CollectionsPage() {
   };
 
   return (
-    <section className="collections">
-      <div className="toolbar">
-        <h1 className="page-title">Collections</h1>
-        <span className="grow" />
-        <button className="primary" onClick={() => setDialog("new")}>New collection</button>
-      </div>
-      {error && <p className="error" role="alert">{error}</p>}
+    <div className="page collections">
+      <PageHeader
+        title="Collections"
+        description="Group files from any source and share them with one link."
+        actions={<Button variant="primary" icon="plus" onClick={() => setDialog("new")}>New collection</Button>}
+      />
+      {error && <ErrorState compact error={error} />}
       <div className="collections-layout">
-        <ul className="collection-list">
-          {list === null && <li className="muted">Loading…</li>}
+        <ul className="collection-list" aria-label="Your collections">
+          {list === null && <li><SkeletonRows rows={3} /></li>}
           {list?.length === 0 && (
-            <li className="muted">No collections yet. Select files in the browser and press “Add to collection”.</li>
+            <li><EmptyState compact icon="collection" title="No collections yet">Select files and choose “Add to collection”.</EmptyState></li>
           )}
           {list?.map((c) => (
             <li key={c.id}>
-              <button className={`link${open?.id === c.id ? " active" : ""}`} onClick={() => void show(c.id)}>
-                {c.name}
-              </button>{" "}
-              <span className="muted">{c.item_count}</span>
+              <button className={open?.id === c.id ? "active" : undefined} aria-current={open?.id === c.id || undefined} onClick={() => void show(c.id)}>
+                <Icon name="collection" />
+                <span className="grow ellipsis" style={{ textAlign: "left" }}>{c.name}</span>
+                <Badge>{c.item_count}</Badge>
+              </button>
             </li>
           ))}
         </ul>
+        {!open && list && list.length > 0 && (
+          <div className="card"><EmptyState icon="collection" title="Pick a collection">Choose one on the left to see its items.</EmptyState></div>
+        )}
         {open && (
           <div className="collection-detail">
-            <div className="toolbar">
-              <h2>{open.name}</h2>
-              <span className="grow" />
-              <button disabled={open.items.length === 0} onClick={() => setDialog("share")}>Share</button>
-              <button onClick={() => setDialog("rename")}>Rename</button>
-              <button className="danger" onClick={() => setDialog("delete")}>Delete</button>
+            <div className="row wrap" style={{ marginBottom: "var(--space-3)" }}>
+              <h2 className="grow">{open.name}</h2>
+              <Button icon="share" disabled={open.items.length === 0} onClick={() => setDialog("share")}>Share</Button>
+              <Button icon="edit" onClick={() => setDialog("rename")}>Rename</Button>
+              <Button icon="trash" variant="danger" onClick={() => setDialog("delete")}>Delete</Button>
             </div>
-            <table className="files">
-              <tbody>
-                {open.items.length === 0 && (
-                  <tr>
-                    <td className="muted">This collection is empty.</td>
-                  </tr>
-                )}
-                {open.items.map((it) => (
-                  <tr key={it.id} className={it.kind ? undefined : "missing"}>
-                    <td className="name">
-                      <span className="ico" aria-hidden>{iconFor(it.name, it.kind === "dir")}</span>
-                      {it.kind && it.path ? (
-                        <a
-                          href={filesUrl(it.source, it.kind === "dir" ? it.path : parent(it.path))}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            if (it.path) navigate(filesUrl(it.source, it.kind === "dir" ? it.path : parent(it.path)));
-                          }}
-                        >
-                          {it.name}
-                        </a>
-                      ) : (
-                        <span title="Missing or no longer accessible">{it.name} (unavailable)</span>
-                      )}
-                    </td>
-                    <td className="muted">{it.source}{it.path ? `:${it.path}` : ""}</td>
-                    <td className="size">{it.size != null ? formatSize(it.size) : ""}</td>
-                    <td>
-                      <button
-                        className="link"
-                        aria-label={`Remove ${it.name}`}
-                        onClick={async () => {
-                          try {
-                            await collectionsApi.removeItem(open.id, it.id);
-                            await reload(open.id);
-                          } catch (e) {
-                            setError(message(e));
-                          }
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {open.items.length === 0 ? (
+              <div className="card"><EmptyState compact icon="inbox" title="This collection is empty">Select files in a source and choose “Add to collection”.</EmptyState></div>
+            ) : (
+              <div className="table-wrap">
+                <table className="files">
+                  <tbody>
+                    {open.items.map((it) => (
+                      <tr key={it.id} className={it.kind ? undefined : "missing"}>
+                        <td className="name">
+                          <span className="name-cell">
+                            <span className={it.kind === "dir" ? "file-icon dir" : "file-icon"}><Icon name={fileIcon(it.name, it.kind === "dir")} /></span>
+                            {it.kind && it.path ? (
+                              <a
+                                className="name-text"
+                                href={filesUrl(it.source, it.kind === "dir" ? it.path : parent(it.path))}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  if (it.path) navigate(filesUrl(it.source, it.kind === "dir" ? it.path : parent(it.path)));
+                                }}
+                              >
+                                {it.name}
+                              </a>
+                            ) : (
+                              <span className="name-text" title="Missing or no longer accessible">{it.name} (unavailable)</span>
+                            )}
+                          </span>
+                          <span className="name-meta">{it.source}{it.path ? `:${it.path}` : ""}</span>
+                        </td>
+                        <td className="date">{it.source}{it.path ? `:${it.path}` : ""}</td>
+                        <td className="size">{it.size != null ? formatSize(it.size) : "—"}</td>
+                        <td className="actions">
+                          <IconButton
+                            size="sm"
+                            icon="x"
+                            label={`Remove ${it.name}`}
+                            onClick={async () => {
+                              try {
+                                await collectionsApi.removeItem(open.id, it.id);
+                                await reload(open.id);
+                              } catch (e) {
+                                setError(message(e));
+                              }
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -169,7 +177,7 @@ export function CollectionsPage() {
         </Dialog>
       )}
       {dialog === "share" && open && <ShareCollection collection={open} onClose={() => setDialog(null)} />}
-    </section>
+    </div>
   );
 }
 

@@ -90,7 +90,7 @@ export function brandingCss(b: Branding, userCustom: Palette = {}): string {
   if (dark) css += `:root[data-theme="dark"]{${dark}}@media (prefers-color-scheme: dark){:root:not([data-theme]){${dark}}}`;
   // Custom inherits the light defaults from :root; a dark custom theme also takes the dark set.
   const base = isDark
-    ? "--bg:#0f141b;--surface:#161c25;--surface-2:#1e2631;--text:#e5e9f0;--muted:#94a0b2;--border:#2a3441;--accent:#4f8cff;--accent-soft:#1d2e4d;--danger:#f05252;--ok:#31c46b;color-scheme:dark;"
+    ? "--bg:#161617;--surface:#222224;--surface-2:#2a2a2d;--text:#f0ead6;--muted:#aaa493;--border:#353538;--accent:#f0ead6;--accent-contrast:#16161f;--accent-soft:#3a382f;--danger:#ef4444;--ok:#22c55e;--faint:#77725f;--shadow:0 10px 30px rgb(0 0 0 / 0.35);color-scheme:dark;"
     : "color-scheme:light;";
   css += `:root[data-theme="custom"]{${base}${declarations(custom)}}`;
   return css;

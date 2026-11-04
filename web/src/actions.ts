@@ -6,6 +6,7 @@
  */
 import type { ComponentType } from "react";
 import type { Entry, Source } from "./api";
+import type { IconName } from "./ui/Icon";
 
 /** What an action sees: the folder and the current selection. */
 export interface ActionContext {
@@ -29,6 +30,8 @@ export interface FileAction {
   id: string;
   /** Button label. */
   label: string;
+  /** Icon shown in menus. */
+  icon?: IconName;
   /** Higher priorities come first; default 0. */
   priority?: number;
   /** Whether the button is enabled for this context. */

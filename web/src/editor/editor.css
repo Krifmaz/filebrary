@@ -8,10 +8,10 @@
   --cm-function: #1d4ed8;
   --cm-type: #be185d;
   --cm-property: #0e7490;
-  --cm-definition: #111827;
+  --cm-definition: #16161f;
   --cm-meta: #9333ea;
-  --cm-selection: rgb(37 99 235 / 0.2);
-  --cm-active-line: rgb(37 99 235 / 0.06);
+  --cm-selection: color-mix(in srgb, var(--accent) 22%, transparent);
+  --cm-active-line: color-mix(in srgb, var(--accent) 6%, transparent);
   --cm-match: rgb(234 179 8 / 0.35);
 }
 @media (prefers-color-scheme: dark) {
@@ -19,13 +19,13 @@
     --cm-keyword: #c4a5ff;
     --cm-string: #8bd5a6;
     --cm-number: #f5b971;
-    --cm-comment: #8591a3;
+    --cm-comment: #8f8a78;
     --cm-function: #82b1ff;
     --cm-type: #f7a1c8;
     --cm-property: #7dd3e0;
-    --cm-definition: #e5e9f0;
+    --cm-definition: #f0ead6;
     --cm-meta: #d8b4fe;
-    --cm-selection: rgb(79 140 255 / 0.3);
+    --cm-selection: color-mix(in srgb, var(--accent) 22%, transparent);
     --cm-active-line: rgb(255 255 255 / 0.04);
     --cm-match: rgb(234 179 8 / 0.3);
   }
@@ -34,13 +34,13 @@
   --cm-keyword: #c4a5ff;
   --cm-string: #8bd5a6;
   --cm-number: #f5b971;
-  --cm-comment: #8591a3;
+  --cm-comment: #8f8a78;
   --cm-function: #82b1ff;
   --cm-type: #f7a1c8;
   --cm-property: #7dd3e0;
-  --cm-definition: #e5e9f0;
+  --cm-definition: #f0ead6;
   --cm-meta: #d8b4fe;
-  --cm-selection: rgb(79 140 255 / 0.3);
+  --cm-selection: color-mix(in srgb, var(--accent) 22%, transparent);
   --cm-active-line: rgb(255 255 255 / 0.04);
   --cm-match: rgb(234 179 8 / 0.3);
 }

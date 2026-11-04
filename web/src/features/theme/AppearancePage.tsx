@@ -5,6 +5,7 @@
  */
 import { useState } from "react";
 import { setTheme, useTheme, type Theme } from "../../theme";
+import { PageHeader } from "../../ui";
 import {
   THEME_VARS,
   themeApi,
@@ -98,15 +99,22 @@ export function AppearancePage({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <section className="settings">
-      <h1 className="page-title">Appearance</h1>
+      <PageHeader title="Appearance" description="How Filebrary looks on this account. Your choice follows you to every device." />
       <fieldset>
         <legend>Theme</legend>
-        {THEMES.map((t) => (
-          <label key={t.id} className="check">
-            <input type="radio" name="theme" checked={theme === t.id} onChange={() => setTheme(t.id)} />
-            {t.label}
-          </label>
-        ))}
+        <div className="theme-options">
+          {THEMES.map((t) => (
+            <label key={t.id} className={theme === t.id ? "theme-option on" : "theme-option"}>
+              <span className={`theme-preview ${t.id}`} aria-hidden>
+                <i /><i /><i />
+              </span>
+              <span className="row">
+                <input type="radio" name="theme" checked={theme === t.id} onChange={() => setTheme(t.id)} />
+                {t.label}
+              </span>
+            </label>
+          ))}
+        </div>
       </fieldset>
       {theme === "custom" && (
         <fieldset>
