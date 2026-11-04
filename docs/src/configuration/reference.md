@@ -87,9 +87,11 @@ Vector or Elasticsearch. The level filter is set separately with
 
 ### `session_ttl_hours`
 
-How long a login stays valid without activity, in hours. Using the session
-extends it: once less than half of this time is left, the next request
-renews it to the full length.
+How long a login with **Remember me** stays valid without activity, in
+hours. Using the session extends it: once less than half of this time is
+left, the next request renews it to the full length. Logins without
+Remember me last at most 12 hours (or this value, if smaller) and their
+cookie is dropped when the browser closes.
 
 |             |                                         |
 |-------------|-----------------------------------------|
@@ -163,15 +165,18 @@ users yet. Ignored once any user exists. See
 
 ### `admin_password`
 
-Password for that first administrator. If unset, a random password is
-generated and printed once to the log. Prefer the environment variable (or a
-secret manager) to writing a password into the file, and change it after the
-first sign-in.
+An optional bootstrap password for that first administrator, for
+unattended installs. If unset there is no default password: the web UI shows
+a setup page where you choose the name and password, confirmed with a
+one-time setup token printed to the log (see
+[First steps](../install/first-steps.md#1-create-the-administrator)).
+Prefer the environment variable (or a secret manager) to writing a password
+into the file, and change it after the first sign-in.
 
 |             |                                         |
 |-------------|-----------------------------------------|
 | Type        | string, optional                        |
-| Default     | not set: random, logged once            |
+| Default     | not set: first-run setup in the web UI  |
 | Environment | `FILEBRARY_ADMIN_PASSWORD` (an empty value unsets it) |
 
 ## Uploads

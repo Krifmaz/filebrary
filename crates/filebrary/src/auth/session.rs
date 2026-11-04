@@ -4,6 +4,12 @@
 //! SHA-256, so a leaked database cannot be replayed as cookies. Each session
 //! has its own CSRF token. Expiry slides: a session used after half its
 //! lifetime is extended.
+//!
+//! A session is *persistent* ("remember me") or not. A persistent session
+//! lives `session_ttl_hours` and its cookie has a matching `Max-Age`, so it
+//! survives the browser closing. A non-persistent session lives at most
+//! [`SHORT_TTL_HOURS`] and its cookie has no `Max-Age`, so the browser drops
+//! it when it closes.
 
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use sqlx::SqlitePool;
@@ -12,6 +18,10 @@ use crate::{crypto, db, error::AppResult, state::AppState};
 
 /// Name of the session cookie.
 pub const SESSION_COOKIE: &str = "fb_session";
+
+/// Lifetime of a session without "remember me", in hours (or
+/// `session_ttl_hours` if that is shorter).
+pub const SHORT_TTL_HOURS: u64 = 12;
 
 /// A valid session as found in the database.
 #[derive(Debug, Clone)]
@@ -24,6 +34,8 @@ pub struct Session {
     pub csrf_token: String,
     /// Unix expiry time.
     pub expires_at: i64,
+    /// Whether this is a "remember me" session.
+    pub persistent: bool,
 }
 
 /// A freshly created session: the raw token goes into the cookie.
@@ -35,11 +47,16 @@ pub struct NewSession {
     pub csrf_token: String,
 }
 
-fn ttl_secs(state: &AppState) -> i64 {
-    i64::try_from(state.config.session_ttl_hours.saturating_mul(3600)).unwrap_or(i64::MAX / 2)
+fn ttl_secs(state: &AppState, persistent: bool) -> i64 {
+    let hours = if persistent {
+        state.config.session_ttl_hours
+    } else {
+        state.config.session_ttl_hours.min(SHORT_TTL_HOURS)
+    };
+    i64::try_from(hours.saturating_mul(3600)).unwrap_or(i64::MAX / 2)
 }
 
-/// Creates a session for `user_id`.
+/// Creates a persistent ("remember me") session for `user_id`.
 ///
 /// # Errors
 ///
@@ -50,20 +67,36 @@ pub async fn create(
     ip: Option<&str>,
     user_agent: Option<&str>,
 ) -> AppResult<NewSession> {
+    create_with(state, user_id, ip, user_agent, true).await
+}
+
+/// Creates a session for `user_id`, persistent or not (see the module docs).
+///
+/// # Errors
+///
+/// Database failures.
+pub async fn create_with(
+    state: &AppState,
+    user_id: i64,
+    ip: Option<&str>,
+    user_agent: Option<&str>,
+    persistent: bool,
+) -> AppResult<NewSession> {
     let token = crypto::random_token::<32>();
     let csrf_token = crypto::random_token::<32>();
     let now = db::now();
     sqlx::query(
-        "INSERT INTO sessions (token_hash, user_id, csrf_token, created_at, expires_at, ip, user_agent)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sessions (token_hash, user_id, csrf_token, created_at, expires_at, ip, user_agent, persistent)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(crypto::sha256(token.as_bytes()))
     .bind(user_id)
     .bind(&csrf_token)
     .bind(now)
-    .bind(now + ttl_secs(state))
+    .bind(now + ttl_secs(state, persistent))
     .bind(ip)
     .bind(user_agent.map(|u| u.chars().take(256).collect::<String>()))
+    .bind(persistent)
     .execute(&state.db)
     .await?;
     Ok(NewSession { token, csrf_token })
@@ -80,17 +113,18 @@ pub async fn lookup(state: &AppState, token: &str) -> AppResult<Option<Session>>
     }
     let hash = crypto::sha256(token.as_bytes());
     let now = db::now();
-    let row: Option<(i64, String, i64)> = sqlx::query_as(
-        "SELECT user_id, csrf_token, expires_at FROM sessions WHERE token_hash = ? AND expires_at > ?",
+    let row: Option<(i64, String, i64, bool)> = sqlx::query_as(
+        "SELECT user_id, csrf_token, expires_at, persistent FROM sessions
+         WHERE token_hash = ? AND expires_at > ?",
     )
     .bind(&hash)
     .bind(now)
     .fetch_optional(&state.db)
     .await?;
-    let Some((user_id, csrf_token, mut expires_at)) = row else {
+    let Some((user_id, csrf_token, mut expires_at, persistent)) = row else {
         return Ok(None);
     };
-    let ttl = ttl_secs(state);
+    let ttl = ttl_secs(state, persistent);
     if expires_at - now < ttl / 2 {
         expires_at = now + ttl;
         sqlx::query("UPDATE sessions SET expires_at = ? WHERE token_hash = ?")
@@ -104,6 +138,7 @@ pub async fn lookup(state: &AppState, token: &str) -> AppResult<Option<Session>>
         user_id,
         csrf_token,
         expires_at,
+        persistent,
     }))
 }
 
@@ -145,9 +180,9 @@ pub async fn delete_for_user(db: &SqlitePool, user_id: i64, keep: Option<&[u8]>)
     Ok(r.rows_affected())
 }
 
-/// Creates a session and its cookie: the last step of every login (password,
-/// TOTP, OIDC). Put the cookie in the response's `CookieJar` and send the
-/// returned CSRF token to the client.
+/// Creates a persistent session and its cookie: the last step of every
+/// login (password, TOTP, OIDC). Put the cookie in the response's
+/// `CookieJar` and send the returned CSRF token to the client.
 ///
 /// # Errors
 ///
@@ -158,8 +193,23 @@ pub async fn issue(
     ip: Option<&str>,
     user_agent: Option<&str>,
 ) -> AppResult<(NewSession, Cookie<'static>)> {
-    let s = create(state, user_id, ip, user_agent).await?;
-    let c = cookie(state, s.token.clone());
+    issue_with(state, user_id, ip, user_agent, true).await
+}
+
+/// [`issue`] with the "remember me" choice.
+///
+/// # Errors
+///
+/// Database failures.
+pub async fn issue_with(
+    state: &AppState,
+    user_id: i64,
+    ip: Option<&str>,
+    user_agent: Option<&str>,
+    persistent: bool,
+) -> AppResult<(NewSession, Cookie<'static>)> {
+    let s = create_with(state, user_id, ip, user_agent, persistent).await?;
+    let c = cookie_with(state, s.token.clone(), persistent);
     Ok((s, c))
 }
 
@@ -176,15 +226,26 @@ pub async fn purge_expired(state: &AppState) -> AppResult<u64> {
     Ok(r.rows_affected())
 }
 
-/// Builds the session cookie (`HttpOnly`, `SameSite=Lax`, `Secure` per config).
+/// Builds a persistent session cookie (`HttpOnly`, `SameSite=Lax`,
+/// `Secure` per config, `Max-Age` of the session lifetime).
 pub fn cookie(state: &AppState, token: String) -> Cookie<'static> {
-    Cookie::build((SESSION_COOKIE, token))
+    cookie_with(state, token, true)
+}
+
+/// Builds the session cookie; without `persistent` it has no `Max-Age`, so
+/// the browser forgets it when it closes.
+pub fn cookie_with(state: &AppState, token: String, persistent: bool) -> Cookie<'static> {
+    let b = Cookie::build((SESSION_COOKIE, token))
         .path("/")
         .http_only(true)
         .same_site(SameSite::Lax)
-        .secure(state.config.cookies_secure())
-        .max_age(time::Duration::seconds(ttl_secs(state)))
-        .build()
+        .secure(state.config.cookies_secure());
+    if persistent {
+        b.max_age(time::Duration::seconds(ttl_secs(state, true)))
+            .build()
+    } else {
+        b.build()
+    }
 }
 
 /// Builds a cookie that clears the session cookie.

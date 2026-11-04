@@ -38,7 +38,9 @@ login_max_attempts = 5
 login_window_secs = 300
 
 # First administrator, created only when there are no users yet. Without a
-# password, a random one is logged once. Prefer FILEBRARY_ADMIN_PASSWORD.
+# password there is no default one: the web UI asks you to create the
+# administrator, with a one-time setup token from the log. Prefer
+# FILEBRARY_ADMIN_PASSWORD to writing a password here.
 admin_username = "admin"
 # admin_password = "change-me"
 

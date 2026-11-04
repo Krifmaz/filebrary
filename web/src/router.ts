@@ -16,6 +16,9 @@ export type Route =
   | { name: "search"; q: string; type: string }
   | { name: "collections" }
   | { name: "appearance" }
+  | { name: "settings"; tab: "account" | "security" | "preferences" }
+  | { name: "users" }
+  | { name: "setup" }
   | { name: "public"; token: string; path: string }
   | { name: "notFound" };
 
@@ -61,6 +64,12 @@ export function parse(pathname: string, search = ""): Route {
   if (segs[0] === "search" && segs.length === 1) return { name: "search", q: q.get("q") ?? "", type: q.get("type") ?? "" };
   if (segs[0] === "collections" && segs.length === 1) return { name: "collections" };
   if (segs[0] === "settings" && segs[1] === "appearance" && segs.length === 2) return { name: "appearance" };
+  if (segs[0] === "settings" && segs.length <= 2) {
+    const tab = segs[1] ?? "account";
+    if (tab === "account" || tab === "security" || tab === "preferences") return { name: "settings", tab };
+  }
+  if (segs[0] === "admin" && segs[1] === "users" && segs.length === 2) return { name: "users" };
+  if (segs[0] === "setup" && segs.length === 1) return { name: "setup" };
   if (segs[0] === "files" && segs[1]) {
     return { name: "files", source: segs[1], path: "/" + segs.slice(2).join("/") };
   }

@@ -6,19 +6,33 @@ After [installing](docker.md), open Filebrary in a browser:
 
 ## 1. Create the administrator
 
-On first start, with no users in the database, Filebrary creates an
-administrator called `admin` (see
-[`admin_username`](../configuration/reference.md#admin_username)). Its
-password is [`admin_password`](../configuration/reference.md#admin_password)
-(`FILEBRARY_ADMIN_PASSWORD`) if you set one; otherwise a random password is
-printed once to the log:
+There is no default password. On first start, with no users in the
+database, Filebrary waits for you to create the administrator:
 
-```sh
-docker logs filebrary 2>&1 | grep "first administrator"
-# or: journalctl -u filebrary | grep "first administrator"
-```
+1. Open Filebrary in a browser. It shows **Set up your server**.
+2. Find the one-time **setup token** in the log:
 
-Sign in with it and change the password right away.
+   ```sh
+   docker logs filebrary 2>&1 | grep setup_token
+   # or: journalctl -u filebrary | grep setup_token
+   ```
+
+3. Paste the token, choose the administrator's name and password, and press
+   **Create administrator**. You are signed in straight away.
+
+The token proves that whoever claims the server can read its log, so a
+stranger who reaches a fresh install first cannot take it over. A new token
+is printed each time the server starts while no account exists; it stops
+working once the administrator is created. Wrong tokens are rate limited
+like logins.
+
+For unattended installs you can instead set
+[`admin_password`](../configuration/reference.md#admin_password)
+(`FILEBRARY_ADMIN_PASSWORD`): the administrator
+[`admin_username`](../configuration/reference.md#admin_username) (default
+`admin`) is then created with that password and setup is skipped. Sign in and
+change it under **Settings → Account**; you can remove the variable
+afterwards.
 
 ## 2. Check your sources
 
@@ -29,9 +43,10 @@ inside the container) and that the Filebrary user can read it.
 
 ## 3. Add users
 
-Under **Settings → Users**, create accounts for other people and give them
-permissions on each source: view, download, upload, edit, delete and share.
-See [Users and permissions](../configuration/users.md).
+Under **Users** in the sidebar, create accounts for other people. Pick a
+role (administrator, user or read-only), optionally give each a home
+folder, and tick their permissions on each source: view, download, upload,
+edit, delete and share. See [Users and permissions](../configuration/users.md).
 
 ## 4. Put it on the internet safely
 

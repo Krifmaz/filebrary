@@ -17,6 +17,9 @@ export interface User {
   id: number;
   username: string;
   is_admin: boolean;
+  /** `admin`, `user` or `read_only` (older servers leave it out). */
+  role?: "admin" | "user" | "read_only";
+  read_only?: boolean;
 }
 
 /** What the current user may do inside a storage source. */
@@ -145,6 +148,11 @@ export function csrfToken(cookie: string = document.cookie): string | undefined 
   return undefined;
 }
 
+/** Stores the CSRF token of a session started outside {@link api.login} (first-run setup). */
+export function setSessionCsrf(token: string): void {
+  sessionCsrf = token;
+}
+
 /** Called whenever the server answers 401, so the app can show the login page. */
 let onUnauthorized: () => void = () => {};
 
@@ -229,9 +237,12 @@ export function query(params: Record<string, string | string[] | undefined>): st
 
 /** The API surface used by the UI. */
 export const api = {
-  /** Signs in with a username, password and optional TOTP code. */
-  login: async (username: string, password: string, totp?: string): Promise<User> => {
-    const s = await request<SessionInfo>("POST", "/api/auth/login", { username, password, totp: totp || undefined });
+  /**
+   * Signs in with a username, password and optional TOTP code. `remember`
+   * keeps the session after the browser closes.
+   */
+  login: async (username: string, password: string, totp?: string, remember = true): Promise<User> => {
+    const s = await request<SessionInfo>("POST", "/api/auth/login", { username, password, totp: totp || undefined, remember });
     sessionCsrf = s.csrf_token;
     return s.user;
   },
