@@ -111,6 +111,8 @@ pub fn Shell(user: User) -> impl IntoView {
     let sources = LocalResource::new(|| async { api::sources().await.map_err(|e| e.message) });
     let admin = user.role() == Role::Admin;
     let session = crate::use_session();
+    // the files browser's Share commands open the share dialog
+    pages::shares::answer_share_requests();
 
     let sign_out = move |_| {
         kit_leptos::rt::spawn(async move {

@@ -25,12 +25,14 @@
 //!   for [`store::ACCESS_TTL_SECS`]) returned in an `HttpOnly` cookie and in
 //!   the body. Changing or removing the password revokes all grants. Wrong
 //!   passwords are rate limited per share.
-//! * Drop-link uploads never overwrite: a name that is taken gets a numbered
+//! * Drop-link uploads are chunked and resumable ([`mod@drop`]) and never
+//!   overwrite: a name that is taken gets a numbered
 //!   suffix, so visitors learn nothing about existing files.
 //!
 //! Tables live in `migrations/0020_shares.sql`.
 
 pub mod api;
+pub mod drop;
 pub mod error;
 pub mod model;
 pub mod public;

@@ -1137,3 +1137,284 @@ async fn opening_and_dropping_publish_events() {
         Event::Upload { user, path, size: 2, .. } if user == "alice" && path == "/drop/n.txt"
     )));
 }
+
+/// Starts a resumable drop upload; `access` is a password grant, if any.
+fn drop_start(token: &str, name: &str, size: u64, access: Option<&str>) -> Request<Body> {
+    let mut b = Request::post(format!("/api/public/shares/{token}/uploads/start"))
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(a) = access {
+        b = b.header("x-share-access", a);
+    }
+    b.body(Body::from(json!({"path": name, "size": size}).to_string()))
+        .unwrap()
+}
+
+/// Sends one chunk of a resumable drop upload at `offset`.
+fn drop_chunk(token: &str, uid: &str, offset: u64, data: &'static [u8]) -> Request<Body> {
+    Request::patch(format!("/api/public/shares/{token}/uploads/{uid}"))
+        .header("upload-offset", offset.to_string())
+        .header(header::CONTENT_TYPE, "application/octet-stream")
+        .body(Body::from(data))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn drop_links_take_resumable_uploads() {
+    use filebrary_events::Event;
+
+    let env = setup().await;
+    let mut rx = env.state.events.subscribe();
+    let (_, admin) = env.user("alice", true, Perms::ALL, "/").await;
+    let share = env
+        .create(
+            &admin,
+            json!({"source": "files", "paths": ["/drop"], "upload_only": true}),
+        )
+        .await;
+    let token = share["token"].as_str().unwrap();
+
+    // Start, send part of it, and resume after the "connection dropped".
+    let (s, h, b) = env.send(drop_start(token, "big.bin", 10, None)).await;
+    assert_eq!(s, StatusCode::CREATED, "{}", String::from_utf8_lossy(&b));
+    assert_eq!(h[header::CACHE_CONTROL], "no-store");
+    let v = json(&b);
+    let uid = v["id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        (v["offset"].as_u64(), v["done"].as_bool()),
+        (Some(0), Some(false))
+    );
+
+    let (s, _, b) = env.send(drop_chunk(token, &uid, 0, b"0123")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(json(&b)["offset"], 4);
+    // A chunk sent again at an old offset learns where the server is.
+    let (s, h, b) = env.send(drop_chunk(token, &uid, 0, b"0123")).await;
+    assert_eq!(s, StatusCode::CONFLICT);
+    assert_eq!(h["upload-offset"], "4");
+    assert_eq!(json(&b)["offset"], 4);
+    let (s, _, b) = env
+        .get(&format!("/api/public/shares/{token}/uploads/{uid}"))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(json(&b)["offset"], 4);
+    assert!(
+        !env.root.join("drop/big.bin").exists(),
+        "only stored when complete"
+    );
+
+    let (s, _, b) = env.send(drop_chunk(token, &uid, 4, b"456789")).await;
+    assert_eq!(s, StatusCode::OK);
+    let v = json(&b);
+    assert_eq!(v["done"], true);
+    assert_eq!(v["name"], "big.bin");
+    assert_eq!(
+        std::fs::read(env.root.join("drop/big.bin")).unwrap(),
+        b"0123456789"
+    );
+    // The finished upload is gone, its staging file too.
+    assert_eq!(
+        env.get(&format!("/api/public/shares/{token}/uploads/{uid}"))
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    assert!(!env.state.upload_dir.join(&uid).exists());
+    // Reported as the link owner's upload.
+    let mut uploads = Vec::new();
+    while let Ok(n) = rx.try_recv() {
+        if let Event::Upload {
+            user, path, size, ..
+        } = n.event
+        {
+            uploads.push((user, path, size));
+        }
+    }
+    assert_eq!(
+        uploads,
+        vec![("alice".to_owned(), "/drop/big.bin".to_owned(), 10)]
+    );
+
+    // A taken name is numbered, never overwritten; an empty file is done at once.
+    let (s, _, b) = env.send(drop_start(token, "big.bin", 0, None)).await;
+    assert_eq!(s, StatusCode::CREATED);
+    let v = json(&b);
+    assert_eq!(
+        (v["done"].as_bool(), v["name"].as_str()),
+        (Some(true), Some("big (1).bin"))
+    );
+    assert_eq!(
+        std::fs::read(env.root.join("drop/big.bin")).unwrap(),
+        b"0123456789"
+    );
+    assert!(env.root.join("drop/big (1).bin").exists());
+
+    // Names are one file name; sizes stay within the link's limit (1 MiB here).
+    for bad in ["../x.txt", "sub/x.txt", "", ".."] {
+        let (s, _, _) = env.send(drop_start(token, bad, 1, None)).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{bad:?}");
+    }
+    let (s, _, _) = env
+        .send(drop_start(token, "huge.bin", 1024 * 1024 + 1, None))
+        .await;
+    assert_eq!(s, StatusCode::PAYLOAD_TOO_LARGE);
+
+    // More data than declared is refused and nothing is stored.
+    let (_, _, b) = env.send(drop_start(token, "small.txt", 2, None)).await;
+    let small = json(&b)["id"].as_str().unwrap().to_owned();
+    let (s, _, _) = env.send(drop_chunk(token, &small, 0, b"abc")).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert!(!env.root.join("drop/small.txt").exists());
+    // A missing offset header is a bad request.
+    let (s, _, _) = env
+        .send(
+            Request::patch(format!("/api/public/shares/{token}/uploads/{small}"))
+                .body(Body::from("ab"))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    // Cancelling drops what the server holds.
+    let (s, _, _) = env
+        .send(
+            Request::delete(format!("/api/public/shares/{token}/uploads/{small}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    assert!(!env.state.upload_dir.join(&small).exists());
+    assert_eq!(
+        env.get(&format!("/api/public/shares/{token}/uploads/{small}"))
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+
+    // An upload belongs to its link: not to another link, not to the
+    // signed-in upload routes, not to the link's owner.
+    let (_, _, b) = env.send(drop_start(token, "mine.txt", 3, None)).await;
+    let mine = json(&b)["id"].as_str().unwrap().to_owned();
+    let other = env
+        .create(
+            &admin,
+            json!({"source": "files", "paths": ["/drop"], "upload_only": true}),
+        )
+        .await;
+    let other = other["token"].as_str().unwrap();
+    let (s, _, _) = env.send(drop_chunk(other, &mine, 0, b"abc")).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _) = env
+        .api(&admin, Method::GET, &format!("/api/uploads/{mine}"), None)
+        .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    for bad in ["nothex", "../../../../etc/passwd"] {
+        let (s, _, _) = env
+            .get(&format!("/api/public/shares/{token}/uploads/{bad}"))
+            .await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{bad}");
+    }
+
+    // A normal share refuses the protocol too.
+    let normal = env
+        .create(&admin, json!({"source": "files", "paths": ["/docs"]}))
+        .await;
+    let normal = normal["token"].as_str().unwrap();
+    let (s, _, _) = env.send(drop_start(normal, "x.txt", 1, None)).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+
+    // Revoking the link stops its uploads at once.
+    let id = share["id"].as_i64().unwrap();
+    let (s, _) = env
+        .api(&admin, Method::DELETE, &format!("/api/shares/{id}"), None)
+        .await;
+    assert!(s.is_success(), "{s}");
+    let (s, _, _) = env.send(drop_chunk(token, &mine, 0, b"abc")).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    assert!(!env.root.join("drop/mine.txt").exists());
+}
+
+#[tokio::test]
+async fn resumable_drop_uploads_need_the_password_and_are_capped() {
+    let env = setup().await;
+    let (_, admin) = env.user("alice", true, Perms::ALL, "/").await;
+    let share = env
+        .create(
+            &admin,
+            json!({"source": "files", "paths": ["/drop"], "upload_only": true, "password": "hunter2"}),
+        )
+        .await;
+    let token = share["token"].as_str().unwrap();
+    let (s, _, _) = env.send(drop_start(token, "a.txt", 1, None)).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, _, b) = env
+        .send(
+            Request::post(format!("/api/public/shares/{token}/unlock"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({"password": "hunter2"}).to_string()))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    let access = json(&b)["access"].as_str().unwrap().to_owned();
+    let (s, _, b) = env.send(drop_start(token, "a.txt", 1, Some(&access))).await;
+    assert_eq!(s, StatusCode::CREATED);
+    let uid = json(&b)["id"].as_str().unwrap().to_owned();
+    // Every chunk needs the grant.
+    let (s, _, _) = env.send(drop_chunk(token, &uid, 0, b"x")).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let mut req = drop_chunk(token, &uid, 0, b"x");
+    req.headers_mut()
+        .insert("x-share-access", access.parse().unwrap());
+    let (s, _, b) = env.send(req).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(json(&b)["name"], "a.txt");
+
+    // A link has a bounded number of open uploads.
+    for n in 0..filebrary::shares::drop::MAX_OPEN_PER_LINK {
+        let (s, _, _) = env
+            .send(drop_start(token, &format!("f{n}.txt"), 5, Some(&access)))
+            .await;
+        assert_eq!(s, StatusCode::CREATED, "{n}");
+    }
+    let (s, _, _) = env
+        .send(drop_start(token, "one-more.txt", 5, Some(&access)))
+        .await;
+    assert_eq!(s, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn inline_takes_one_as_well_as_true() {
+    let env = setup().await;
+    let (_, admin) = env.user("alice", true, Perms::ALL, "/").await;
+    let share = env
+        .create(&admin, json!({"source": "files", "paths": ["photo.jpg"]}))
+        .await;
+    let token = share["token"].as_str().unwrap();
+    let disposition = |h: &axum::http::HeaderMap| {
+        h[header::CONTENT_DISPOSITION]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned()
+    };
+    for (q, want) in [
+        ("inline=1", "inline"),
+        ("inline=true", "inline"),
+        ("inline=0", "attachment"),
+        ("inline=false", "attachment"),
+        ("", "attachment"),
+    ] {
+        let (s, h, _) = env
+            .get(&format!("/api/public/shares/{token}/download?{q}"))
+            .await;
+        assert_eq!(s, StatusCode::OK, "{q}");
+        assert_eq!(disposition(&h), want, "{q}");
+    }
+    let (s, _, _) = env
+        .get(&format!("/api/public/shares/{token}/download?inline=maybe"))
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}
