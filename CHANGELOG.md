@@ -2,7 +2,7 @@
 
 ## v0.3.2
 
-- Fixed: a release run overtaken by a merge that changes the workflows no longer fails with HTTP 403; it skips publishing with a notice and the newer run releases everything (kit workflows v0.7.3).
+- Fixed: a release run overtaken by a merge that changes the workflows no longer fails with HTTP 403; it skips publishing with a notice and the newer run releases everything (kit workflows v0.7.4).
 
 ## v0.3.0
 
