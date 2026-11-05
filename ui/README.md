@@ -1,7 +1,7 @@
 # ui/ — Filebrary's Leptos web UI
 
 The new web UI: [Leptos](https://leptos.dev) 0.8 (client-side, WebAssembly) on the kit's components
-([kit-leptos](https://github.com/Krifmaz/kit/tree/v0.3.0/crates/kit-leptos)) and the kit's Encore theme. It is a
+([kit-leptos](https://github.com/Krifmaz/kit/tree/v0.3.2/crates/kit-leptos)) and the kit's Encore theme. It is a
 Cargo workspace of its own, like the kit template's `web/`, so the server's dependency graph stays as it is. The
 React UI in `web/` keeps shipping until this one replaces it.
 

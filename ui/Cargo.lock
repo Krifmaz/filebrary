@@ -695,7 +695,7 @@ dependencies = [
 [[package]]
 name = "kit-leptos"
 version = "0.1.0"
-source = "git+https://github.com/Krifmaz/kit?tag=v0.3.0#b19fc460a7565f15225b7a3f55cad1fcda4d2919"
+source = "git+https://github.com/Krifmaz/kit?tag=v0.3.2#8bb02d07b79251b9219db8bc3291cbf7b8db928b"
 dependencies = [
  "futures",
  "gloo-net",
@@ -714,7 +714,7 @@ dependencies = [
 [[package]]
 name = "kit-rules"
 version = "0.1.0"
-source = "git+https://github.com/Krifmaz/kit?tag=v0.3.0#b19fc460a7565f15225b7a3f55cad1fcda4d2919"
+source = "git+https://github.com/Krifmaz/kit?tag=v0.3.2#8bb02d07b79251b9219db8bc3291cbf7b8db928b"
 dependencies = [
  "serde",
  "serde_json",
