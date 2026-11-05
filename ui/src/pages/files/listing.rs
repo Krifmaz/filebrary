@@ -5,13 +5,13 @@
 //! On touch screens a tap opens unless a selection is under way, then it toggles; a long press opens the menu.
 //! Items can be dragged onto a folder (or a breadcrumb) to move them.
 
-use super::icons::icon;
 use super::kinds::{file_icon, wants_thumbnail, ViewMode};
 use super::menu::MenuState;
 use super::ops;
 use super::paths::{format_date, format_size, next_selection, Mods, SortKey};
 use super::state::{Ctx, Load};
 use crate::api::{preview_url, Entry};
+use crate::icons::icon;
 use leptos::prelude::*;
 use std::collections::BTreeSet;
 use wasm_bindgen::JsCast;

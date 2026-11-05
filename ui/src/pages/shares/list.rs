@@ -52,7 +52,6 @@ pub fn clear_question(n: usize) -> Confirm {
 /// The Shared page.
 #[component]
 pub fn SharesPage() -> impl IntoView {
-    super::style::ensure();
     let links = RwSignal::new(None::<Result<Vec<Share>, String>>);
     let load = move || {
         kit_leptos::rt::spawn(async move {

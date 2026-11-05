@@ -7,12 +7,12 @@
 
 use super::api;
 use super::editor::Editor;
-use super::icons::icon;
 use super::kinds::{file_icon, viewer_for, Viewer};
 use super::ops;
 use super::paths::{format_date, format_size};
 use super::state::Ctx;
 use crate::api::{download_url, preview_url, Entry};
+use crate::icons::icon;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 

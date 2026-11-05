@@ -4,11 +4,22 @@
 
 Each [source](../configuration/sources.md) you can view appears in the
 sidebar. Open folders by clicking them; the path bar shows where you are
-and each part of it is a link. Sort by name, size or date.
+and each part of it is a link, and takes dropped items to move them there.
+Sort by name, size or date.
+
+Pick a view with the buttons above the list: details, compact, or small,
+medium and large tiles with thumbnails. The choice is remembered per
+account. Select with a click, Shift or Ctrl/Cmd and the keyboard (on a
+phone, press and hold); the right-click menu (a sheet on phones) has every
+command for the selection.
+
+![Files in the details view](../images/files-desktop.png)
 
 ## Uploading
 
-Drag files or whole folders onto the window, or use **Upload**. Uploads are
+Drag files or whole folders onto the window, or use **Upload**. A panel
+shows each upload with pause, retry and, when a file with the same name is
+in the way, replace or keep both. Uploads are
 split into chunks (at most [`max_chunk_mib`](../configuration/reference.md#max_chunk_mib)
 each) and are **resumable**: if the connection drops, the upload carries on
 from the last chunk instead of starting again. Unfinished uploads are kept
@@ -50,9 +61,8 @@ attached when files are renamed, moved or trashed. API: `/api/comments`.
 
 ## Text editor
 
-Text and code files open in a built-in editor (CodeMirror) when you click
-them. It has syntax highlighting for about 100 languages, search and replace
-(Ctrl/Cmd+F), line wrapping and Ctrl/Cmd+S to save.
+Text and code files open in a built-in editor when you click them, with
+line wrapping and Ctrl/Cmd+S to save.
 
 * Opening a file needs **download**; saving changes needs **edit**. Without
   **edit** the file opens read-only.

@@ -13,20 +13,33 @@
 # builds never compile Rust under QEMU emulation.
 
 ARG RUST_VERSION=1.97
-ARG NODE_VERSION=22
+ARG TRUNK_VERSION=0.21.14
 ARG ALPINE_VERSION=3.22
 # Which image the last stage becomes: runtime (distroless) or full.
 ARG VARIANT=runtime
 
 # ---------------------------------------------------------------------------
-# Web UI (platform independent output, always built natively)
+# Web UI: the Leptos app in ui/, built to WebAssembly by trunk (platform
+# independent output, always built natively)
 # ---------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-alpine AS web
-WORKDIR /src/web
-COPY web/package.json web/package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
-COPY web/ ./
-RUN npm run build
+FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-slim AS web
+ARG TRUNK_VERSION
+ARG BUILDARCH
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && arch=$([ "$BUILDARCH" = arm64 ] && echo aarch64 || echo x86_64) \
+ && curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-${arch}-unknown-linux-gnu.tar.gz" \
+    | tar -xz -C /usr/local/bin trunk
+WORKDIR /src/ui
+# ui/rust-toolchain.toml adds the wasm32 target to the pinned toolchain.
+COPY ui/rust-toolchain.toml ./
+RUN rustup show active-toolchain || rustup toolchain install
+COPY ui/ ./
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/src/ui/target,id=filebrary-ui-target \
+    trunk build --release --locked \
+ && test -f dist/index.html
 
 # ---------------------------------------------------------------------------
 # Rust server (cross-compiled, static musl)
@@ -41,7 +54,7 @@ ARG TARGETPLATFORM
 RUN xx-apk add --no-cache musl-dev gcc
 WORKDIR /src
 COPY . .
-COPY --from=web /src/web/dist ./web/dist
+COPY --from=web /src/ui/dist ./ui/dist
 # The release version (kit-release picks it); empty keeps Cargo.toml's. The
 # first `version =` in the root manifest is [workspace.package], and every
 # workspace crate is named filebrary*, so Cargo.lock is stamped to match.

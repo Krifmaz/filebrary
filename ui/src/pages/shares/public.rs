@@ -41,7 +41,6 @@ pub fn unlock_error(e: &kit_leptos::api::ApiError) -> String {
 /// The visitor's page for `path` (starting with `/`) of link `token`.
 #[component]
 pub fn PublicSharePage(token: String, path: String) -> impl IntoView {
-    super::style::ensure();
     let state = RwSignal::new(Load::Loading);
     let tok = StoredValue::new(token.clone());
     let p = StoredValue::new(path.clone());

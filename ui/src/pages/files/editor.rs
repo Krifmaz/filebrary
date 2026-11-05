@@ -6,8 +6,8 @@
 //! indents, the wrap switch is remembered per browser, and closing with unsaved changes asks first.
 
 use super::api::{self, Saved};
-use super::icons::icon;
 use crate::api::Entry;
+use crate::icons::icon;
 use kit_leptos::modal;
 use kit_leptos::toasts::toast;
 use leptos::prelude::*;

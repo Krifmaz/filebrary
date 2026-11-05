@@ -3,15 +3,15 @@
 You need:
 
 - Rust 1.97 (pinned in `rust-toolchain.toml`; rustup installs it automatically)
-- Node.js 22 and npm
+- [trunk](https://trunkrs.dev) for the web UI: `cargo install trunk --locked`
 
 ```sh
 git clone https://github.com/Krifmaz/filebrary
 cd filebrary
 
 # 1. Build the web interface (embedded into the binary at compile time).
-npm --prefix web ci
-npm --prefix web run build
+#    ui/rust-toolchain.toml adds the wasm32-unknown-unknown target.
+(cd ui && trunk build --release)
 
 # 2. Build the server.
 cargo build --release
@@ -34,8 +34,7 @@ These are the same checks CI runs on Linux, macOS and Windows:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-npm --prefix web run lint
-npm --prefix web run build
+(cd ui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && trunk build --release)
 ```
 
 ## Building these docs

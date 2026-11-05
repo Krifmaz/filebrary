@@ -3,7 +3,7 @@
 //! | Module | What |
 //! | --- | --- |
 //! | [`api`] | typed client for the REST API, with the CSRF header |
-//! | [`route`] | the app's addresses (real paths under a base, `/next` until cutover) |
+//! | [`route`] | the app's addresses (real paths under a base read from the script, `/` when served at the root) |
 //! | [`shell`] | the app frame: sidebar, top bar, phone drawer |
 //! | [`pages`] | one module per page; files, search, shares and admin each have their own folder |
 //! | [`kit`] | the kit's features (toasts, banners, What's new, …) |
@@ -172,5 +172,17 @@ mod tests {
     #[test]
     fn kit_stylesheet_matches_the_pinned_kit() {
         assert_eq!(include_str!("../static/css/kit.css"), kit_leptos::CSS, "run ui/scripts/sync-kit.sh");
+    }
+
+    /// The pages' rules take their colours from the kit's tokens, so every kit theme draws them.
+    #[test]
+    fn page_styles_use_tokens_only() {
+        for (name, css) in [
+            ("search.css", include_str!("../static/css/search.css")),
+            ("shares.css", include_str!("../static/css/shares.css")),
+            ("admin.css", include_str!("../static/css/admin.css")),
+        ] {
+            assert!(!css.contains('#'), "no literal colours in {name}");
+        }
     }
 }

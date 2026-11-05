@@ -2,9 +2,9 @@
 //! opens its folder with the file shown and open in the viewer. The star button takes the star off, with Undo.
 
 use super::api::{self, Star};
-use super::icons::icon;
 use super::kinds::file_icon;
 use super::paths::{format_unix, parent};
+use crate::icons::icon;
 use crate::route::{self, Route};
 use kit_leptos::toasts::{toast, toast_action};
 use leptos::prelude::*;
@@ -27,7 +27,6 @@ fn open(st: &Star) {
 /// The starred page.
 #[component]
 pub fn StarredPage() -> impl IntoView {
-    super::ensure_css();
     let rev = RwSignal::new(0u64);
     let stars = LocalResource::new(move || {
         rev.track();

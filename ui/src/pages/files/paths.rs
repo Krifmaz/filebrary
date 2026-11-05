@@ -72,7 +72,7 @@ pub fn stem_len(name: &str) -> usize {
     }
 }
 
-/// A byte count for people (`1.5 MB`, decimal units like the React UI).
+/// A byte count for people (`1.5 MB`, decimal units).
 pub fn format_size(bytes: u64) -> String {
     if bytes < 1000 {
         return format!("{bytes} B");

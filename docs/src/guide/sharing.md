@@ -22,9 +22,25 @@ working.
 
 ## Managing links
 
-**Shares** in the sidebar lists your links, with their options and how many
-times each was opened. You can change or delete a link at any time; deleting
-it takes effect immediately. Administrators can see and remove every link.
+**Shared** in the sidebar lists your links, with their options and how many
+times each was opened. You can copy, open, change or revoke a link at any
+time; revoking takes effect immediately. **Dead** lists links that expired
+or used up their download limit, and removes them in one go. Administrators
+can see and remove every link.
+
+![The Shared page](../images/shared-desktop.png)
+
+## What visitors see
+
+A link opens a page that needs no account: a password prompt first if the
+link has one, then the file, or the folder to browse with a filter and
+sorting, previews of pictures, video, sound and text, and **Download all**
+as one zip. A drop link shows a box to drop files into, with progress per
+file; uploads are sent in chunks and carry on after a dropped connection or
+a reload. A link that expired answers like an unknown one; a link that used
+up its download limit says so.
+
+![A shared folder](../images/public-folder-phone.png)
 
 ## Collections
 

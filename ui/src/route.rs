@@ -1,8 +1,8 @@
 //! The app's addresses: real paths (`/files/home/Photos`), not `#` routes, so links, share addresses and the
-//! browser's Back button work the way they do in the React UI.
+//! browser's Back button work the way people expect.
 //!
-//! The app may live under a base path (`/next` until cutover, then `/`). The base comes from the address of the
-//! page's own script (`/next/filebrary-web-<hash>.js` → `/next`), so nothing in the code changes at cutover.
+//! The app may live under a base path (`/` by default). The base comes from the address of the page's own script
+//! (`/sub/filebrary-web-<hash>.js` → `/sub`), so a server that mounts it elsewhere needs no change here.
 
 use crate::api::{decode, encode};
 use leptos::prelude::*;

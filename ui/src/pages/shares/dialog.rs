@@ -57,7 +57,6 @@ pub fn title_of(t: &Target) -> String {
 }
 
 fn open(mode: Mode) {
-    super::style::ensure();
     close();
     let created = RwSignal::new(None::<Share>);
     let busy = RwSignal::new(false);

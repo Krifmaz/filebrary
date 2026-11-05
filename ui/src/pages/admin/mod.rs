@@ -9,8 +9,8 @@
 //! | [`branding`] | `/admin/branding`: the name, logo and default theme |
 //! | [`collections`] | `/collections`: the account's collections and their share links |
 //!
-//! The calls and pure helpers are in [`client`]; the pages' own styles in `admin.css` (tokens only, so every
-//! kit theme draws them). Dialogs are the kit's ([`kit_leptos::modal`]), questions the kit's confirm dialog,
+//! The calls and pure helpers are in [`client`]; the pages' styles in `static/css/admin.css` (tokens only, so
+//! every kit theme draws them). Dialogs are the kit's ([`kit_leptos::modal`]), questions the kit's confirm dialog,
 //! messages the kit's toasts (errors stay, with Copy).
 
 mod access;
@@ -45,12 +45,6 @@ fn ic(name: &str) -> String {
     format!(
         r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{p}</svg>"#
     )
-}
-
-/// The pages' own styles, once per page.
-#[component]
-fn Styles() -> impl IntoView {
-    view! { <style>{include_str!("admin.css")}</style> }
 }
 
 /// A row of tabs that are links (`current`: the one that is on).
@@ -149,7 +143,6 @@ pub fn SettingsPage(tab: Signal<String>) -> impl IntoView {
         }
     };
     view! {
-        <Styles/>
         <section class="adm" data-page="settings" data-tab=move || tab.get()>
             <h1>"Settings"</h1>
             <p class="muted">"Your account, sign-in security and how Filebrary looks for you."</p>
@@ -166,7 +159,6 @@ pub fn AdminPage(page: Signal<String>) -> impl IntoView {
     let admin = me().is_some_and(|u| u.role() == Role::Admin);
     if !admin {
         return view! {
-            <Styles/>
             <section class="adm" data-page="admin">
                 <h1>"Administration"</h1>
                 <div class="card">{empty("lock", "Administrators only", "Ask an administrator of this server if you need something changed here.")}</div>
@@ -187,7 +179,6 @@ pub fn AdminPage(page: Signal<String>) -> impl IntoView {
         _ => view! { <div class="card">{empty("alert", "No such admin page", "Pick one of the tabs above.")}</div> }.into_any(),
     };
     view! {
-        <Styles/>
         <section class="adm" data-page="admin" data-admin=move || page.get()>
             <h1>"Administration"</h1>
             <p class="muted">"Accounts, who can reach what, background work and how the server presents itself."</p>
@@ -201,7 +192,7 @@ pub fn AdminPage(page: Signal<String>) -> impl IntoView {
 /// `/collections`.
 #[component]
 pub fn CollectionsPage() -> impl IntoView {
-    view! { <Styles/><collections::Collections/> }
+    view! { <collections::Collections/> }
 }
 
 #[cfg(test)]
@@ -218,12 +209,5 @@ mod tests {
         for name in ["key", "file", "refresh", "plus", "trash", "copy", "x", "collection", "folder", "share", "search", "alert"] {
             assert!(super::ic(name).len() > 150, "{name}");
         }
-    }
-
-    #[test]
-    fn the_styles_use_tokens_only() {
-        let css = include_str!("admin.css");
-        // colours come from the kit's tokens, so every theme draws the pages
-        assert!(!css.contains('#'), "no literal colours in admin.css");
     }
 }

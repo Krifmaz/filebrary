@@ -1,7 +1,7 @@
 [build]
 target = "index.html"
 dist = "dist"
-# Served at /next/ next to the React UI until cutover; the app reads its base path from its script's address,
-# so changing this line is all the cutover needs here.
-public_url = "/next/"
+# Served at the root of the server. The app reads its base path from its script's address,
+# so serving it under another path only needs this line changed.
+public_url = "/"
 filehash = true
