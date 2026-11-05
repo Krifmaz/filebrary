@@ -1,6 +1,7 @@
 # Continuous integration on every pull request, through the kit's shared
-# checks (Krifmaz/kit kit-ci: fmt, clippy -D warnings, tests) plus the checks
-# only Filebrary has: the React web UI (until the Leptos UI replaces it),
+# checks (Krifmaz/kit kit-ci: fmt, clippy -D warnings, tests, and the Leptos
+# UI in ui/) plus the checks only Filebrary has: the React web UI (until the
+# Leptos UI replaces it),
 # storage backends against real servers, Windows, the docs book and a smoke
 # test of the Docker image.
 #
@@ -38,6 +39,21 @@ jobs:
         if [ "$RUNNER_OS" = Linux ]; then
           RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked
         fi
+
+  # The Leptos UI in ui/ (its own Cargo workspace): kit-ci's web app checks
+  # (fmt, wasm32 check and clippy -D warnings, tests, among them the check that
+  # static/css/kit.css matches the pinned kit), then a release build with trunk.
+  ui:
+    name: Leptos UI
+    uses: Krifmaz/kit/.github/workflows/kit-ci.yml@v0.3.2
+    with:
+      rust-dirs: ""
+      wasm-dirs: ui
+      check: |
+        curl -fsSL https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-gnu.tar.gz \
+          | tar -xz -C /usr/local/bin trunk
+        cd ui && trunk build --release
+        test -f dist/index.html && ls dist/*_bg.wasm
 
   # kit-ci's steps run in bash, which Windows runners do not use by default,
   # so Windows keeps its own job.

@@ -1,0 +1,45 @@
+name: cleanup-branches
+
+# Copied from Krifmaz/kit (.github/workflows/cleanup-branches.yml): sessions that
+# push branches here cannot delete them, so this workflow does.
+
+# Deletes a branch once its work is merged: no open pull request uses it, a merged pull request does, and the
+# branch has no commits since that merge (its head is the merged pull request's head). Runs after every push to
+# main and by hand. The same as GitHub's "Automatically delete head branches", for branches merged before that
+# setting was on or merged by tools that cannot delete refs.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: cleanup-branches
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete merged branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DEFAULT: ${{ github.event.repository.default_branch }}
+        run: |
+          OWNER="${REPO%%/*}"
+          gh api --paginate "repos/$REPO/branches?per_page=100" --jq '.[] | [.name, .commit.sha] | @tsv' |
+          while IFS=$'\t' read -r name sha; do
+            [ "$name" = "$DEFAULT" ] && continue
+            prs=$(gh api "repos/$REPO/pulls?state=all&head=$OWNER:$name&per_page=100")
+            open=$(echo "$prs" | jq '[.[] | select(.state == "open")] | length')
+            merged=$(echo "$prs" | jq --arg sha "$sha" '[.[] | select(.merged_at != null and .head.sha == $sha)] | length')
+            if [ "$open" -eq 0 ] && [ "$merged" -gt 0 ]; then
+              gh api -X DELETE "repos/$REPO/git/refs/heads/$name" >/dev/null && echo "deleted $name"
+            else
+              echo "kept $name (open PRs: $open, merged at this head: $merged)"
+            fi
+          done
