@@ -1,6 +1,6 @@
 //! What a file is: its view mode in the listing, the kind the preview service makes thumbnails for, which
 //! viewer opens it and which icon it gets. Judged by extension and MIME type the same way the server's
-//! `FileKind::detect` and the React UI do.
+//! `FileKind::detect` does.
 
 use super::paths::extension;
 use crate::api::{Entry, PreviewCapabilities};
@@ -94,7 +94,7 @@ pub struct ViewMemory {
 }
 
 impl ViewMemory {
-    /// Reads the stored JSON (the React UI's `filebrary.view.<user>` shape), tolerating anything broken.
+    /// Reads the stored JSON (`filebrary.view.<user>`, the shape the old UI stored too), tolerating anything broken.
     pub fn parse(raw: &str) -> ViewMemory {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else { return ViewMemory::default() };
         let default = v.get("default").and_then(|d| d.as_str()).and_then(ViewMode::parse);

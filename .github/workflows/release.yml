@@ -5,8 +5,8 @@
 #   prepare  kit-release: picks the version (PATCH by default; a pull request
 #            raises MINOR or MAJOR by adding docs/releases/<version>.md, which
 #            is also the release notes, otherwise the commit list) and builds
-#            the Leptos UI in ui/ with trunk.
-#   binaries Filebrary's own: the server with both UIs embedded, for
+#            the web UI in ui/ with trunk.
+#   binaries Filebrary's own: the server with the web UI embedded, for
 #            Linux (static musl, x86_64 + aarch64), macOS and Windows.
 #   docker   kit-docker: ghcr.io/<owner>/filebrary:<version> and :latest, and
 #            the ffmpeg + LibreOffice variant as :<version>-full / :latest-full.
@@ -43,7 +43,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  NODE_VERSION: "22"
 
 jobs:
   test:
@@ -60,28 +59,9 @@ jobs:
       app-name: Filebrary
       bump: ${{ inputs.bump || 'auto' }}
       version: ${{ inputs.version || '' }}
-      # The Leptos UI: kit-release builds ui/ with trunk into the ui-dist
-      # artifact, which the binaries embed (served at /next/).
+      # The web UI: kit-release builds ui/ with trunk into the ui-dist
+      # artifact, which the binaries embed.
       web-dir: ui
-
-  web:
-    name: Build web UI
-    needs: prepare
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci --no-audit --no-fund && npm run build
-        working-directory: web
-      - uses: actions/upload-artifact@v4
-        with:
-          name: web-dist
-          path: web/dist
-          if-no-files-found: error
 
   # kit-release's server build packs a trunk web app next to a Linux binary;
   # Filebrary embeds its UI at compile time and also ships macOS and Windows
@@ -89,7 +69,7 @@ jobs:
   # kit-release's publish stage collects into the release.
   binaries:
     name: Binary (${{ matrix.target }})
-    needs: [prepare, web]
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -104,10 +84,6 @@ jobs:
       APP_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
-        with:
-          name: web-dist
-          path: web/dist
       - uses: actions/download-artifact@v4
         with:
           name: ui-dist

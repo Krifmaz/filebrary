@@ -6,7 +6,7 @@ One line per non-obvious call made while rebuilding Filebrary on [Krifmaz/kit](h
 - 2026-11-05 · Accounts and roles stay in Filebrary (`filebrary-identity`) and reach the kit through its `Host` trait; the kit has no accounts crate.
 - 2026-11-05 · The new Leptos web app is built in `ui/` beside the React `web/`, which keeps shipping until the cutover PR removes it.
 - 2026-11-05 · CI/release use kit-ci, kit-release and kit-docker pinned to kit v0.3.2; Filebrary keeps its own jobs only where the kit can't do the work: Windows (kit-ci steps assume bash), the React build, real-backend tests, docs, Docker smoke test.
-- 2026-11-05 · Release binaries are built by Filebrary's own job, not kit-release's server stage: Filebrary embeds the UI at compile time and ships macOS/Windows/musl binaries; artifacts are named `server-*` so kit-release publish attaches them. Revisit at cutover.
+- 2026-11-05 · Release binaries are built by Filebrary's own job, not kit-release's server stage: Filebrary embeds the UI at compile time and ships macOS/Windows/musl binaries; artifacts are named `server-*` so kit-release publish attaches them. Kept at cutover (see below).
 - 2026-11-05 · The `-full` image is a second kit-docker call with `VARIANT=full` and `extra-tags` (`<v>-full`, `latest-full`); the `X.Y` floating tag is dropped (kit tags `:<version>` and `:latest` only).
 - 2026-11-05 · The release version is stamped at build time from `APP_VERSION`, so Cargo.toml's version is no longer the source of truth for releases.
 - 2026-11-05 · Filebrary pins kit v0.3.2: its rusqlite 0.39 and sqlx 0.9 share libsqlite3-sys 0.37, so kit's SQLite stores and Filebrary's sqlx pool live in one Cargo graph.
@@ -18,3 +18,40 @@ One line per non-obvious call made while rebuilding Filebrary on [Krifmaz/kit](h
 - 2026-11-05 · Filebrary has no owner role, so every administrator is the kit's admin and owner; an API key counts as admin only with the `admin` scope.
 - 2026-11-05 · The kit settings table is read from `src/kit/settings.toml` at start (`file::parse`), and saved values are read synchronously, because `AppState::new` is not async.
 - 2026-11-05 · "Update now" answers 409 with the `docker compose pull` command (Filebrary ships as an image); "Restart server" exits with code 75 for the container's restart policy.
+- 2026-11-05 · (#30) Search page filters beyond `q` and `type` are the page's own address parameters (`in`, `src`, `when`, `size`, `sort`, `ext`), written with `replaceState`, so `route.rs` stays untouched and a search with filters is still a link.
+- 2026-11-05 · (#30) The search API client (`client.rs`) and the page CSS (`search.css`, injected with the page) live in the page folder so the track touches only its own files; they can move to `api.rs`/`filebrary.css` at cutover.
+- 2026-11-05 · (#30) Content excerpts are re-sanitised on the client (only `<b>` and entities pass) even though the server escapes them.
+- 2026-11-05 · (#30) File-type icons are drawn in the search page for now; once the files page needs the same set they belong in the kit's icons.
+- 2026-11-05 · (#32) Used-up share links answer 410 on every public route (not 404): the token was already revealed as valid by Download's 410, and the page can tell visitors why the link stopped working. Expired links stay 404 like unknown ones.
+- 2026-11-05 · (#31) The share module has its own typed client (`pages/shares/api.rs`) that follows `crates/filebrary/src/shares/model.rs`, because the scaffold's guesses in `crate::api` would fail to decode (numeric ids, nullable `modified`, "leave" vs "remove" on change).
+- 2026-11-05 · (#31) Drop uploads use a small `XMLHttpRequest` binding so they can report progress; `fetch` can't.
+- 2026-11-05 · (#31) Share styles and a few icons stay inside `pages/shares/` for now; they can move to `filebrary.css`, `crate::icons` or the kit at cutover.
+- 2026-11-05 · (#31) Text previews are fetched with a 512 KB range and drawn in the page; PDFs open in a new tab because the server forbids framing.
+- 2026-11-05 · (#31) A preview counts as a download, as on the server; nothing loads by itself, so limited links aren't used up by browsing.
+- 2026-11-05 · (#34) The admin pages are tabs inside `/admin/<page>` (Users, Groups, Permissions, Jobs, Branding), so the sidebar keeps a single Admin entry.
+- 2026-11-05 · (#34) Branding in the new UI edits only the name, logo and default theme; the old palette colours don't map to kit tokens, so they are sent back unchanged (T4: drop them at cutover).
+- 2026-11-05 · (#34) Page styles live in `ui/src/pages/admin/admin.css`, tokens only (a test checks this).
+- 2026-11-05 · (#34) Logo upload uses `fetch` directly (raw body PUT) with a CSRF token fresh from `GET /api/me`; the kit client only sends JSON and forms, and the server sets no `filebrary_csrf` cookie, so the cookie fallback in `api.rs` never fires.
+- 2026-11-05 · (#34) Theme tiles read colours from `tokens.css` at compile time; a kit theme-picker with swatches would make this generic (kit follow-up).
+- 2026-11-05 · (#33) The text editor is a plain textarea, not CodeMirror: small WASM bundle, covers wrap, save and conflict check.
+- 2026-11-05 · (#33) Uploads use XHR (progress) through a small `wasm_bindgen` extern in `pages/files/http.rs`.
+- 2026-11-05 · (#33) The chunked upload stays in the app, not the kit: it follows Filebrary's own upload API.
+- 2026-11-05 · (#33) The context menu lives in the app for now (kit candidate).
+- 2026-11-05 · (#33) Dialogs and the upload panel mount under their own root reactive owner, else a modal opened from a context menu dies with the menu (kit candidate: `modal::open`/`rt::mount`).
+- 2026-11-05 · (#33) Share goes through a window event (`filebrary:share`), so the files track doesn't edit `pages/shares`.
+- 2026-11-05 · (#33) The browser's CSS is injected from `pages/files` (`files.css`), tokens only.
+- 2026-11-05 · (#33) The CSRF token comes from `GET /api/me`; requests retry once on a CSRF 403.
+- 2026-11-05 · (#35) Kit pages live at `/whats-new`, `/bug-reports`, `/admin/diagnostics` and `/admin/server`. Everyone gets a Help group in the sidebar, the admin pages sit under Admin, and the Settings tabs stay the account's own.
+- 2026-11-05 · (#35) `/api/health` reports the Leptos UI's build (`ui/dist`'s `filebrary-web-<hash>.js`) as `web`, since only the Leptos UI self-updates; the React UI ignores it.
+- 2026-11-05 · (#35) Offline mode opens at start from the remembered account for now; the outbox and opening with no connection wait for kit track T6, wired in a follow-up with the kit pin bump.
+- 2026-11-05 · (#35) Self-update waits for uploads and unsaved edits, as well as the open dialogs the kit already waits for.
+- 2026-11-05 · (#36) Drop-link uploads are staged in the existing `uploads` table with `user_id` set to the negated share id; real user ids are positive, so signed-in routes never match these rows, and they expire with `purge_stale`. No migration needed.
+- 2026-11-05 · (#36) At most 32 open uploads per drop link, so a visitor can't pile up staged uploads.
+- 2026-11-05 · (#36) The drop page's chunk client lives in `pages/shares/upload.rs` (anonymous visitors can't get a CSRF token from `/api/me`). Kit candidate: a generic XHR-with-progress helper in kit-leptos for both.
+- 2026-11-05 · (cutover) The web UI is served at `/` from `ui/dist`; `/next/` and `FILEBRARY_NEXT_UI` are gone, with no redirect from `/next/` (it was opt-in and short-lived). Every page answer carries the UI's own CSP (`'wasm-unsafe-eval'` plus the hash of trunk's inline loader); other answers keep the strict site-wide one.
+- 2026-11-05 · (cutover) A missing top-level name with a dot answers 404 instead of the app page, so a stale script never gets HTML back; deeper paths always get the page, since share and file links end in file names.
+- 2026-11-05 · (cutover) `ui/static/sw.js` retires the React UI's service worker: it deletes the old caches, unregisters itself and reloads open tabs. The kit's offline worker (T6) replaces it when the kit pin moves.
+- 2026-11-05 · (cutover) The Dockerfile builds `ui/` with trunk in a native `rust:<version>-slim` stage (trunk's release binaries are glibc), so the image stays self-contained for kit-docker; release binaries still embed kit-release's `ui-dist` artifact. Filebrary keeps its own binaries job (macOS, Windows, musl).
+- 2026-11-05 · (cutover) The per-page CSS (files, search, shares, admin) moved to `ui/static/css/<page>.css`, linked from `index.html`, instead of being injected at run time; the page icons moved into `ui/src/icons.rs`, with the files browser's names winning where two pages drew the same icon.
+- 2026-11-05 · (cutover) Branding and user themes keep only kit theme names (`encore`, `dark`, `oled`, `light`, `system`; old `custom` reads as `encore`). Stored palettes are ignored on read and dropped on the next save; the `user_themes.colours` column is left in place (written as `{}`) so no migration touches user data.
+- 2026-11-05 · (cutover) Changelog versions follow the real tags: a merge whose release run was superseded ships in the next tag, so v0.2.3 and v0.2.4 each carry several PRs.

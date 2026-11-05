@@ -2,10 +2,10 @@
 //! Resume, Retry, Cancel, and Replace or Keep both for a file that is already there. It is mounted once, the
 //! first time something is uploaded, and stays while the person moves between folders.
 
-use super::icons::icon;
 use super::kinds::file_icon;
 use super::paths::format_size;
 use super::upload::{self, eta_words, summary, Item, Status};
+use crate::icons::icon;
 use leptos::prelude::*;
 
 thread_local! {
@@ -17,7 +17,6 @@ pub fn show() {
     if SHOWN.with(|s| s.replace(true)) {
         return;
     }
-    super::ensure_css();
     let Some(doc) = kit_leptos::rt::document() else { return };
     let Some(body) = doc.body() else { return };
     let Ok(host) = doc.create_element("div") else { return };

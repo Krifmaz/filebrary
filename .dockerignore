@@ -1,7 +1,8 @@
 # Keep the build context small and reproducible.
 target/
 **/node_modules/
-web/dist/
+ui/dist/
+ui/target/
 docs/book/
 .git/
 .github/

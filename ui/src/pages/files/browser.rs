@@ -10,7 +10,6 @@
 //!
 //! Dropping files or folders anywhere on the listing uploads them here, folders with their structure.
 
-use super::icons::icon;
 use super::kinds::ViewMode;
 use super::listing::{drop_target, Listing};
 use super::menu::{below, ContextMenu, MenuItem, MenuState};
@@ -20,6 +19,7 @@ use super::preview::Preview;
 use super::state::{Ctx, Load};
 use super::{pick, upload};
 use crate::api::Source;
+use crate::icons::icon;
 use crate::route::{self, Route};
 use leptos::prelude::*;
 use std::collections::BTreeSet;
@@ -228,7 +228,6 @@ fn bar_button(
 /// `/files/<source>/<path…>`: one folder of a source.
 #[component]
 pub fn FilesPage(source: Signal<String>, path: Signal<String>) -> impl IntoView {
-    super::ensure_css();
     let sources = LocalResource::new(|| async { crate::api::sources().await.map_err(|e| e.message) });
     let user = match crate::use_session().get.get_untracked() {
         crate::Session::SignedIn(u) => u.id,

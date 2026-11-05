@@ -10,13 +10,26 @@
   <meta name="application-name" content="Filebrary">
   <title>Filebrary</title>
   <link data-trunk rel="copy-file" href="static/icon.svg">
-  <!-- main.rs points this at the app's base once it knows it (/next/icon.svg until cutover) -->
+  <link data-trunk rel="copy-file" href="static/icon-192.png">
+  <link data-trunk rel="copy-file" href="static/icon-512.png">
+  <!-- the server sends this with the branding name and logo at /manifest.webmanifest -->
+  <link data-trunk rel="copy-file" href="static/manifest.webmanifest">
+  <!-- retires the old UI's service worker in browsers that still have it -->
+  <link data-trunk rel="copy-file" href="static/sw.js">
+  <!-- main.rs points this at the app's base once it knows it -->
   <link rel="icon" id="favicon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="manifest" href="/manifest.webmanifest">
   <!-- the kit's colour tokens, the kit's components, the kit template's shell rules, then Filebrary's own -->
   <link data-trunk rel="css" href="static/css/tokens.css">
   <link data-trunk rel="css" href="static/css/kit.css">
   <link data-trunk rel="css" href="static/css/app.css">
   <link data-trunk rel="css" href="static/css/filebrary.css">
+  <!-- the pages' own rules, on the kit's tokens -->
+  <link data-trunk rel="css" href="static/css/files.css">
+  <link data-trunk rel="css" href="static/css/search.css">
+  <link data-trunk rel="css" href="static/css/shares.css">
+  <link data-trunk rel="css" href="static/css/admin.css">
   <link data-trunk rel="rust" data-wasm-opt="z" data-bin="filebrary-web">
 </head>
 <body>

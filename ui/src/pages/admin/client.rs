@@ -229,33 +229,19 @@ pub struct IndexStatus {
     pub last_error: Option<String>,
 }
 
-/// The server-wide branding. The colour palettes are kept as the server has them (the kit themes draw the
-/// new UI; the palettes still style the React UI until cutover).
+/// The server-wide branding: the name, the logo and the default theme (the kit's themes draw the colours).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub struct Branding {
     /// The name people see.
     #[serde(default)]
     pub name: String,
-    /// The theme for accounts that have not picked one: `system`, `light`, `dark` or `custom`.
+    /// The theme for accounts that have not picked one: one of [`crate::theme::THEMES`].
     #[serde(default)]
     pub default_theme: String,
-    /// Light theme colours.
-    #[serde(default)]
-    pub light: Value,
-    /// Dark theme colours.
-    #[serde(default)]
-    pub dark: Value,
-    /// Custom theme colours.
-    #[serde(default)]
-    pub custom: Value,
     /// The logo's address, if there is one.
     #[serde(default, skip_serializing)]
     pub logo_url: Option<String>,
 }
-
-/// The default themes branding can name, with their words.
-pub const BRAND_THEMES: [(&str, &str); 4] =
-    [("system", "Follow the device"), ("light", "Light"), ("dark", "Dark"), ("custom", "Custom (React UI only)")];
 
 /// A collection in the list.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -530,7 +516,7 @@ pub async fn branding() -> Result<Branding> {
     get("/branding").await
 }
 
-/// Saves the branding (name, default theme, palettes as they were).
+/// Saves the branding (name and default theme).
 pub async fn save_branding(b: &Branding) -> Result<Branding> {
     put("/admin/branding", serde_json::to_value(b).unwrap_or_default()).await
 }
@@ -860,10 +846,11 @@ mod tests {
     }
 
     #[test]
-    fn branding_keeps_its_palettes_and_leaves_the_logo_out() {
-        let b: Branding = serde_json::from_value(json!({"name": "Files", "default_theme": "dark", "light": {"--bg": "#fff"}, "dark": {}, "custom": {}, "logo_url": "/api/branding/logo?v=2"})).unwrap();
+    fn branding_sends_only_what_the_server_takes() {
+        let b: Branding =
+            serde_json::from_value(json!({"name": "Files", "default_theme": "dark", "logo_url": "/api/branding/logo?v=2"})).unwrap();
         let back = serde_json::to_value(&b).unwrap();
-        assert_eq!(back["light"], json!({"--bg": "#fff"}));
+        assert_eq!(back, json!({"name": "Files", "default_theme": "dark"}));
         assert!(back.get("logo_url").is_none(), "the server refuses unknown fields");
     }
 

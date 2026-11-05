@@ -1,13 +1,12 @@
 //! Themes and branding.
 //!
 //! *Branding* is server-wide and set by administrators: the product name shown
-//! in the UI and the installed PWA, a logo, the default theme, and colour
-//! overrides for the light, dark and custom themes. *Theme* is each user's
-//! choice of `light`, `dark`, `system` or `custom` (with their own colours).
+//! in the UI and the installed PWA, a logo and the default theme. *Theme* is
+//! each user's choice of one of the kit's themes ([`ThemeName`]).
 //!
-//! Colours are CSS custom properties from a fixed list ([`THEME_VARS`]) and
-//! values must be `#rgb` or `#rrggbb`, so nothing an administrator or user
-//! types can inject CSS.
+//! The colours themselves come from the kit's theme tokens; the colour
+//! palettes the old React UI stored are ignored when read and dropped on the
+//! next save.
 //!
 //! | Method   | Path                          | Who     | What                          |
 //! |----------|-------------------------------|---------|-------------------------------|
@@ -19,8 +18,6 @@
 //! | `GET`    | `/api/me/theme`               | user    | The caller's theme            |
 //! | `PUT`    | `/api/me/theme`               | user    | Set the caller's theme        |
 //! | `GET`    | `/manifest.webmanifest`       | anyone  | PWA manifest with branding    |
-
-use std::collections::BTreeMap;
 
 use axum::{
     Json, Router,
@@ -40,21 +37,6 @@ use crate::{
     state::AppState,
 };
 
-/// CSS custom properties that themes may set (defined in `web/src/styles.css`).
-pub const THEME_VARS: [&str; 11] = [
-    "--bg",
-    "--surface",
-    "--surface-2",
-    "--text",
-    "--muted",
-    "--border",
-    "--accent",
-    "--accent-contrast",
-    "--accent-soft",
-    "--danger",
-    "--ok",
-];
-
 /// Largest logo accepted, in bytes.
 pub const MAX_LOGO_BYTES: usize = 512 * 1024;
 /// Longest product name, in characters.
@@ -62,43 +44,46 @@ pub const MAX_NAME_CHARS: usize = 60;
 /// Default product name.
 pub const DEFAULT_NAME: &str = "Filebrary";
 
-/// A theme choice.
+/// A theme choice: one of the kit's themes, or `system` (light or dark from
+/// the device).
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeName {
-    /// Light colours.
-    Light,
+    /// The kit's Encore theme (charcoal and cream), the default.
+    #[default]
+    Encore,
     /// Dark colours.
     Dark,
+    /// Black, for OLED screens.
+    Oled,
+    /// Light colours.
+    Light,
     /// Follow the operating system.
-    #[default]
     System,
-    /// The custom palette.
-    Custom,
 }
 
 impl ThemeName {
     fn as_str(self) -> &'static str {
         match self {
-            Self::Light => "light",
+            Self::Encore => "encore",
             Self::Dark => "dark",
+            Self::Oled => "oled",
+            Self::Light => "light",
             Self::System => "system",
-            Self::Custom => "custom",
         }
     }
 
+    /// A stored theme; unknown values (the old `custom` among them) are Encore.
     fn parse(s: &str) -> Self {
         match s {
-            "light" => Self::Light,
             "dark" => Self::Dark,
-            "custom" => Self::Custom,
-            _ => Self::System,
+            "oled" => Self::Oled,
+            "light" => Self::Light,
+            "system" => Self::System,
+            _ => Self::Encore,
         }
     }
 }
-
-/// CSS variable name → colour.
-pub type Palette = BTreeMap<String, String>;
 
 /// Branding settings as stored and as sent by administrators.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -108,12 +93,20 @@ pub struct BrandingSettings {
     pub name: String,
     /// Theme for users who have not picked one, and for public share pages.
     pub default_theme: ThemeName,
-    /// Overrides applied to the light theme.
-    pub light: Palette,
-    /// Overrides applied to the dark theme.
-    pub dark: Palette,
-    /// The server-wide custom theme (users may override it with their own).
-    pub custom: Palette,
+}
+
+/// Fields of stored branding that only the old React UI used (colour palettes).
+const OLD_FIELDS: [&str; 3] = ["light", "dark", "custom"];
+
+/// Reads stored branding, leaving out the old palettes.
+fn parse_stored(data: &str) -> serde_json::Result<BrandingSettings> {
+    let mut v: Value = serde_json::from_str(data)?;
+    if let Some(m) = v.as_object_mut() {
+        for k in OLD_FIELDS {
+            m.remove(k);
+        }
+    }
+    serde_json::from_value(v)
 }
 
 /// Branding as served at `GET /api/branding`.
@@ -132,8 +125,6 @@ pub struct Branding {
 pub struct UserTheme {
     /// The theme.
     pub theme: ThemeName,
-    /// Personal custom colours (used with `custom`, on top of the server's).
-    pub colours: Palette,
 }
 
 /// Routes merged into `/api`.
@@ -144,36 +135,6 @@ pub fn router() -> Router<AppState> {
         .route("/admin/branding", put(put_branding))
         .route("/admin/branding/logo", put(put_logo).delete(delete_logo))
         .route("/me/theme", get(get_theme).put(put_theme))
-}
-
-/// Checks a colour: `#rgb` or `#rrggbb`.
-pub fn valid_colour(c: &str) -> bool {
-    let Some(hex) = c.strip_prefix('#') else {
-        return false;
-    };
-    matches!(hex.len(), 3 | 6) && hex.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
-/// Checks every entry of a palette against [`THEME_VARS`] and [`valid_colour`].
-///
-/// # Errors
-///
-/// `BadRequest` naming the first offending entry.
-pub fn validate_palette(p: &Palette) -> AppResult<()> {
-    for (k, v) in p {
-        if !THEME_VARS.contains(&k.as_str()) {
-            return Err(AppError::bad_request(format!(
-                "unknown theme colour {k:?}; use one of {}",
-                THEME_VARS.join(", ")
-            )));
-        }
-        if !valid_colour(v) {
-            return Err(AppError::bad_request(format!(
-                "colour for {k} must look like #1a2b3c"
-            )));
-        }
-    }
-    Ok(())
 }
 
 fn validate_settings(s: &mut BrandingSettings) -> AppResult<()> {
@@ -188,9 +149,7 @@ fn validate_settings(s: &mut BrandingSettings) -> AppResult<()> {
             "the name contains control characters",
         ));
     }
-    validate_palette(&s.light)?;
-    validate_palette(&s.dark)?;
-    validate_palette(&s.custom)
+    Ok(())
 }
 
 /// Loads branding settings and the logo version (its update time), if any.
@@ -205,7 +164,7 @@ pub async fn load(state: &AppState) -> AppResult<(BrandingSettings, Option<i64>)
             .await?;
     let (mut settings, logo) = match row {
         Some((data, has_logo, updated)) => (
-            serde_json::from_str(&data).unwrap_or_else(|e| {
+            parse_stored(&data).unwrap_or_else(|e| {
                 tracing::warn!(error = %e, "ignoring unreadable branding settings");
                 BrandingSettings::default()
             }),
@@ -333,19 +292,16 @@ async fn get_logo(State(state): State<AppState>) -> AppResult<Response> {
 
 /// `GET /api/me/theme`: the caller's theme (the server default if unset).
 async fn get_theme(State(state): State<AppState>, auth: AuthUser) -> AppResult<Json<UserTheme>> {
-    let row: Option<(String, String)> =
-        sqlx::query_as("SELECT theme, colours FROM user_themes WHERE user_id = ?")
-            .bind(auth.user.id)
-            .fetch_optional(&state.db)
-            .await?;
+    let row: Option<String> = sqlx::query_scalar("SELECT theme FROM user_themes WHERE user_id = ?")
+        .bind(auth.user.id)
+        .fetch_optional(&state.db)
+        .await?;
     Ok(Json(match row {
-        Some((theme, colours)) => UserTheme {
+        Some(theme) => UserTheme {
             theme: ThemeName::parse(&theme),
-            colours: serde_json::from_str(&colours).unwrap_or_default(),
         },
         None => UserTheme {
             theme: load(&state).await?.0.default_theme,
-            colours: Palette::new(),
         },
     }))
 }
@@ -356,23 +312,21 @@ async fn put_theme(
     auth: AuthUser,
     Json(t): Json<UserTheme>,
 ) -> AppResult<Json<UserTheme>> {
-    validate_palette(&t.colours)?;
-    let colours = serde_json::to_string(&t.colours).map_err(anyhow::Error::from)?;
+    // `colours` held the old React UI's personal palette; it is cleared.
     sqlx::query(
-        "INSERT INTO user_themes (user_id, theme, colours, updated_at) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT(user_id) DO UPDATE SET theme = ?2, colours = ?3, updated_at = ?4",
+        "INSERT INTO user_themes (user_id, theme, colours, updated_at) VALUES (?1, ?2, '{}', ?3)
+         ON CONFLICT(user_id) DO UPDATE SET theme = ?2, colours = '{}', updated_at = ?3",
     )
     .bind(auth.user.id)
     .bind(t.theme.as_str())
-    .bind(colours)
     .bind(db::now())
     .execute(&state.db)
     .await?;
     Ok(Json(t))
 }
 
-/// `GET /manifest.webmanifest`: the web UI's manifest with the branding name,
-/// colours and (if it is a raster image) the logo as an icon.
+/// `GET /manifest.webmanifest`: the web UI's manifest with the branding name
+/// and (if it is a raster image) the logo as an icon.
 pub async fn manifest(State(state): State<AppState>) -> AppResult<Response> {
     let (s, logo) = load(&state).await?;
     let mut m: Value = crate::web::embedded("manifest.webmanifest")
@@ -384,14 +338,6 @@ pub async fn manifest(State(state): State<AppState>) -> AppResult<Response> {
     let short: String = s.name.chars().take(12).collect();
     m["name"] = json!(s.name);
     m["short_name"] = json!(short);
-    let accent = s.light.get("--accent").cloned();
-    let bg = s.light.get("--bg").cloned();
-    if let Some(a) = accent {
-        m["theme_color"] = json!(a);
-    }
-    if let Some(b) = bg {
-        m["background_color"] = json!(b);
-    }
     if let Some(v) = logo {
         let mime: Option<String> =
             sqlx::query_scalar("SELECT logo_mime FROM branding WHERE id = 1")
@@ -421,28 +367,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn colours() {
-        for ok in ["#fff", "#A1b2C3"] {
-            assert!(valid_colour(ok), "{ok}");
-        }
-        for bad in ["fff", "#ffff", "#ggg", "red", "#fff;}", "#fff\n", ""] {
-            assert!(!valid_colour(bad), "{bad}");
-        }
-    }
-
-    #[test]
-    fn palettes() {
-        let mut p = Palette::new();
-        p.insert("--accent".into(), "#336699".into());
-        validate_palette(&p).unwrap();
-        p.insert("--evil".into(), "#000".into());
-        assert!(validate_palette(&p).is_err());
-        let mut q = Palette::new();
-        q.insert("--bg".into(), "url(x)".into());
-        assert!(validate_palette(&q).is_err());
-    }
-
-    #[test]
     fn settings_validation() {
         let mut s = BrandingSettings {
             name: "  Acme Files ".into(),
@@ -453,6 +377,17 @@ mod tests {
         s.name = "x".repeat(MAX_NAME_CHARS + 1);
         assert!(validate_settings(&mut s).is_err());
         assert!(serde_json::from_str::<BrandingSettings>(r#"{"nmae":"x"}"#).is_err());
+    }
+
+    #[test]
+    fn stored_branding_drops_the_old_palettes() {
+        let s = parse_stored(
+            r##"{"name":"Acme","default_theme":"dark","light":{"--bg":"#fff"},"dark":{},"custom":{}}"##,
+        )
+        .unwrap();
+        assert_eq!(s.name, "Acme");
+        assert_eq!(s.default_theme, ThemeName::Dark);
+        assert!(serde_json::from_str::<BrandingSettings>(r#"{"light":{}}"#).is_err());
     }
 
     #[test]
@@ -472,13 +407,15 @@ mod tests {
     #[test]
     fn theme_names() {
         for t in [
-            ThemeName::Light,
+            ThemeName::Encore,
             ThemeName::Dark,
+            ThemeName::Oled,
+            ThemeName::Light,
             ThemeName::System,
-            ThemeName::Custom,
         ] {
             assert_eq!(ThemeName::parse(t.as_str()), t);
         }
-        assert_eq!(ThemeName::parse("neon"), ThemeName::System);
+        assert_eq!(ThemeName::parse("neon"), ThemeName::Encore);
+        assert_eq!(ThemeName::parse("custom"), ThemeName::Encore);
     }
 }

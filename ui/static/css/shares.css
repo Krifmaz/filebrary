@@ -1,8 +1,4 @@
-//! The sharing pages' styles, on the kit's design tokens only, so every kit theme draws them. They go into the
-//! page once ([`ensure`]), the first time one of these pages or the dialog is drawn.
-
-/// The rules.
-pub const CSS: &str = r#"
+/* The sharing pages: the Shared list, the share dialog and the public share page. Design tokens only. */
 .sh-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .sh-head p { margin: 6px 0 0; }
 .sh-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
@@ -84,17 +80,3 @@ pub const CSS: &str = r#"
 .drop-list li.failed .state { color: var(--err); white-space: normal; }
 .drop-bar { height: 4px; border-radius: 4px; background: var(--panel-2); overflow: hidden; }
 .drop-bar i { display: block; height: 100%; background: var(--grad); transition: width .2s; }
-"#;
-
-/// Puts [`CSS`] into the page's `<head>` once.
-pub fn ensure() {
-    const ID: &str = "fb-shares-css";
-    if kit_leptos::rt::by_id(ID).is_some() {
-        return;
-    }
-    let Some(doc) = kit_leptos::rt::document() else { return };
-    let (Ok(el), Some(head)) = (doc.create_element("style"), kit_leptos::rt::qs("head")) else { return };
-    el.set_id(ID);
-    el.set_text_content(Some(CSS));
-    let _ = head.append_child(&el);
-}

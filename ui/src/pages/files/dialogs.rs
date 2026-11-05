@@ -2,8 +2,8 @@
 //! (move and copy), tags, comments, "Add to collection" and the trash.
 
 use super::api::{self, Comment, TrashItem};
-use super::icons::icon;
 use super::paths::{crumbs, format_size, format_unix, join, name_problem, plural, stem_len};
+use crate::icons::icon;
 use kit_leptos::modal::{self, Modal, ModalOpts};
 use kit_leptos::toasts::toast;
 use leptos::prelude::*;

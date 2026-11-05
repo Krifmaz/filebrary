@@ -1,7 +1,6 @@
-//! `/admin/branding`: the server's name, its logo and the default theme. The colour palettes the React UI
-//! used are kept as they are (the kit themes draw this UI), so saving here never loses them.
+//! `/admin/branding`: the server's name, its logo and the default theme (one of the kit's themes).
 
-use super::client::{self, Branding, BRAND_THEMES};
+use super::client::{self, Branding};
 use super::{done, fail, failed, ic, loading};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -75,7 +74,7 @@ pub fn BrandingPage() -> impl IntoView {
                         </label>
                         <label class="field"><span>"Default theme"</span>
                             <select class="input" on:change=move |e| { let v = event_target_value(&e); draft.update(|d| if let Some(d) = d { d.default_theme = v; }); }>
-                                {BRAND_THEMES.iter().map(|(id, words)| { let sel = b.default_theme == *id; view! { <option value=*id selected=sel>{*words}</option> } }).collect_view()}
+                                {crate::theme::THEMES.iter().map(|(id, words)| { let sel = b.default_theme == *id; view! { <option value=*id selected=sel>{*words}</option> } }).collect_view()}
                             </select>
                             <small>"For accounts that have not picked one, and for share links."</small>
                         </label>

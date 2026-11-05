@@ -7,7 +7,6 @@
 //! | --- | --- |
 //! | `query.rs` | the filters, the address and API queries they make, the words a result shows (tested) |
 //! | `client.rs` | `GET /api/search` and its answer |
-//! | `search.css` | the page's own rules (design tokens only) |
 
 pub mod client;
 pub mod query;
@@ -17,9 +16,6 @@ use crate::route::{on_link, url, Route};
 use client::{Hit, Results};
 use leptos::prelude::*;
 use query::{Mode, Search, SIZES, TYPES, WHEN};
-
-/// The page's own CSS, added to the page with it.
-const CSS: &str = include_str!("search.css");
 
 /// What the results area shows.
 #[derive(Clone, Debug, PartialEq)]
@@ -34,22 +30,9 @@ enum Shown {
     Done(Results),
 }
 
-/// The icon of a result's type: Filebrary's folder, or a file shape for the rest.
+/// The icon of a result's type.
 fn kind_svg(kind: &str, is_dir: bool) -> String {
-    let name = query::kind_icon(kind, is_dir);
-    let p = match name {
-        "folder" => return crate::icons::icon("folder"),
-        "image" => r#"<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/>"#,
-        "video" => r#"<rect x="2" y="5" width="14" height="14" rx="2"/><path d="m16 10 6-3v10l-6-3z"/>"#,
-        "audio" => r#"<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>"#,
-        "document" => r#"<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>"#,
-        "code" => r#"<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>"#,
-        "archive" => r#"<rect x="3" y="3" width="18" height="5" rx="1"/><path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4"/>"#,
-        _ => r#"<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>"#,
-    };
-    format!(
-        r#"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{p}</svg>"#
-    )
+    crate::icons::icon(query::kind_icon(kind, is_dir))
 }
 
 /// The address bar's query now (`?q=…`).
@@ -343,7 +326,6 @@ pub fn SearchPage(q: Signal<String>, kind: Signal<String>) -> impl IntoView {
     };
 
     view! {
-        <style>{CSS}</style>
         <div data-page="search">
             <div class="sr-head">
                 <div style="min-width:0">

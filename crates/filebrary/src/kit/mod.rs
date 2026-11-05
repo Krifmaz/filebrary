@@ -280,7 +280,7 @@ impl kit_server_diagnostics::Diagnostics for AppState {
 /// build of the Leptos UI (the hash in its script's name), so an open tab
 /// sees a new build and reloads into it.
 fn health() -> kit_server_health::Health {
-    let mut h = kit_server_health::Health::new(VERSION, crate::web::next_build());
+    let mut h = kit_server_health::Health::new(VERSION, crate::web::build());
     h.extra.insert("status".into(), "ok".into());
     h
 }

@@ -22,7 +22,6 @@ mod browser;
 mod dialogs;
 mod editor;
 mod http;
-mod icons;
 mod kinds;
 mod listing;
 mod menu;
@@ -44,20 +43,3 @@ pub use starred::StarredPage;
 /// For `kit.rs`: the self-update waits while files upload (`UpdateConfig::hold`).
 #[allow(unused_imports)]
 pub use upload::uploading;
-
-/// The browser's styles (tokens only, so every kit theme draws them).
-const CSS: &str = include_str!("files.css");
-
-/// Puts the browser's styles in the page's head (once): the upload panel outlives the page that started it.
-pub(crate) fn ensure_css() {
-    let Some(doc) = kit_leptos::rt::document() else { return };
-    if doc.get_element_by_id("files-css").is_some() {
-        return;
-    }
-    let Ok(style) = doc.create_element("style") else { return };
-    let _ = style.set_attribute("id", "files-css");
-    style.set_text_content(Some(CSS));
-    if let Some(head) = doc.head() {
-        let _ = head.append_child(&style);
-    }
-}

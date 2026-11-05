@@ -531,8 +531,7 @@ async fn branding_and_themes() {
     assert_eq!(b["logo_url"], Value::Null);
 
     let settings = json!({
-        "name": "Acme Files", "default_theme": "dark",
-        "light": {"--accent": "#336699"}, "dark": {}, "custom": {"--bg": "#101010"}
+        "name": "Acme Files", "default_theme": "dark"
     });
     let (s, _) = ctx
         .call(
@@ -548,10 +547,11 @@ async fn branding_and_themes() {
             Some(&admin),
             Method::PUT,
             "/api/admin/branding",
-            Some(json!({"light": {"--accent": "red; background:url(x)"}})),
+            // The old React UI's colour palettes are gone.
+            Some(json!({"light": {"--accent": "#336699"}})),
         )
         .await;
-    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
     let (s, b) = ctx
         .call(
             Some(&admin),
@@ -573,14 +573,14 @@ async fn branding_and_themes() {
             Some(&alice),
             Method::PUT,
             "/api/me/theme",
-            Some(json!({"theme": "custom", "colours": {"--text": "#eee"}})),
+            Some(json!({"theme": "oled"})),
         )
         .await;
     assert_eq!(s, StatusCode::OK);
     let (_, t) = ctx
         .call(Some(&alice), Method::GET, "/api/me/theme", None)
         .await;
-    assert_eq!(t, json!({"theme": "custom", "colours": {"--text": "#eee"}}));
+    assert_eq!(t, json!({"theme": "oled"}));
 
     // Logo: only real images, served with a sandboxing CSP.
     let upload = |bytes: &'static [u8]| {

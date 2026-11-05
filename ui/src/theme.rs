@@ -9,7 +9,7 @@ pub const THEMES: [(&str, &str); 5] =
 /// Where the choice is kept in `localStorage`.
 pub const KEY: &str = "filebrary.theme";
 
-/// A known theme id, else the default `encore` (older React UI values `custom` included).
+/// A known theme id, else the default `encore` (the old `custom` included).
 pub fn normalize(id: &str) -> &'static str {
     THEMES.iter().map(|(id, _)| *id).find(|t| *t == id).unwrap_or("encore")
 }

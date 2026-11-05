@@ -1,7 +1,7 @@
 //! The context menu: right-click, long-press, the ⋮ button and the "More" buttons open it. On a phone it is a
 //! sheet at the bottom of the screen. Arrow keys move through it, Enter picks, Escape or a press outside closes.
 
-use super::icons::icon;
+use crate::icons::icon;
 use leptos::prelude::*;
 use std::rc::Rc;
 use wasm_bindgen::JsCast;

@@ -3,7 +3,12 @@
 A small, fast, self-hosted file manager written in Rust, shipped as one
 binary (web UI embedded) and one Docker image. Licensed under Apache-2.0.
 
-> Status: Phase 1 in progress (v0.1). This README is expanded as features land.
+The web UI is built with [Leptos](https://leptos.dev) on
+[Krifmaz/kit](https://github.com/Krifmaz/kit) (the Encore theme, What's new,
+self-update, bug reports, diagnostics, offline start) and works the same on
+a phone, a tablet and a desktop.
+
+![Files in the Encore theme](docs/src/images/files-desktop.png)
 
 ## Documentation
 
@@ -24,7 +29,7 @@ Preview it locally with `mdbook serve docs`.
 | `crates/filebrary-identity` | TOTP 2FA, API keys, quotas, LDAP and OIDC logic and storage. |
 | `crates/filebrary-preview` | Thumbnails, previews, media info, transcoding, preview cache. |
 | `migrations/`              | SQLite migrations for the whole workspace (one history).      |
-| `web/`                     | React + TypeScript + Vite PWA, built into `web/dist`.         |
+| `ui/`                      | The web UI: Leptos (WebAssembly) on the kit, built by trunk into `ui/dist`. |
 | `docs/`                    | mdBook documentation.                                         |
 
 Migration numbers: `0001-0009` core, `0010-0019` auth, `0020-0029` shares,
@@ -33,15 +38,15 @@ Migration numbers: `0001-0009` core, `0010-0019` auth, `0020-0029` shares,
 ## Build
 
 ```sh
-npm --prefix web ci && npm --prefix web run build   # optional: embeds the UI
+rustup target add wasm32-unknown-unknown && cargo install trunk --locked
+(cd ui && trunk build --release)      # optional: embeds the web UI
 cargo build --release
 ./target/release/filebrary            # serves ./data/files on 127.0.0.1:8080
 ```
 
 ## Text editor
 
-Text and code files open in a CodeMirror editor in the web UI, with syntax
-highlighting for about 100 languages, search (Ctrl/Cmd+F), line wrapping and
+Text and code files open in the web UI's editor, with line wrapping and
 Ctrl/Cmd+S to save. Users with the `edit` permission can save; everyone else
 with `download` gets a read-only view. Files up to 5 MiB that are valid UTF-8
 open in the editor; others are offered as a download.
@@ -192,10 +197,10 @@ Idle memory of a release build with one local source is about 12 MB RSS
   device streams from a signed URL that expires after 6 hours and stops
   working as soon as the user loses access. Set `public_url` so devices
   reach the right address.
-* **Themes and branding**: *Appearance* lets each user pick light, dark,
-  system or a custom palette; administrators set the product name, logo,
-  default theme and the colours of each theme, which also brand the login
-  page, share pages and the installed PWA.
+* **Themes and branding**: *Appearance* lets each user pick one of the
+  kit's themes (Encore, dark, black for OLED screens, light, or follow the
+  device); administrators set the product name, logo and default theme,
+  which also brand the login page, share pages and the installed PWA.
 
 ## WebDAV
 

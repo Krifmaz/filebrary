@@ -1,5 +1,5 @@
 /* The file browser, the viewer, the editor, the context menu and the upload panel. Only design tokens
-   (tokens.css) are used, so every kit theme draws them. Included by pages/files (one <style> per page). */
+   (tokens.css) are used, so every kit theme draws them; media frames keep their own black and white. */
 
 .browser { position: relative; display: flex; flex-direction: column; gap: 14px; padding-bottom: 10px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
