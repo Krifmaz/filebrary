@@ -1,0 +1,8 @@
+# The same toolchain as the server (../rust-toolchain.toml, which would apply
+# here too), plus the WebAssembly target the UI builds for, so rustup installs
+# it wherever ui/ is built: CI, kit-release's trunk build, a fresh checkout.
+[toolchain]
+channel = "1.97"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
