@@ -13,6 +13,9 @@ There is nothing to download from an app store.
 Installing requires HTTPS (or `localhost`). The installed app talks to the
 same server and uses the same account as the browser.
 
+The installed app also opens with no connection: it shows what it last
+loaded and sends stars set offline once the server answers again.
+
 The app checks for a new version in the background. When the server is
 updated it says so and reloads into the new version once nothing is
 uploading and no edit is unsaved.

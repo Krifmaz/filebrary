@@ -5,6 +5,7 @@
 - The new web UI replaces the old one and is served at `/`: files, uploads, previews, search, share links, settings and administration, all on the kit in the Encore theme (see What's new). `/next/` and `FILEBRARY_NEXT_UI` are gone.
 - Themes are the kit's (Encore, dark, black for OLED, light, follow the device); the old colour palettes for branding and per user are no longer used, and `/api/me/theme` no longer takes `colours`.
 - Builds, the Docker image and releases build the web UI from `ui/` with trunk; Node.js is no longer needed.
+- The web UI opens with no connection through the kit's service worker (kit v0.7.2), which also replaces the old UI's worker, and stars made while the server is unreachable are sent once it's back.
 
 ## v0.2.4
 
