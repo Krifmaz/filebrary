@@ -1,10 +1,13 @@
-# Continuous integration: formatting, lints, tests and builds on every push
-# and pull request, for Linux, macOS and Windows.
+# Continuous integration on every pull request, through the kit's shared
+# checks (Krifmaz/kit kit-ci: fmt, clippy -D warnings, tests) plus the checks
+# only Filebrary has: the React web UI (until the Leptos UI replaces it),
+# storage backends against real servers, Windows, the docs book and a smoke
+# test of the Docker image.
+#
+# Pushes to main run the same kit checks inside release.yml before releasing.
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -17,88 +20,57 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-  RUSTFLAGS: -D warnings
   NODE_VERSION: "22"
 
 jobs:
+  test:
+    name: Rust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    uses: Krifmaz/kit/.github/workflows/kit-ci.yml@v0.3.2
+    with:
+      rust-dirs: .
+      runs-on: ${{ matrix.os }}
+      # Doc comments build cleanly (Linux only: the docs are the same everywhere).
+      check: |
+        if [ "$RUNNER_OS" = Linux ]; then
+          RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked
+        fi
+
+  # kit-ci's steps run in bash, which Windows runners do not use by default,
+  # so Windows keeps its own job.
+  windows:
+    name: Rust (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.97
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
   web:
     name: Web UI (lint, typecheck, build)
     runs-on: ubuntu-latest
-    outputs:
-      present: ${{ steps.check.outputs.present }}
     defaults:
       run:
         working-directory: web
     steps:
       - uses: actions/checkout@v5
-      # The server builds without the UI (rust-embed allows a missing
-      # web/dist), so every web step is skipped until web/ exists.
-      - id: check
-        working-directory: .
-        run: echo "present=${{ hashFiles('web/package-lock.json') != '' }}" >> "$GITHUB_OUTPUT"
-      - if: steps.check.outputs.present == 'true'
-        uses: actions/setup-node@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - if: steps.check.outputs.present == 'true'
-        run: npm ci --no-audit --no-fund
-      - if: steps.check.outputs.present == 'true'
-        run: npm run lint --if-present
-      - if: steps.check.outputs.present == 'true'
-        run: npm run typecheck --if-present
-      - if: steps.check.outputs.present == 'true'
-        run: npm test --if-present
-      - if: steps.check.outputs.present == 'true'
-        run: npm run build
-      - if: steps.check.outputs.present == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-dist
-          path: web/dist
-          retention-days: 3
-          if-no-files-found: error
-
-  fmt:
-    name: rustfmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@1.97
-        with:
-          components: rustfmt
-      - run: cargo fmt --all -- --check
-
-  rust:
-    name: Rust (${{ matrix.os }})
-    needs: web
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - if: needs.web.outputs.present == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: web-dist
-          path: web/dist
-      - uses: dtolnay/rust-toolchain@1.97
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      - name: Tests
-        run: cargo test --workspace --all-features --locked
-      - name: Doc comments build cleanly
-        if: runner.os == 'Linux'
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc --workspace --no-deps --all-features --locked
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint --if-present
+      - run: npm run typecheck --if-present
+      - run: npm test --if-present
+      - run: npm run build
 
   backends:
     name: Storage backends (MinIO, SFTP, Samba)
@@ -126,35 +98,11 @@ jobs:
       - name: Backend tests
         run: MINIO_BIN="$HOME/.cache/minio-bin/minio" scripts/test-backends.sh
 
-  musl:
-    name: Static Linux binary (musl)
-    needs: web
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - if: needs.web.outputs.present == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: web-dist
-          path: web/dist
-      - uses: dtolnay/rust-toolchain@1.97
-        with:
-          targets: x86_64-unknown-linux-musl
-      # rust-toolchain.toml picks the toolchain; add the target to that one.
-      - run: rustup target add x86_64-unknown-linux-musl
-      - uses: Swatinem/rust-cache@v2
-      - run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - run: cargo build --release --locked --target x86_64-unknown-linux-musl --bin filebrary
-      - name: Check the binary is static
-        run: |
-          file target/x86_64-unknown-linux-musl/release/filebrary
-          file target/x86_64-unknown-linux-musl/release/filebrary | grep -Eq 'static(ally|-pie) linked'
-          ls -lh target/x86_64-unknown-linux-musl/release/filebrary
-
+  # The release image is built by kit-docker; here the same Dockerfile is
+  # built once for amd64, loaded, size-checked and started, which kit-docker's
+  # build-only mode cannot do.
   docker:
     name: Docker image (build, size, smoke test)
-    needs: web
-    if: needs.web.outputs.present == 'true'
     runs-on: ubuntu-latest
     env:
       MAX_IMAGE_MB: "60"
@@ -167,6 +115,7 @@ jobs:
           context: .
           load: true
           tags: filebrary:ci
+          build-args: APP_VERSION=0.0.99
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Check image size
@@ -184,6 +133,9 @@ jobs:
             sleep 1
           done
           curl -fsS http://127.0.0.1:8080/healthz
+          # The image reports the version it was built as (APP_VERSION).
+          curl -sS http://127.0.0.1:8080/readyz | tee ready.json; echo
+          grep -q '"version":"0.0.99"' ready.json || { echo "::error::the image does not report the version it was built as"; exit 1; }
           docker exec fb /usr/local/bin/filebrary healthcheck
           echo "Idle memory:"
           docker stats --no-stream --format '{{.MemUsage}}' fb | tee -a "$GITHUB_STEP_SUMMARY"
@@ -200,8 +152,3 @@ jobs:
         with:
           tool: mdbook
       - run: mdbook build docs
-      - uses: actions/upload-artifact@v4
-        with:
-          name: docs-book
-          path: docs/book
-          retention-days: 7
