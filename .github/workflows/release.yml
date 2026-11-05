@@ -2,10 +2,11 @@
 # (never a pre-release) through the kit's shared workflows (Krifmaz/kit):
 #
 #   test     kit-ci: fmt, clippy -D warnings, tests
-#   prepare  kit-release: picks the version. PATCH by default; a pull request
+#   prepare  kit-release: picks the version (PATCH by default; a pull request
 #            raises MINOR or MAJOR by adding docs/releases/<version>.md, which
-#            is also the release notes (otherwise the commit list).
-#   binaries Filebrary's own: the server with the React UI embedded, for
+#            is also the release notes, otherwise the commit list) and builds
+#            the Leptos UI in ui/ with trunk.
+#   binaries Filebrary's own: the server with both UIs embedded, for
 #            Linux (static musl, x86_64 + aarch64), macOS and Windows.
 #   docker   kit-docker: ghcr.io/<owner>/filebrary:<version> and :latest, and
 #            the ffmpeg + LibreOffice variant as :<version>-full / :latest-full.
@@ -49,6 +50,7 @@ jobs:
     uses: Krifmaz/kit/.github/workflows/kit-ci.yml@v0.3.2
     with:
       rust-dirs: .
+      wasm-dirs: ui
 
   prepare:
     needs: test
@@ -58,6 +60,9 @@ jobs:
       app-name: Filebrary
       bump: ${{ inputs.bump || 'auto' }}
       version: ${{ inputs.version || '' }}
+      # The Leptos UI: kit-release builds ui/ with trunk into the ui-dist
+      # artifact, which the binaries embed (served at /next/).
+      web-dir: ui
 
   web:
     name: Build web UI
@@ -103,6 +108,10 @@ jobs:
         with:
           name: web-dist
           path: web/dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
       - uses: dtolnay/rust-toolchain@1.97
         with:
           targets: ${{ matrix.target }}
