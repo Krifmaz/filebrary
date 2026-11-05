@@ -17,7 +17,9 @@
 //! Download limits: when a share has `max_downloads`, every download request
 //! counts, including `Range` requests (otherwise a client could fetch an
 //! entire file in ranges for free). Shares without a limit only count
-//! requests that start at byte 0, so the counter stays meaningful.
+//! requests that start at byte 0, so the counter stays meaningful. Once the
+//! limit is used up every route answers 410 `download_limit_reached`: the
+//! page, folder listings, unlock and download alike.
 
 use std::sync::Arc;
 
@@ -202,8 +204,9 @@ impl LiveShare {
     }
 }
 
-/// Loads a share by token and checks it is still alive: not expired, owner
-/// still enabled and still holding the rights the share hands out. Builds the
+/// Loads a share by token and checks it is still alive: not expired, download
+/// limit not used up (410 for every route, so the page says why), owner still
+/// enabled and still holding the rights the share hands out. Builds the
 /// confined storage for each item. A collection share takes its items from
 /// the collection on every request.
 pub async fn resolve(state: &AppState, token: &str) -> ShareResult<LiveShare> {
@@ -213,6 +216,9 @@ pub async fn resolve(state: &AppState, token: &str) -> ShareResult<LiveShare> {
         .ok_or_else(ShareError::not_found)?;
     if share.is_expired(now()) {
         return Err(ShareError::not_found());
+    }
+    if share.is_exhausted() {
+        return Err(ShareError::Exhausted);
     }
     let owner = auth::load_user(state, share.owner_id)
         .await?
