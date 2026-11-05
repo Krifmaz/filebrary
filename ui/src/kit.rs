@@ -11,7 +11,8 @@
 //! | bug reports | New report anywhere ([`new_report`]), the account's reports at `/bug-reports` ([`BugReportsPage`]) |
 //! | Diagnostics | `/admin/diagnostics` ([`DiagnosticsPage`]) |
 //! | settings from the server's schema | `/admin/server` ([`ServerSettingsPage`]) |
-//! | offline mode | when the server can't be reached at start, the account this browser last saw opens with the kit's offline banner and Retry ([`offline_session`]) |
+//! | offline mode | the kit's service worker keeps the app's files, so it opens with no connection ([`start`]); then the account this browser last saw opens with the kit's offline banner and Retry ([`offline_session`]) |
+//! | the outbox | stars made while the server can't be reached wait in the kit's outbox and go once it answers ([`set_star`]) |
 //!
 //! Confirm dialogs are the kit's `modal::confirm`, called where a page asks.
 
@@ -20,12 +21,15 @@ use crate::icons::icon;
 use crate::route::{self, on_link, url, Route};
 use kit_leptos::bug_report::{self, SheetOpts};
 use kit_leptos::notice::NoticeSource;
+use kit_leptos::outbox::{Sent, Store};
 use kit_leptos::schema_form::schema::{visible_cards, Schema};
 use kit_leptos::schema_form::SettingsCards;
 use kit_leptos::{api, crash, details, dropzone, notice, offline, rt, toasts, update, whats_new};
 use kit_rules::notices::CheckWords;
 use kit_rules::offline::mode;
+use kit_rules::offline::outbox::Action;
 use leptos::prelude::*;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -67,6 +71,11 @@ pub fn start() {
     dropzone::init();
     watch_connection(&app);
     update::start(update_config());
+    // the kit's app-shell worker (served at /sw.js) controls the pages under the site's root: only once this UI is
+    // served there (until cutover it lives under /next/, next to the React UI's own worker)
+    if route::base().is_empty() {
+        update::register_worker("/sw.js");
+    }
     // the server's version names bug reports and crash logs
     rt::spawn(async {
         if let Some(h) = update::health().await {
@@ -81,6 +90,7 @@ pub fn start() {
 /// crash logs an earlier visit left; and remembers the account for offline mode.
 pub fn signed_in(user: &User) {
     remember(user);
+    watch_outbox(user.id);
     notice::start(notices(), user.role() == crate::api::Role::Admin);
     whats_new::start(Rc::new(navigate));
     rt::spawn(crash::flush());
@@ -119,8 +129,35 @@ fn watch_connection(app: &str) {
     let p = crate::project();
     rt::on_window("offline", |_| offline::conn_banner(true, NOT_CONNECTED));
     rt::on_window("online", |_| offline::conn_banner(false, ""));
-    rt::on_window(&format!("{p}:server-down"), move |_| offline::conn_banner(true, &down));
+    rt::on_window(&format!("{p}:server-down"), move |_| {
+        offline::conn_banner(true, &down);
+        probe();
+    });
     rt::on_window(&format!("{p}:server-up"), |_| offline::conn_banner(false, ""));
+}
+
+thread_local! {
+    static PROBING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// How often the server is asked while it isn't answering.
+const PROBE_MS: u64 = 5_000;
+
+/// While the server isn't answering, asks `/api/health` through the API backend every [`PROBE_MS`], so the
+/// first answer raises `filebrary:server-up`: the banner goes and the outbox is sent without anyone clicking.
+fn probe() {
+    if PROBING.with(|p| p.replace(true)) {
+        return;
+    }
+    rt::spawn(async {
+        loop {
+            rt::sleep(PROBE_MS).await;
+            if api::get("/health").await.is_ok() {
+                break;
+            }
+        }
+        PROBING.with(|p| p.set(false));
+    });
 }
 
 /// The server's notices (`GET /api/notices`), with Check again's words for the data folder and the sources
@@ -190,6 +227,7 @@ pub fn offline_session(status: u16) -> Option<User> {
     let fresh = mode::grace_left(at, now_s()) > 0;
     let (user, ended) = mode::decide(status, fresh.then(|| user.clone()), Some(user), 1)?;
     offline::show_banner(ended, Rc::new(retry));
+    watch_outbox(user.id);
     retry_while_offline();
     Some(user)
 }
@@ -219,6 +257,73 @@ fn retry() {
 fn retry_while_offline() {
     rt::every(mode::RETRY_MS, retry);
     rt::on_window("online", |_| retry());
+}
+
+// ---- the outbox --------------------------------------------------------------------------------------------
+
+/// A star put on or taken off a file or folder: what the outbox keeps while the server can't be reached.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StarChange {
+    /// The source's id.
+    pub source: String,
+    /// The path inside it.
+    pub path: String,
+    /// Starred (true) or not.
+    pub on: bool,
+}
+
+impl Action for StarChange {
+    fn key(&self) -> String {
+        format!("star:{}:{}:{}", self.source, self.path, self.on)
+    }
+
+    /// Only the last star or unstar of a path counts.
+    fn subject(&self) -> Option<String> {
+        Some(format!("star:{}:{}", self.source, self.path))
+    }
+
+    fn valid(&self) -> bool {
+        !self.source.is_empty() && !self.path.is_empty()
+    }
+
+    fn kind(&self) -> &str {
+        "star"
+    }
+}
+
+thread_local! {
+    static OUTBOX: Store<StarChange> = Store::open("stars", |changes: Vec<StarChange>| {
+        Box::pin(async move {
+            for c in changes {
+                crate::pages::files::set_star(&c.source, &c.path, c.on).await?;
+            }
+            Ok(())
+        })
+    })
+    .noun("star", "star", "stars");
+    static ACCOUNT: Cell<Option<i64>> = const { Cell::new(None) };
+}
+
+/// Sends what waits in the outbox once the server answers, for the account `id` (once per page).
+fn watch_outbox(id: i64) {
+    if ACCOUNT.with(|a| a.replace(Some(id))).is_none() {
+        OUTBOX.with(|o| o.watch(|| ACCOUNT.with(Cell::get)));
+    }
+}
+
+/// Stars (`on`) or unstars a path now or, while the server can't be reached, as soon as it answers again:
+/// `Ok(true)` when it waits in the outbox, `Ok(false)` when the server took it.
+pub async fn set_star(source: &str, path: &str, on: bool) -> Result<bool, crate::api::Error> {
+    let change = StarChange { source: source.to_string(), path: path.to_string(), on };
+    let Some(owner) = ACCOUNT.with(Cell::get) else {
+        return crate::pages::files::set_star(source, path, on).await.map(|_| false);
+    };
+    let store = OUTBOX.with(Clone::clone);
+    match store.send_or_keep(owner, change).await {
+        Sent::Now => Ok(false),
+        Sent::Kept => Ok(true),
+        Sent::Refused(e) => Err(e),
+    }
 }
 
 // ---- bug reports -------------------------------------------------------------------------------------------
@@ -463,6 +568,15 @@ mod tests {
         assert_eq!((replies(0).as_str(), replies(1).as_str(), replies(4).as_str()), ("No replies", "1 reply", "4 replies"));
         assert_eq!(status_label("wontfix"), "Won't fix");
         assert_eq!(status_label("anything"), "New");
+    }
+
+    #[test]
+    fn the_last_star_of_a_path_counts() {
+        let on = StarChange { source: "home".into(), path: "/a".into(), on: true };
+        let off = StarChange { on: false, ..on.clone() };
+        assert_eq!(on.subject(), off.subject());
+        assert_ne!(on.key(), off.key());
+        assert!(!StarChange { path: String::new(), ..on }.valid());
     }
 
     #[test]

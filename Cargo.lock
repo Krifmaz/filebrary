@@ -1408,7 +1408,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2714,7 +2714,7 @@ dependencies = [
 [[package]]
 name = "kit-rules"
 version = "0.1.0"
-source = "git+https://github.com/Krifmaz/kit?tag=v0.3.2#8bb02d07b79251b9219db8bc3291cbf7b8db928b"
+source = "git+https://github.com/Krifmaz/kit?tag=v0.7.2#78e8b17a35c5f5c43e3f93800ceb6eb762451ed0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2723,7 +2723,7 @@ dependencies = [
 [[package]]
 name = "kit-server-bugreports"
 version = "0.1.0"
-source = "git+https://github.com/Krifmaz/kit?tag=v0.3.2#8bb02d07b79251b9219db8bc3291cbf7b8db928b"
+source = "git+https://github.com/Krifmaz/kit?tag=v0.7.2#78e8b17a35c5f5c43e3f93800ceb6eb762451ed0"
 dependencies = [
  "axum",
  "image",
@@ -2739,7 +2739,7 @@ dependencies = [
 [[package]]
 name = "kit-server-changelog"
 version = "0.1.0"
-source = "git+https://github.com/Krifmaz/kit?tag=v0.3.2#8bb02d07b79251b9219db8bc3291cbf7b8db928b"
+source = "git+https://github.com/Krifmaz/kit?tag=v0.7.2#78e8b17a35c5f5c43e3f93800ceb6eb762451ed0"
 dependencies = [
  "axum",
  "kit-rules",
@@ -2751,7 +2751,7 @@ dependencies = [
 [[package]]
 name = "kit-server-core"
 version = "0.1.0"
-source = "git+https://github.com/Krifmaz/kit?tag=v0.3.2#8bb02d07b79251b9219db8bc3291cbf7b8db928b"
+source = "git+https://github.com/Krifmaz/kit?tag=v0.7.2#78e8b17a35c5f5c43e3f93800ceb6eb762451ed0"
 dependencies = [
  "async-trait",
  "axum",
@@ -2764,7 +2764,7 @@ dependencies = [
 [[package]]
 name = "kit-server-diagnostics"
 version = "0.1.0"
-source = "git+https://github.com/Krifmaz/kit?tag=v0.3.2#8bb02d07b79251b9219db8bc3291cbf7b8db928b"
+source = "git+https://github.com/Krifmaz/kit?tag=v0.7.2#78e8b17a35c5f5c43e3f93800ceb6eb762451ed0"
 dependencies = [
  "axum",
  "futures-util",
@@ -2777,7 +2777,7 @@ dependencies = [
 [[package]]
 name = "kit-server-health"
 version = "0.1.0"
-source = "git+https://github.com/Krifmaz/kit?tag=v0.3.2#8bb02d07b79251b9219db8bc3291cbf7b8db928b"
+source = "git+https://github.com/Krifmaz/kit?tag=v0.7.2#78e8b17a35c5f5c43e3f93800ceb6eb762451ed0"
 dependencies = [
  "axum",
  "serde_json",
@@ -2786,7 +2786,7 @@ dependencies = [
 [[package]]
 name = "kit-server-notices"
 version = "0.1.0"
-source = "git+https://github.com/Krifmaz/kit?tag=v0.3.2#8bb02d07b79251b9219db8bc3291cbf7b8db928b"
+source = "git+https://github.com/Krifmaz/kit?tag=v0.7.2#78e8b17a35c5f5c43e3f93800ceb6eb762451ed0"
 dependencies = [
  "axum",
  "futures-util",
@@ -2800,7 +2800,7 @@ dependencies = [
 [[package]]
 name = "kit-server-settings"
 version = "0.1.0"
-source = "git+https://github.com/Krifmaz/kit?tag=v0.3.2#8bb02d07b79251b9219db8bc3291cbf7b8db928b"
+source = "git+https://github.com/Krifmaz/kit?tag=v0.7.2#78e8b17a35c5f5c43e3f93800ceb6eb762451ed0"
 dependencies = [
  "axum",
  "kit-server-core",
@@ -2812,7 +2812,7 @@ dependencies = [
 [[package]]
 name = "kit-server-updates"
 version = "0.1.0"
-source = "git+https://github.com/Krifmaz/kit?tag=v0.3.2#8bb02d07b79251b9219db8bc3291cbf7b8db928b"
+source = "git+https://github.com/Krifmaz/kit?tag=v0.7.2#78e8b17a35c5f5c43e3f93800ceb6eb762451ed0"
 dependencies = [
  "axum",
  "kit-server-core",
@@ -4197,7 +4197,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4797,7 +4797,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4855,7 +4855,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5990,7 +5990,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6811,7 +6811,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

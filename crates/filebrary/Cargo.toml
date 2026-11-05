@@ -102,7 +102,7 @@ libc = "0.2"
 
 [build-dependencies]
 # Embeds docs/releases/<version>.md (the What's new notes) into the binary.
-kit-server-changelog = { git = "https://github.com/Krifmaz/kit", tag = "v0.3.2", default-features = false }
+kit-server-changelog = { git = "https://github.com/Krifmaz/kit", tag = "v0.7.2", default-features = false }
 
 [dev-dependencies]
 suppaftp = { version = "8", default-features = false, features = ["tokio"] }
