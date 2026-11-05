@@ -4,7 +4,7 @@
 //!
 //! | Prefix                         | Module                    | Owner   |
 //! |--------------------------------|---------------------------|---------|
-//! | `/api/health`                  | here                      | core    |
+//! | `/api/health`                  | [`crate::kit`] (kit-server-health) | core |
 //! | `/api/sources`, `/api/sources/{id}/...` | [`files`]        | files   |
 //! | `/api/sources/{id}/uploads`, `/api/uploads/{uid}` | [`uploads`] | files |
 //! | `/api/sources/{id}/text`      | [`text`] (editor load/save) | editor |
@@ -36,15 +36,13 @@ pub mod text;
 pub mod uploads;
 pub mod zip;
 
-use axum::{Json, Router, routing::get};
-use serde_json::json;
+use axum::Router;
 
 use crate::state::AppState;
 
 /// Builds the `/api` router (without the `/api` prefix).
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/health", get(health))
         .merge(files::routes())
         .merge(previews::routes())
         .merge(uploads::routes())
@@ -63,9 +61,4 @@ pub fn router() -> Router<AppState> {
         .merge(crate::cast::router())
         .nest("/public/cast", crate::cast::public_router())
         .merge(crate::branding::router())
-}
-
-/// `GET /api/health`: liveness probe, also served at `/healthz`.
-pub async fn health() -> Json<serde_json::Value> {
-    Json(json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") }))
 }

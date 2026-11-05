@@ -14,3 +14,7 @@ One line per non-obvious call made while rebuilding Filebrary on [Krifmaz/kit](h
 - 2026-11-05 · `/next/` gets its own CSP with `'wasm-unsafe-eval'` and the hash of trunk's inline loader, computed from the embedded `index.html` at first use, so the strict site-wide CSP stays as it is.
 - 2026-11-05 · Icons the kit lacks (folder, star, share, menu, search, …) live in `ui/src/icons.rs` for now; they're generic, so they're a candidate to move into kit-leptos.
 - 2026-11-05 · Placeholder pages ship for files/search/shares/admin so each later track only edits its own folder.
+- 2026-11-05 · Kit data lives in its own `<data_dir>/kit.db` (`kit_*` tables only), not in `filebrary.db`, so sqlx's pool and the kit's single rusqlite connection never contend for one lock.
+- 2026-11-05 · Filebrary has no owner role, so every administrator is the kit's admin and owner; an API key counts as admin only with the `admin` scope.
+- 2026-11-05 · The kit settings table is read from `src/kit/settings.toml` at start (`file::parse`), and saved values are read synchronously, because `AppState::new` is not async.
+- 2026-11-05 · "Update now" answers 409 with the `docker compose pull` command (Filebrary ships as an image); "Restart server" exits with code 75 for the container's restart policy.

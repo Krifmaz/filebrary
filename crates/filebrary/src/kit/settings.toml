@@ -1,0 +1,25 @@
+# Filebrary's settings on the kit's Settings pages (kit-server-settings).
+#
+# These are the settings an administrator changes at run time from the web UI;
+# they are saved in the kit's `kit_settings` table. Everything set in
+# filebrary.toml or a `FILEBRARY_*` variable read by `config.rs` stays there.
+# An `env` variable here sets the value and locks it in the UI.
+#
+# [sections.<id>]  a page under Settings: title.
+# [groups.<id>]    a card on a page: section, title, desc.
+# [keys.<name>]    one setting: env, default, group, label, help, type, options.
+
+[sections.updates]
+title = "Updates"
+
+[groups.updates]
+section = "updates"
+title = "Updates"
+desc = "Whether the server looks for new Filebrary releases. Update by pulling the new image."
+
+[keys.update_check]
+env = "FILEBRARY_UPDATE_CHECK"
+default = true
+group = "updates"
+label = "Check for new releases"
+help = "Asks GitHub for Filebrary's newest release, at most every six hours. Nothing about this server is sent."
