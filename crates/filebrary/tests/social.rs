@@ -627,7 +627,7 @@ async fn branding_and_themes() {
         .await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(m["name"], "Acme Files");
-    assert_eq!(m["theme_color"], "#336699");
+    assert_eq!(m["short_name"], "Acme Files");
     assert_eq!(m["icons"][0]["type"], "image/svg+xml");
 }
 
