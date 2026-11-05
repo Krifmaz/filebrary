@@ -146,6 +146,10 @@ const ROUTES: &[(&str, &str, Access)] = &[
     ("POST", "/api/public/shares/t/unlock", Public),
     ("GET", "/api/public/shares/t/download", Public),
     ("POST", "/api/public/shares/t/uploads", Public),
+    ("POST", "/api/public/shares/t/uploads/start", Public),
+    ("GET", "/api/public/shares/t/uploads/t", Public),
+    ("PATCH", "/api/public/shares/t/uploads/t", Public),
+    ("DELETE", "/api/public/shares/t/uploads/t", Public),
     // organisation
     ("GET", "/api/trash", User),
     ("POST", "/api/trash", User),

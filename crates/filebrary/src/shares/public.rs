@@ -5,7 +5,9 @@
 //! | GET    | `/{token}`           | describe the share or list a folder (`?path=`) |
 //! | POST   | `/{token}/unlock`    | exchange the password for an access grant    |
 //! | GET    | `/{token}/download`  | download a file, or a folder as zip (`?path=`) |
-//! | POST   | `/{token}/uploads`   | drop links: upload one file (`?path=name`)   |
+//! | POST   | `/{token}/uploads`   | drop links: upload one file in one request (`?path=name`) |
+//! | POST   | `/{token}/uploads/start` | drop links: start a resumable upload (see [`super::drop`]) |
+//! | GET/PATCH/DELETE | `/{token}/uploads/{uid}` | drop links: progress, next chunk, cancel |
 //!
 //! Paths are *share-relative*. For a share of one folder they are relative to
 //! that folder; for a share of several items the first segment is the item's
@@ -57,7 +59,7 @@ use crate::{
     error::AppError,
     organize::trash,
     state::AppState,
-    storage::{Entry, Storage, StorageError, VPath},
+    storage::{ByteReader, Entry, Storage, StorageError, VPath},
 };
 
 /// Header carrying an access grant for clients that do not keep cookies.
@@ -70,6 +72,13 @@ pub fn router() -> Router<AppState> {
         .route("/{token}/unlock", post(unlock))
         .route("/{token}/download", get(download))
         .route("/{token}/uploads", post(upload))
+        .route("/{token}/uploads/start", post(super::drop::start))
+        .route(
+            "/{token}/uploads/{uid}",
+            get(super::drop::status)
+                .patch(super::drop::append)
+                .delete(super::drop::cancel),
+        )
 }
 
 /// Name of the cookie holding the access grant for one share.
@@ -340,9 +349,23 @@ pub struct PublicQuery {
     /// Access grant, for clients without cookies.
     #[serde(default)]
     pub access: Option<String>,
-    /// Ask to display a file instead of downloading it.
-    #[serde(default)]
+    /// Ask to display a file instead of downloading it: `inline=true` or
+    /// `inline=1` (also `yes`/`on`; `false`, `0`, `no`, `off` turn it off).
+    #[serde(default, deserialize_with = "flag")]
     pub inline: bool,
+}
+
+/// Reads a query flag the way people write them: `true`, `1`, `yes`, `on`
+/// (or no value at all) are on; `false`, `0`, `no`, `off` are off.
+fn flag<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    let raw = String::deserialize(d)?;
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "" | "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        other => Err(serde::de::Error::custom(format!(
+            "expected true/false or 1/0, got {other:?}"
+        ))),
+    }
 }
 
 /// Checks the password gate. Shares without a password are always open.
@@ -694,71 +717,78 @@ async fn free_name(storage: &dyn Storage, dir: &VPath, name: &str) -> ShareResul
     Err(AppError::conflict("too many files with this name").into())
 }
 
-async fn upload(
-    State(st): State<AppState>,
-    Path(token): Path<String>,
-    Query(q): Query<PublicQuery>,
-    jar: CookieJar,
-    headers: HeaderMap,
-    body: Body,
-) -> ShareResult<Response> {
-    let live = resolve(&st, &token).await?;
+/// Size limit for one drop-link upload in bytes (0 = none).
+pub(super) fn drop_limit(st: &AppState) -> u64 {
+    st.config.max_drop_upload_mib.saturating_mul(1024 * 1024)
+}
+
+/// Resolves `token` as a drop link the visitor may send files to: alive,
+/// upload-only and unlocked.
+pub(super) async fn open_drop(
+    st: &AppState,
+    token: &str,
+    jar: &CookieJar,
+    headers: &HeaderMap,
+    q: &PublicQuery,
+) -> ShareResult<LiveShare> {
+    let live = resolve(st, token).await?;
     if !live.share.upload_only {
         return Err(AppError::forbidden("this link does not accept uploads").into());
     }
-    require_unlocked(&st, &live, &jar, &headers, &q).await?;
+    require_unlocked(st, &live, jar, headers, q).await?;
+    Ok(live)
+}
 
-    // Visitors choose a file name, never a folder.
-    let name = VPath::parse(&q.path)?;
-    let [file_name] = name.components() else {
-        return Err(ShareError::bad_request("path must be a single file name"));
-    };
+/// Checks a visitor's file name: one name, never a folder or a path.
+pub(super) fn drop_name(raw: &str) -> ShareResult<String> {
+    let name = VPath::parse(raw)?;
+    match name.components() {
+        [file_name] => Ok(file_name.clone()),
+        _ => Err(ShareError::bad_request("path must be a single file name")),
+    }
+}
+
+/// Where a file named `name` would land in the drop folder right now, after
+/// re-checking the creator's right to upload there and the write hooks
+/// (quotas, which see the upload as the creator's and pass their answer on so
+/// the visitor learns why it was refused). Returns the item, the path in its
+/// storage and the real path in the source.
+pub(super) async fn drop_target(
+    st: &AppState,
+    live: &LiveShare,
+    name: &str,
+    bytes: Option<u64>,
+) -> ShareResult<(ShareItem, VPath, VPath)> {
     let Target::Item {
         item, path: dir, ..
     } = live.locate(&VPath::root())?
     else {
         return Err(ShareError::not_found());
     };
-
-    let limit = st.config.max_drop_upload_mib.saturating_mul(1024 * 1024);
-    let declared = headers
-        .get(header::CONTENT_LENGTH)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse::<u64>().ok());
-    if limit > 0 && declared.is_some_and(|n| n > limit) {
-        return Err(AppError::PayloadTooLarge.into());
-    }
-
-    let target = free_name(item.storage.as_ref(), &dir, file_name).await?;
-    // The creator must still be allowed to upload there (rules, quota).
+    let target = free_name(item.storage.as_ref(), &dir, name).await?;
     let target_visible = item.storage_base().join_path(&target);
     let real = live
-        .authorize(&st, &item.source, Perms::UPLOAD, &target_visible)
+        .authorize(st, &item.source, Perms::UPLOAD, &target_visible)
         .await?;
-    // Write hooks (quotas) see the upload as the creator's; their answer is
-    // passed on so the visitor learns why it was refused.
     st.auth
         .hooks()
-        .before_write(&st, &live.owner, &item.source, &real, declared)
+        .before_write(st, &live.owner, &item.source, &real, bytes)
         .await?;
-    let mut seen: u64 = 0;
-    let stream = body
-        .into_data_stream()
-        .map_err(std::io::Error::other)
-        .and_then(move |chunk| {
-            seen += chunk.len() as u64;
-            let res = if limit > 0 && seen > limit {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::FileTooLarge,
-                    "upload exceeds the size limit",
-                ))
-            } else {
-                Ok(chunk)
-            };
-            std::future::ready(res)
-        });
-    let reader = Box::pin(StreamReader::new(stream));
-    let written = match item.storage.write(&target, reader, false).await {
+    Ok((*item, target, real))
+}
+
+/// Stores `data` as a new file named `name` (or a numbered free name) in the
+/// drop folder and reports it as the link owner's upload. Returns the stored
+/// name and the bytes written.
+pub(super) async fn store_drop(
+    st: &AppState,
+    live: &LiveShare,
+    name: &str,
+    bytes: Option<u64>,
+    data: ByteReader,
+) -> ShareResult<(String, u64)> {
+    let (item, target, real) = drop_target(st, live, name, bytes).await?;
+    let written = match item.storage.write(&target, data, false).await {
         Ok(n) => n,
         Err(StorageError::Io(e)) if e.kind() == std::io::ErrorKind::FileTooLarge => {
             return Err(AppError::PayloadTooLarge.into());
@@ -780,15 +810,63 @@ async fn upload(
         path: real.to_string(),
         size: written,
     });
-    let stored = target.name().unwrap_or_default().to_owned();
-    let mut resp = (
-        StatusCode::CREATED,
-        Json(serde_json::json!({ "name": stored, "size": written })),
-    )
-        .into_response();
+    Ok((target.name().unwrap_or_default().to_owned(), written))
+}
+
+/// Adds `Cache-Control: no-store`: upload answers are never cached.
+pub(super) fn no_store(mut resp: Response) -> Response {
     resp.headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    Ok(resp)
+    resp
+}
+
+/// Single-request upload (the whole file as the body). Kept for simple
+/// clients such as `curl`; the web UI uses the resumable protocol in
+/// [`super::drop`].
+async fn upload(
+    State(st): State<AppState>,
+    Path(token): Path<String>,
+    Query(q): Query<PublicQuery>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    body: Body,
+) -> ShareResult<Response> {
+    let live = open_drop(&st, &token, &jar, &headers, &q).await?;
+    let file_name = drop_name(&q.path)?;
+
+    let limit = drop_limit(&st);
+    let declared = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+    if limit > 0 && declared.is_some_and(|n| n > limit) {
+        return Err(AppError::PayloadTooLarge.into());
+    }
+    let mut seen: u64 = 0;
+    let stream = body
+        .into_data_stream()
+        .map_err(std::io::Error::other)
+        .and_then(move |chunk| {
+            seen += chunk.len() as u64;
+            let res = if limit > 0 && seen > limit {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::FileTooLarge,
+                    "upload exceeds the size limit",
+                ))
+            } else {
+                Ok(chunk)
+            };
+            std::future::ready(res)
+        });
+    let reader = Box::pin(StreamReader::new(stream));
+    let (stored, written) = store_drop(&st, &live, &file_name, declared, reader).await?;
+    Ok(no_store(
+        (
+            StatusCode::CREATED,
+            Json(serde_json::json!({ "name": stored, "size": written })),
+        )
+            .into_response(),
+    ))
 }
 
 #[cfg(test)]

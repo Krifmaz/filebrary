@@ -3,9 +3,10 @@
 //! name, size, View and Download; for a folder, its contents with a filter, sorting, folders to open, files to
 //! view or download, and Download all as a zip.
 
-use super::api::{self, PublicEntry, PublicShare, Sent, Xhr};
+use super::api::{self, PublicEntry, PublicShare};
 use super::format::{self, Kind, Sort};
 use super::icon;
+use super::upload::{self, Progress, Sent, Stop};
 use crate::route::{on_link, url, Route};
 use kit_leptos::modal::{self, ModalOpts};
 use leptos::prelude::*;
@@ -336,6 +337,8 @@ pub enum Step {
     Waiting,
     /// On its way: bytes sent.
     Sending(f64),
+    /// The connection dropped; trying again (bytes the server has).
+    Retrying(f64),
     /// Stored, under this name.
     Done(String),
     /// Refused, with why.
@@ -361,6 +364,7 @@ pub fn step_words(j: &Job) -> String {
             format!("{}% of {}", ((sent / j.size) * 100.0).floor().min(100.0), format::size(j.size as u64))
         }
         Step::Sending(_) => "Sending".into(),
+        Step::Retrying(_) => "Connection lost. Trying again…".into(),
         Step::Done(saved) if *saved != j.name => format!("Sent, saved as {saved}"),
         Step::Done(_) => "Sent".into(),
         Step::Failed(why) => why.clone(),
@@ -374,7 +378,7 @@ struct Drop {
     token: StoredValue<String>,
     jobs: RwSignal<Vec<Job>>,
     files: StoredValue<Vec<(u32, web_sys::File)>, LocalStorage>,
-    current: StoredValue<Option<(u32, Xhr)>, LocalStorage>,
+    current: StoredValue<Option<(u32, Stop)>, LocalStorage>,
     next: StoredValue<u32>,
 }
 
@@ -409,30 +413,32 @@ impl Drop {
         let Some(file) = self.files.with_value(|v| v.iter().find(|(i, _)| *i == id).map(|(_, f)| f.clone())) else { return };
         set_busy(true);
         self.set_step(id, Step::Sending(0.0));
-        let x = api::send_file(
-            &self.token.get_value(),
-            &file,
-            move |sent, _| self.set_step(id, Step::Sending(sent)),
-            move |s| {
-                self.current.set_value(None);
-                match s {
-                    Sent::Stored(name) => {
-                        self.files.update_value(|v| v.retain(|(i, _)| *i != id));
-                        self.set_step(id, Step::Done(name));
-                    }
-                    Sent::Failed(why) => self.set_step(id, Step::Failed(why)),
-                    Sent::Cancelled => self.set_step(id, Step::Stopped),
+        let stop = Stop::default();
+        self.current.set_value(Some((id, stop.clone())));
+        let token = self.token.get_value();
+        let progress: std::rc::Rc<dyn Fn(Progress)> = std::rc::Rc::new(move |p| match p {
+            Progress::Sent(sent) => self.set_step(id, Step::Sending(sent)),
+            Progress::Retrying(sent) => self.set_step(id, Step::Retrying(sent)),
+        });
+        kit_leptos::rt::spawn(async move {
+            let sent = upload::send_file(&token, &file, progress, stop).await;
+            self.current.set_value(None);
+            match sent {
+                Sent::Stored(name) => {
+                    self.files.update_value(|v| v.retain(|(i, _)| *i != id));
+                    self.set_step(id, Step::Done(name));
                 }
-                self.pump();
-            },
-        );
-        self.current.set_value(Some((id, x)));
+                Sent::Failed(why) => self.set_step(id, Step::Failed(why)),
+                Sent::Cancelled => self.set_step(id, Step::Stopped),
+            }
+            self.pump();
+        });
     }
 
     fn stop(self, id: u32) {
-        let running = self.current.with_value(|c| c.as_ref().filter(|(i, _)| *i == id).map(|(_, x)| x.clone()));
+        let running = self.current.with_value(|c| c.as_ref().filter(|(i, _)| *i == id).map(|(_, s)| s.clone()));
         match running {
-            Some(x) => x.abort(),
+            Some(s) => s.stop(),
             None => self.set_step(id, Step::Stopped),
         }
     }
@@ -497,12 +503,12 @@ fn DropBox(token: String, name: String) -> impl IntoView {
                 };
                 let words = step_words(&j);
                 let pct = match j.step {
-                    Step::Sending(s) if j.size > 0.0 => Some((s / j.size * 100.0).min(100.0)),
-                    Step::Sending(_) => Some(0.0),
+                    Step::Sending(s) | Step::Retrying(s) if j.size > 0.0 => Some((s / j.size * 100.0).min(100.0)),
+                    Step::Sending(_) | Step::Retrying(_) => Some(0.0),
                     _ => None,
                 };
                 let action = match j.step {
-                    Step::Waiting | Step::Sending(_) => Some(view! {
+                    Step::Waiting | Step::Sending(_) | Step::Retrying(_) => Some(view! {
                         <button class="btn sm icon ghost" type="button" title="Stop" aria-label="Stop" on:click=move |_| d.stop(id) inner_html=icon("x")></button>
                     }.into_any()),
                     Step::Failed(_) | Step::Stopped => Some(view! {
@@ -528,7 +534,7 @@ fn DropBox(token: String, name: String) -> impl IntoView {
                 <div class="pub-center">
                     <span class="pub-big" inner_html=icon("upload")></span>
                     <h1>{heading}</h1>
-                    <p class="muted">"Drop files here or choose them. You won't see the other files in this folder."</p>
+                    <p class="muted">"Drop files here or choose them. You won't see the other files in this folder. If the connection drops, choose the same file again to carry on where it stopped."</p>
                     <input type="file" id="drop-input" multiple hidden on:change=picked/>
                     <label class="btn primary" for="drop-input"><span inner_html=icon("upload")></span>"Choose files"</label>
                 </div>
@@ -565,5 +571,6 @@ mod tests {
         assert_eq!(step_words(&j(Step::Done("a.txt".into()))), "Sent");
         assert_eq!(step_words(&j(Step::Done("a (1).txt".into()))), "Sent, saved as a (1).txt");
         assert_eq!(step_words(&j(Step::Failed("Too big".into()))), "Too big");
+        assert_eq!(step_words(&j(Step::Retrying(1024.0))), "Connection lost. Trying again…");
     }
 }

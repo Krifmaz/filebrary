@@ -29,7 +29,6 @@ enum Mode {
 }
 
 /// Opens the share dialog for `paths` of `source`; `single_folder` (exactly one folder) offers a drop link.
-#[allow(dead_code)] // opened from the file list, which lands in its own change
 pub fn share_dialog(source: &str, paths: Vec<String>, single_folder: bool) {
     open(Mode::Create(Target::Paths { source: source.to_string(), paths, single_folder }));
 }

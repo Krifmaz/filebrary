@@ -234,7 +234,8 @@ thread_local! {
     static GRANTS: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
 }
 
-fn grant(token: &str) -> String {
+/// The password grant this page holds for link `token` ("" when none).
+pub(super) fn grant(token: &str) -> String {
     GRANTS.with(|g| g.borrow().get(token).cloned()).unwrap_or_default()
 }
 
@@ -264,7 +265,7 @@ pub fn download_url(token: &str, path: &str, inline: bool) -> String {
     format!("/api/public/shares/{}/download{}", crate::api::encode(token), public_query(token, path, inline))
 }
 
-// ---------- drop-link uploads, with progress ----------
+// ---------- raw requests (drop-link chunks, text previews) ----------
 
 #[wasm_bindgen]
 extern "C" {
@@ -273,108 +274,37 @@ extern "C" {
     #[derive(Clone)]
     pub type Xhr;
     #[wasm_bindgen(constructor, js_class = "XMLHttpRequest")]
-    fn new() -> Xhr;
+    pub(super) fn new() -> Xhr;
     #[wasm_bindgen(method)]
-    fn open(this: &Xhr, method: &str, url: &str);
+    pub(super) fn open(this: &Xhr, method: &str, url: &str);
     #[wasm_bindgen(method, js_name = setRequestHeader)]
-    fn set_request_header(this: &Xhr, k: &str, v: &str);
+    pub(super) fn set_request_header(this: &Xhr, k: &str, v: &str);
     #[wasm_bindgen(method)]
-    fn send(this: &Xhr, body: &web_sys::Blob);
+    pub(super) fn send(this: &Xhr, body: &web_sys::Blob);
     #[wasm_bindgen(method, js_name = send)]
-    fn send_nothing(this: &Xhr);
+    pub(super) fn send_text(this: &Xhr, body: &str);
+    #[wasm_bindgen(method, js_name = send)]
+    pub(super) fn send_nothing(this: &Xhr);
     /// Stops the upload.
     #[wasm_bindgen(method)]
     pub fn abort(this: &Xhr);
     #[wasm_bindgen(method, getter)]
-    fn status(this: &Xhr) -> u16;
+    pub(super) fn status(this: &Xhr) -> u16;
     #[wasm_bindgen(method, getter, js_name = responseText)]
-    fn response_text(this: &Xhr) -> String;
+    pub(super) fn response_text(this: &Xhr) -> String;
     #[wasm_bindgen(method, getter)]
-    fn upload(this: &Xhr) -> XhrUpload;
+    pub(super) fn upload(this: &Xhr) -> XhrUpload;
     #[wasm_bindgen(method, setter)]
-    fn set_onload(this: &Xhr, f: &js_sys::Function);
+    pub(super) fn set_onload(this: &Xhr, f: &js_sys::Function);
     #[wasm_bindgen(method, setter)]
-    fn set_onerror(this: &Xhr, f: &js_sys::Function);
+    pub(super) fn set_onerror(this: &Xhr, f: &js_sys::Function);
     #[wasm_bindgen(method, setter)]
-    fn set_onabort(this: &Xhr, f: &js_sys::Function);
+    pub(super) fn set_onabort(this: &Xhr, f: &js_sys::Function);
 
-    type XhrUpload;
+    /// The upload side of a request, which reports progress.
+    pub(super) type XhrUpload;
     #[wasm_bindgen(method, setter)]
-    fn set_onprogress(this: &XhrUpload, f: &js_sys::Function);
-}
-
-/// How an upload ended.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Sent {
-    /// Stored, under this name (the server numbers a name that is taken: `a (1).txt`).
-    Stored(String),
-    /// Refused, with the sentence to show.
-    Failed(String),
-    /// Stopped by the visitor.
-    Cancelled,
-}
-
-/// What a failed drop upload says, from its status and answer.
-pub fn upload_failure(status: u16, body: &str) -> String {
-    let data: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-    match status {
-        0 => kit_leptos::api::NOT_CONNECTED.to_string(),
-        401 => "The password is needed again. Reload the page.".into(),
-        404 | 410 => "This link no longer accepts files.".into(),
-        413 => "This file is larger than the link allows.".into(),
-        429 => "Too many uploads at once. Wait a moment and try again.".into(),
-        _ => kit_leptos::api::error_message(&data, ""),
-    }
-}
-
-/// Sends `file` into drop link `token`: `progress(sent, total)` while it goes, `done` once at the end. The
-/// returned request can be stopped with [`Xhr::abort`].
-pub fn send_file(token: &str, file: &web_sys::File, progress: impl Fn(f64, f64) + 'static, done: impl FnOnce(Sent) + 'static) -> Xhr {
-    let x = Xhr::new();
-    let name = file.name();
-    let url = format!("/api/public/shares/{}/uploads{}", crate::api::encode(token), crate::api::query(&[("path", &name)]));
-    x.open("POST", &url);
-    x.set_request_header("Content-Type", "application/octet-stream");
-    x.set_request_header("X-Requested-With", crate::project());
-    let g = grant(token);
-    if !g.is_empty() {
-        x.set_request_header(ACCESS_HEADER, &g);
-    }
-    let on_progress = Closure::<dyn Fn(JsValue)>::new(move |e: JsValue| {
-        let num = |k: &str| js_sys::Reflect::get(&e, &k.into()).ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
-        progress(num("loaded"), num("total"));
-    });
-    x.upload().set_onprogress(on_progress.as_ref().unchecked_ref());
-    on_progress.forget();
-
-    let done = std::rc::Rc::new(RefCell::new(Some(done)));
-    let finish = {
-        let done = done.clone();
-        move |s: Sent| {
-            if let Some(f) = done.borrow_mut().take() {
-                f(s);
-            }
-        }
-    };
-    let (f1, f2, f3) = (finish.clone(), finish.clone(), finish);
-    let xl = x.clone();
-    let fallback = name.clone();
-    let on_load = Closure::once_into_js(move || {
-        let (status, body) = (xl.status(), xl.response_text());
-        if (200..300).contains(&status) {
-            let v: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
-            f1(Sent::Stored(v.get("name").and_then(Value::as_str).map(String::from).unwrap_or(fallback)));
-        } else {
-            f1(Sent::Failed(upload_failure(status, &body)));
-        }
-    });
-    x.set_onload(on_load.unchecked_ref());
-    let on_error = Closure::once_into_js(move || f2(Sent::Failed(upload_failure(0, ""))));
-    x.set_onerror(on_error.unchecked_ref());
-    let on_abort = Closure::once_into_js(move || f3(Sent::Cancelled));
-    x.set_onabort(on_abort.unchecked_ref());
-    x.send(file);
-    x
+    pub(super) fn set_onprogress(this: &XhrUpload, f: &js_sys::Function);
 }
 
 /// The longest text shown in a preview; longer files are cut there.
@@ -459,15 +389,5 @@ mod tests {
         assert_eq!(o.create_body(&files)["upload_only"], json!(false));
         let c = Target::Collection { id: 4, name: "Trip".into() };
         assert_eq!(Options::default().create_body(&c), json!({"collection_id": 4}));
-    }
-
-    #[test]
-    fn upload_failures_read_as_sentences() {
-        assert_eq!(upload_failure(413, ""), "This file is larger than the link allows.");
-        assert_eq!(
-            upload_failure(409, r#"{"error":"conflict","message":"a file with this name was just uploaded"}"#),
-            "a file with this name was just uploaded"
-        );
-        assert_eq!(upload_failure(0, ""), kit_leptos::api::NOT_CONNECTED);
     }
 }
