@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.2
+
+- Fixed: a release run overtaken by a merge that changes the workflows no longer fails with HTTP 403; it skips publishing with a notice and the newer run releases everything (kit workflows v0.7.3).
+
 ## v0.3.0
 
 - The new web UI replaces the old one and is served at `/`: files, uploads, previews, search, share links, settings and administration, all on the kit in the Encore theme (see What's new). `/next/` and `FILEBRARY_NEXT_UI` are gone.
