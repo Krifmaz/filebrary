@@ -36,6 +36,7 @@ mod starred;
 mod state;
 mod upload;
 
+pub use api::set_star;
 pub use browser::FilesPage;
 /// For `pages/shares`, which answers the browser's Share commands.
 #[allow(unused_imports)]

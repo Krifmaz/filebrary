@@ -15,8 +15,8 @@ publish = false
 
 # The kit, pinned to one tag (keep in step with the server's kit crates).
 [dependencies]
-kit-leptos = { git = "https://github.com/Krifmaz/kit", tag = "v0.3.2" }
-kit-rules = { git = "https://github.com/Krifmaz/kit", tag = "v0.3.2" }
+kit-leptos = { git = "https://github.com/Krifmaz/kit", tag = "v0.7.2" }
+kit-rules = { git = "https://github.com/Krifmaz/kit", tag = "v0.7.2" }
 leptos = { version = "=0.8.23", features = ["csr"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
