@@ -55,6 +55,9 @@ pub struct Inner {
     pub identity: crate::identity::Identity,
     /// Thumbnail and preview generator with its cache (`None` when disabled).
     pub previews: Option<PreviewService>,
+    /// The kit's server crates: settings, notices, bug reports, What's new
+    /// and updates, kept in `<data_dir>/kit.db` (see [`crate::kit`]).
+    pub kit: crate::kit::Kit,
 }
 
 impl Deref for AppState {
@@ -69,8 +72,8 @@ impl AppState {
     ///
     /// # Errors
     ///
-    /// Fails if a source root cannot be opened or the upload directory cannot
-    /// be created.
+    /// Fails if a source root cannot be opened, the upload directory cannot
+    /// be created or the kit's database cannot be opened.
     pub fn new(config: Config, db: SqlitePool, secret: [u8; 32]) -> anyhow::Result<Self> {
         let mut sources = BTreeMap::new();
         for sc in &config.sources {
@@ -103,6 +106,7 @@ impl AppState {
         let content_index = crate::content::open_index(&config)?;
         let auth = crate::auth::AuthRuntime::new(&config);
         let identity = crate::identity::Identity::new(&config);
+        let kit = crate::kit::Kit::open(&config)?;
         let previews = if config.previews.enabled {
             Some(build_previews(&config)?)
         } else {
@@ -125,6 +129,7 @@ impl AppState {
             metrics,
             started_at: std::time::Instant::now(),
             previews,
+            kit,
         })))
     }
 
