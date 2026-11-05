@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en" data-theme="encore">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#161617">
+  <meta name="description" content="Filebrary: a fast, self-hosted file manager">
+  <!-- the app's name: the kit reads it from here (toasts, What's new, the X-Requested-With header) -->
+  <meta name="application-name" content="Filebrary">
+  <title>Filebrary</title>
+  <link data-trunk rel="copy-file" href="static/icon.svg">
+  <!-- main.rs points this at the app's base once it knows it (/next/icon.svg until cutover) -->
+  <link rel="icon" id="favicon" href="icon.svg" type="image/svg+xml">
+  <!-- the kit's colour tokens, the kit's components, the kit template's shell rules, then Filebrary's own -->
+  <link data-trunk rel="css" href="static/css/tokens.css">
+  <link data-trunk rel="css" href="static/css/kit.css">
+  <link data-trunk rel="css" href="static/css/app.css">
+  <link data-trunk rel="css" href="static/css/filebrary.css">
+  <link data-trunk rel="rust" data-wasm-opt="z" data-bin="filebrary-web">
+</head>
+<body>
+  <!-- the kit's shell: the app, the toasts and the dialogs -->
+  <div id="app"></div>
+  <div id="toasts"></div>
+  <div id="modal-root"></div>
+</body>
+</html>

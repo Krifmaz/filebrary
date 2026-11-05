@@ -1,0 +1,49 @@
+/* Filebrary's own rules on top of the kit: the top bar, the phone drawer, the overview and the sign-in card.
+   Only design tokens (tokens.css) are used, so every kit theme draws them. */
+.skip-link { position: absolute; left: -9999px; top: 8px; z-index: 100; }
+.skip-link:focus { left: 8px; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; padding: 8px 12px; }
+#view:focus { outline: none; }
+
+/* the top bar: search, and the menu button on phones */
+.topbar { display: flex; align-items: center; gap: 10px; margin: -6px 0 22px; max-width: var(--content); margin-left: auto; margin-right: auto; }
+.topbar .search { max-width: 560px; }
+.topbar .search .input { width: 100%; border-radius: 12px; }
+.menu-toggle, .drawer-close { display: none; }
+
+/* sidebar extras */
+.nav-note { padding: 8px 12px; }
+.nav a > span:first-child { display: inline-flex; }
+.sidebar-foot .btn.active { background: var(--panel-2); color: var(--text); }
+
+/* the phone drawer: the sidebar slides in over a dimmed page */
+.drawer-bg { display: none; }
+@media (max-width: 900px) {
+  .menu-toggle, .drawer-close { display: inline-flex; }
+  .sidebar { height: 100dvh; overflow-y: auto; }
+  .drawer-bg.open { display: block; position: fixed; inset: 0; z-index: 55; background: rgba(5,5,10,.55); backdrop-filter: blur(2px); animation: fade .15s; }
+  .topbar { margin-top: 0; }
+}
+
+/* the overview */
+.source-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.source-card { display: flex; align-items: center; gap: 14px; padding: 16px; transition: border-color .12s, transform .12s; }
+.source-card:hover { border-color: var(--accent); }
+.source-card:active { transform: scale(.99); }
+.source-icon { display: inline-flex; padding: 10px; border-radius: 12px; background: var(--panel-2); color: var(--accent); }
+.source-icon svg { width: 22px; height: 22px; }
+
+/* sign-in and setup */
+.auth-card .brand { gap: 12px; }
+.auth-title { text-align: center; font-size: 22px; margin-top: 10px; }
+.auth-lead { text-align: center; margin: 6px 0 0; }
+.auth-submit { padding: 12px; justify-content: center; }
+.auth-sso { padding: 12px; justify-content: center; text-align: center; }
+.auth-or { display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 12px; }
+.auth-or::before, .auth-or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.auth-foot { text-align: center; margin: 18px 0 0; }
+.field-err { color: var(--err) !important; }
+.auth-card code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+@media (max-width: 480px) {
+  .auth-wrap { padding: 12px; }
+  .auth-card { padding: 24px 18px; }
+}
