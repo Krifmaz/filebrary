@@ -611,6 +611,98 @@ async fn expiry_and_download_limit() {
 }
 
 #[tokio::test]
+async fn used_up_links_refuse_page_listing_and_download() {
+    let env = setup().await;
+    let (_, admin) = env.user("alice", true, Perms::ALL, "/").await;
+    let gone = |b: &[u8]| json(b)["error"] == "download_limit_reached";
+
+    // A folder link with one download left.
+    let share = env
+        .create(
+            &admin,
+            json!({"source": "files", "paths": ["/docs"], "max_downloads": 1}),
+        )
+        .await;
+    let token = share["token"].as_str().unwrap();
+    let id = share["id"].as_i64().unwrap();
+    let page = format!("/api/public/shares/{token}");
+    let listing = format!("{page}?path=sub");
+    let download = format!("{page}/download?path=a.txt");
+    assert_eq!(env.get(&page).await.0, StatusCode::OK);
+    assert_eq!(env.get(&listing).await.0, StatusCode::OK);
+    assert_eq!(env.get(&download).await.0, StatusCode::OK);
+
+    // Used up: page, listing, zip and file downloads all answer 410.
+    for url in [
+        page.clone(),
+        listing.clone(),
+        download.clone(),
+        format!("{page}/download"),
+    ] {
+        let (s, _, b) = env.get(&url).await;
+        assert_eq!(s, StatusCode::GONE, "{url}");
+        assert!(gone(&b), "{url}");
+    }
+    let (_, v) = env
+        .api(&admin, Method::GET, &format!("/api/shares/{id}"), None)
+        .await;
+    assert_eq!(v["downloads"], 1, "refused requests do not count");
+    assert_eq!(v["expired"], true);
+
+    // Raising the limit brings the page back.
+    let (s, _) = env
+        .api(
+            &admin,
+            Method::PATCH,
+            &format!("/api/shares/{id}"),
+            Some(json!({"max_downloads": 2})),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(env.get(&page).await.0, StatusCode::OK);
+
+    // A used-up password link refuses the page and the unlock too, before
+    // the password is checked.
+    let share = env
+        .create(
+            &admin,
+            json!({"source": "files", "paths": ["photo.jpg"], "password": "hunter2", "max_downloads": 1}),
+        )
+        .await;
+    let token = share["token"].as_str().unwrap();
+    let id = share["id"].as_i64().unwrap();
+    sqlx::query("UPDATE shares SET downloads = 1 WHERE id = ?")
+        .bind(id)
+        .execute(&env.state.db)
+        .await
+        .unwrap();
+    let (s, _, b) = env.get(&format!("/api/public/shares/{token}")).await;
+    assert_eq!(s, StatusCode::GONE);
+    assert!(gone(&b));
+    let (s, _, b) = env
+        .send(
+            Request::post(format!("/api/public/shares/{token}/unlock"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({"password": "hunter2"}).to_string()))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(s, StatusCode::GONE);
+    assert!(gone(&b));
+
+    // Expired beats used up: still indistinguishable from an unknown link.
+    sqlx::query("UPDATE shares SET expires_at = 1 WHERE id = ?")
+        .bind(id)
+        .execute(&env.state.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        env.get(&format!("/api/public/shares/{token}")).await.0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
 async fn drop_link_uploads() {
     let env = setup().await;
     let (_, admin) = env.user("alice", true, Perms::ALL, "/").await;
