@@ -17,6 +17,7 @@
 //! | `/api/diagnostics`, `/api/diagnostics/{id}/test` | kit-server-diagnostics ([`checks`]) |
 //! | `/api/settings`, `/api/settings/schema`, `/api/settings/secret/{key}` | kit-server-settings (`settings.toml`) |
 //! | `GET /api/update`, `POST /api/update`, `POST /api/restart` | kit-server-updates ([`updates`]) |
+//! | `GET /sw.js` | kit-server-health's app-shell worker, once the React UI is gone |
 //!
 //! # Who may do what
 //!
@@ -307,6 +308,21 @@ pub fn router() -> Router<AppState> {
         .merge(kit_server_diagnostics::router())
         .merge(kit_server_settings::router())
         .merge(kit_server_updates::router())
+        .merge(worker())
+}
+
+/// The kit's app-shell service worker at `/sw.js`, made for the Leptos UI's
+/// build, so the web app opens with no connection. Its worker keeps the page
+/// at `/`, so it only goes on once the React UI (which has a `sw.js` of its
+/// own) no longer answers there.
+fn worker() -> Router<AppState> {
+    if crate::web::embedded("sw.js").is_some() {
+        return Router::new();
+    }
+    kit_server_health::worker_router(kit_server_health::Worker::new(
+        "filebrary",
+        crate::web::next_build(),
+    ))
 }
 
 /// Starts the kit's background work: the notices' last state is restored and

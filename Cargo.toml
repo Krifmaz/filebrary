@@ -47,14 +47,14 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 
 # Krifmaz/kit server crates, pinned to one kit release tag. To update: read the
 # kit's CHANGELOG.md, bump every `tag` below together, run the tests.
-kit-server-core = { git = "https://github.com/Krifmaz/kit", tag = "v0.3.2", features = ["sqlite"] }
-kit-server-health = { git = "https://github.com/Krifmaz/kit", tag = "v0.3.2" }
-kit-server-changelog = { git = "https://github.com/Krifmaz/kit", tag = "v0.3.2" }
-kit-server-notices = { git = "https://github.com/Krifmaz/kit", tag = "v0.3.2" }
-kit-server-bugreports = { git = "https://github.com/Krifmaz/kit", tag = "v0.3.2" }
-kit-server-diagnostics = { git = "https://github.com/Krifmaz/kit", tag = "v0.3.2" }
-kit-server-settings = { git = "https://github.com/Krifmaz/kit", tag = "v0.3.2" }
-kit-server-updates = { git = "https://github.com/Krifmaz/kit", tag = "v0.3.2" }
+kit-server-core = { git = "https://github.com/Krifmaz/kit", tag = "v0.7.2", features = ["sqlite"] }
+kit-server-health = { git = "https://github.com/Krifmaz/kit", tag = "v0.7.2" }
+kit-server-changelog = { git = "https://github.com/Krifmaz/kit", tag = "v0.7.2" }
+kit-server-notices = { git = "https://github.com/Krifmaz/kit", tag = "v0.7.2" }
+kit-server-bugreports = { git = "https://github.com/Krifmaz/kit", tag = "v0.7.2" }
+kit-server-diagnostics = { git = "https://github.com/Krifmaz/kit", tag = "v0.7.2" }
+kit-server-settings = { git = "https://github.com/Krifmaz/kit", tag = "v0.7.2" }
+kit-server-updates = { git = "https://github.com/Krifmaz/kit", tag = "v0.7.2" }
 
 [profile.release]
 opt-level = 3

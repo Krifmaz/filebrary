@@ -64,10 +64,14 @@ pub fn toggle_star(ctx: &Ctx, items: Vec<Entry>) {
     let on = !items.iter().all(|e| ctx.starred(e));
     let s = ctx.source.get_untracked();
     kit_leptos::rt::spawn(async move {
+        let mut kept = false;
         for e in &items {
-            if let Err(err) = api::set_star(&s, &e.path, on).await {
-                toast(&err.message, "err");
-                return;
+            match crate::kit::set_star(&s, &e.path, on).await {
+                Ok(k) => kept |= k,
+                Err(err) => {
+                    toast(&err.message, "err");
+                    return;
+                }
             }
         }
         ctx.notes.update(|n| {
@@ -76,7 +80,8 @@ pub fn toggle_star(ctx: &Ctx, items: Vec<Entry>) {
             }
         });
         let what = if items.len() == 1 { items[0].name.clone() } else { plural(items.len(), "item") };
-        toast(&if on { format!("Starred {what}") } else { format!("Took the star off {what}") }, "ok");
+        let done = if on { format!("Starred {what}") } else { format!("Took the star off {what}") };
+        toast(&if kept { format!("{done} – it's sent when the server is back") } else { done }, "ok");
     });
 }
 
