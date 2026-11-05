@@ -1,42 +1,70 @@
-# Release: on a version tag (v1.2.3), build binaries for every platform,
-# publish them to a GitHub release with checksums, and push multi-arch
-# Docker images (default and -full) to ghcr.io.
+# Release: every push to main makes a normal GitHub release vMAJOR.MINOR.PATCH
+# (never a pre-release) through the kit's shared workflows (Krifmaz/kit):
 #
-# Also called by tag-release.yml, because a tag created with GITHUB_TOKEN
-# does not start this workflow by itself.
+#   test     kit-ci: fmt, clippy -D warnings, tests
+#   prepare  kit-release: picks the version. PATCH by default; a pull request
+#            raises MINOR or MAJOR by adding docs/releases/<version>.md, which
+#            is also the release notes (otherwise the commit list).
+#   binaries Filebrary's own: the server with the React UI embedded, for
+#            Linux (static musl, x86_64 + aarch64), macOS and Windows.
+#   docker   kit-docker: ghcr.io/<owner>/filebrary:<version> and :latest, and
+#            the ffmpeg + LibreOffice variant as :<version>-full / :latest-full.
+#   publish  kit-release: notes, SHA256SUMS over every file, the release.
+#
+# Every build is stamped with the release version (APP_VERSION), so the binary,
+# the image and the release all report the same version without a commit that
+# bumps Cargo.toml. Actions -> Release -> Run workflow picks the bump or types
+# the version by hand.
 name: Release
 
 on:
   push:
-    tags: ["v*.*.*"]
+    branches: [main]
   workflow_dispatch:
     inputs:
-      tag:
-        description: Existing tag to (re)build, e.g. v0.1.0
-        required: true
-  workflow_call:
-    inputs:
-      tag:
-        description: Existing tag to build, e.g. v0.1.0
-        required: true
+      bump:
+        description: Which number to bump for the next version
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+      version:
+        description: Or type the version to release (MAJOR.MINOR.PATCH); overrides bump
         type: string
+        default: ""
 
 permissions:
-  contents: read
+  contents: write
+  packages: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
   NODE_VERSION: "22"
-  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
+  test:
+    uses: Krifmaz/kit/.github/workflows/kit-ci.yml@v0.3.2
+    with:
+      rust-dirs: .
+
+  prepare:
+    needs: test
+    uses: Krifmaz/kit/.github/workflows/kit-release.yml@v0.3.2
+    with:
+      stage: prepare
+      app-name: Filebrary
+      bump: ${{ inputs.bump || 'auto' }}
+      version: ${{ inputs.version || '' }}
+
   web:
     name: Build web UI
+    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ env.TAG }}
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -50,9 +78,13 @@ jobs:
           path: web/dist
           if-no-files-found: error
 
+  # kit-release's server build packs a trunk web app next to a Linux binary;
+  # Filebrary embeds its UI at compile time and also ships macOS and Windows
+  # binaries, so it builds them here. The artifacts are named server-*, which
+  # kit-release's publish stage collects into the release.
   binaries:
     name: Binary (${{ matrix.target }})
-    needs: web
+    needs: [prepare, web]
     strategy:
       fail-fast: false
       matrix:
@@ -63,10 +95,10 @@ jobs:
           - { target: aarch64-apple-darwin,       os: macos-latest,     archive: tar.gz }
           - { target: x86_64-pc-windows-msvc,     os: windows-latest,   archive: zip }
     runs-on: ${{ matrix.os }}
+    env:
+      APP_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ env.TAG }}
       - uses: actions/download-artifact@v4
         with:
           name: web-dist
@@ -79,6 +111,14 @@ jobs:
       - name: Install musl tools
         if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Stamp the release version
+        shell: bash
+        run: |
+          # The first `version =` in the root manifest is [workspace.package];
+          # every workspace crate is named filebrary*, so the lock follows.
+          perl -0pi -e "s/^version = \"[^\"]*\"/version = \"$APP_VERSION\"/m" Cargo.toml
+          perl -0pi -e "s/(name = \"filebrary(?:-[a-z0-9-]+)?\"\r?\nversion = )\"[^\"]*\"/\$1\"$APP_VERSION\"/g" Cargo.lock
+          grep -m1 '^version' Cargo.toml
       - name: Build
         shell: bash
         env:
@@ -89,8 +129,7 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          version="${TAG#v}"
-          name="filebrary-${version}-${{ matrix.target }}"
+          name="filebrary-${APP_VERSION}-${{ matrix.target }}"
           mkdir -p "dist/${name}"
           bin=filebrary
           [[ "${{ matrix.target }}" == *windows* ]] && bin=filebrary.exe
@@ -99,82 +138,44 @@ jobs:
           cd dist
           if [[ "${{ matrix.archive }}" == zip ]]; then
             7z a -tzip "${name}.zip" "${name}" > /dev/null
-            file="${name}.zip"
           else
             tar czf "${name}.tar.gz" "${name}"
-            file="${name}.tar.gz"
           fi
-          if command -v sha256sum > /dev/null; then sha256sum "$file" > "$file.sha256"
-          else shasum -a 256 "$file" > "$file.sha256"; fi
           rm -rf "${name}"
           ls -l
       - uses: actions/upload-artifact@v4
         with:
-          name: bin-${{ matrix.target }}
+          name: server-${{ matrix.target }}
           path: dist/*
-
-  github-release:
-    name: Publish GitHub release
-    needs: binaries
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: bin-*
-          path: dist
-          merge-multiple: true
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.TAG }}
-          generate_release_notes: true
-          prerelease: ${{ contains(env.TAG, '-') }}
-          files: dist/*
+          if-no-files-found: error
 
   docker:
-    name: Docker image (${{ matrix.variant }})
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { variant: default, target: runtime, suffix: "" }
-          - { variant: full,    target: full,    suffix: "-full" }
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ env.TAG }}
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/filebrary
-          flavor: |
-            latest=false
-            suffix=${{ matrix.suffix }},onlatest=true
-          tags: |
-            type=semver,pattern={{version}},value=${{ env.TAG }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ env.TAG }}
-            type=raw,value=latest,enable=${{ !contains(env.TAG, '-') }}
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: ${{ matrix.target }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.variant }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
-          provenance: true
-          sbom: true
+    needs: prepare
+    uses: Krifmaz/kit/.github/workflows/kit-docker.yml@v0.3.2
+    with:
+      image: filebrary
+      version: ${{ needs.prepare.outputs.version }}
+      build-args: |
+        APP_VERSION=${{ needs.prepare.outputs.version }}
+
+  # The same image with ffmpeg + LibreOffice (Dockerfile VARIANT=full), tagged
+  # on the same repository as :<version>-full and :latest-full.
+  docker-full:
+    needs: prepare
+    uses: Krifmaz/kit/.github/workflows/kit-docker.yml@v0.3.2
+    with:
+      image: filebrary
+      extra-tags: |
+        ${{ needs.prepare.outputs.version }}-full
+        latest-full
+      build-args: |
+        APP_VERSION=${{ needs.prepare.outputs.version }}
+        VARIANT=full
+
+  publish:
+    needs: [prepare, binaries, docker, docker-full]
+    uses: Krifmaz/kit/.github/workflows/kit-release.yml@v0.3.2
+    with:
+      stage: publish
+      app-name: Filebrary
+      version: ${{ needs.prepare.outputs.version }}
