@@ -44,6 +44,10 @@ pub enum Route {
         /// The tab.
         tab: String,
     },
+    /// `/whats-new`: the changelog (the kit's).
+    WhatsNew,
+    /// `/bug-reports`: the account's bug reports (the kit's).
+    BugReports,
     /// `/admin/<page>`: `users` and the other admin pages.
     Admin {
         /// The page.
@@ -82,6 +86,8 @@ impl Route {
             ["search"] => Route::Search { q: param("q"), kind: param("type") },
             ["settings"] => Route::Settings { tab: "account".into() },
             ["settings", tab] if SETTINGS_TABS.contains(tab) => Route::Settings { tab: tab.to_string() },
+            ["whats-new"] => Route::WhatsNew,
+            ["bug-reports"] => Route::BugReports,
             ["admin"] => Route::Admin { page: "users".into() },
             ["admin", page] => Route::Admin { page: page.to_string() },
             ["files", source, ..] => Route::Files { source: source.to_string(), path: rest(2) },
@@ -103,6 +109,8 @@ impl Route {
             Route::Search { q, kind } => format!("/search{}", crate::api::query(&[("q", q), ("type", kind)])),
             Route::Collections => "/collections".into(),
             Route::Settings { tab } => format!("/settings/{tab}"),
+            Route::WhatsNew => crate::kit::CHANGELOG_PATH.into(),
+            Route::BugReports => "/bug-reports".into(),
             Route::Admin { page } => format!("/admin/{page}"),
             Route::Public { token, path } => format!("/s/{}{}", encode(token), encode_path(path)),
             Route::NotFound => "/404".into(),
@@ -246,6 +254,9 @@ mod tests {
             Route::Collections,
             Route::Settings { tab: "security".into() },
             Route::Admin { page: "users".into() },
+            Route::Admin { page: "diagnostics".into() },
+            Route::WhatsNew,
+            Route::BugReports,
             Route::Public { token: "abc".into(), path: "/sub/x.txt".into() },
         ];
         for r in all {

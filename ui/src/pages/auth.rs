@@ -92,7 +92,7 @@ pub fn SignIn(next: String) -> impl IntoView {
             .await
             {
                 Ok(user) => {
-                    crate::kit::signed_in(user.role() == api::Role::Admin);
+                    crate::kit::signed_in(&user);
                     route::go(next_route, true);
                     session.set.set(Session::SignedIn(user));
                 }
@@ -178,7 +178,7 @@ pub fn Setup() -> impl IntoView {
             .await
             {
                 Ok(user) => {
-                    crate::kit::signed_in(true);
+                    crate::kit::signed_in(&user);
                     route::go(Route::Home, true);
                     session.set.set(Session::SignedIn(user));
                 }
