@@ -46,14 +46,14 @@ env:
 
 jobs:
   test:
-    uses: Krifmaz/kit/.github/workflows/kit-ci.yml@v0.3.2
+    uses: Krifmaz/kit/.github/workflows/kit-ci.yml@v0.7.2
     with:
       rust-dirs: .
       wasm-dirs: ui
 
   prepare:
     needs: test
-    uses: Krifmaz/kit/.github/workflows/kit-release.yml@v0.3.2
+    uses: Krifmaz/kit/.github/workflows/kit-release.yml@v0.7.2
     with:
       stage: prepare
       app-name: Filebrary
@@ -136,7 +136,7 @@ jobs:
 
   docker:
     needs: prepare
-    uses: Krifmaz/kit/.github/workflows/kit-docker.yml@v0.3.2
+    uses: Krifmaz/kit/.github/workflows/kit-docker.yml@v0.7.2
     with:
       image: filebrary
       version: ${{ needs.prepare.outputs.version }}
@@ -147,7 +147,7 @@ jobs:
   # on the same repository as :<version>-full and :latest-full.
   docker-full:
     needs: prepare
-    uses: Krifmaz/kit/.github/workflows/kit-docker.yml@v0.3.2
+    uses: Krifmaz/kit/.github/workflows/kit-docker.yml@v0.7.2
     with:
       image: filebrary
       extra-tags: |
@@ -159,7 +159,7 @@ jobs:
 
   publish:
     needs: [prepare, binaries, docker, docker-full]
-    uses: Krifmaz/kit/.github/workflows/kit-release.yml@v0.3.2
+    uses: Krifmaz/kit/.github/workflows/kit-release.yml@v0.7.2
     with:
       stage: publish
       app-name: Filebrary

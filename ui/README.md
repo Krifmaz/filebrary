@@ -29,7 +29,7 @@ Then open `http://localhost:8080/`. `trunk serve` works too, with `/api` proxied
 | `src/kit.rs` | the kit's features: toasts, What's new, notices, bug reports, diagnostics, self-update, offline start |
 | `src/theme.rs` · `src/icons.rs` | the kit theme on `<html data-theme>`; every icon the pages use that the kit doesn't have yet |
 | `static/css/` | `tokens.css` and `kit.css` copied from the pinned kit (`scripts/sync-kit.sh`), the kit template's `app.css`, then `filebrary.css` and one file per page (`files`, `search`, `shares`, `admin`) |
-| `static/` | the icons, the PWA manifest (the server fills in the branding) and `sw.js`, which retires the old UI's service worker |
+| `static/` | the icons and the PWA manifest (the server fills in the branding) |
 
 ## Checks
 
