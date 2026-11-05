@@ -32,6 +32,18 @@ struct Assets;
 #[allow_missing = true]
 struct NextAssets;
 
+/// The build of the Leptos UI: the hash in the name of its script
+/// (`filebrary-web-<hash>.js`), `None` when `ui/dist` was not built.
+pub fn next_build() -> Option<String> {
+    let mut builds: Vec<String> = NextAssets::iter()
+        .filter_map(|name| {
+            kit_server_health::web_build_of(&name, "filebrary-web-").map(str::to_owned)
+        })
+        .collect();
+    builds.sort();
+    builds.pop()
+}
+
 /// The environment variable that turns the new UI at `/next/` on.
 pub const NEXT_UI_ENV: &str = "FILEBRARY_NEXT_UI";
 

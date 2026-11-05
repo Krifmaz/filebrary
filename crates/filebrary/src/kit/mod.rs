@@ -276,9 +276,11 @@ impl kit_server_diagnostics::Diagnostics for AppState {
 }
 
 /// The health answer: the kit's `{ok, version, server, web}` plus
-/// `status: "ok"`, which Filebrary's probes answered before.
+/// `status: "ok"`, which Filebrary's probes answered before. `web` is the
+/// build of the Leptos UI (the hash in its script's name), so an open tab
+/// sees a new build and reloads into it.
 fn health() -> kit_server_health::Health {
-    let mut h = kit_server_health::Health::new(VERSION, None);
+    let mut h = kit_server_health::Health::new(VERSION, crate::web::next_build());
     h.extra.insert("status".into(), "ok".into());
     h
 }

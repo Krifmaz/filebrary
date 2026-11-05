@@ -50,6 +50,8 @@ pub enum Session {
     Failed(String),
     /// Signed in.
     SignedIn(api::User),
+    /// The server can't be reached: offline mode, as the account this browser last saw.
+    Offline(api::User),
 }
 
 /// The session signal every page can read ([`use_session`]).
@@ -77,7 +79,8 @@ async fn load_session() -> Session {
     match api::me().await {
         Ok(u) => Session::SignedIn(u),
         Err(e) if e.status == 401 || e.status == 403 => Session::SignedOut,
-        Err(e) => Session::Failed(e.message),
+        // offline mode: the account this browser last saw, with the kit's offline banner
+        Err(e) => kit::offline_session(e.status).map(Session::Offline).unwrap_or(Session::Failed(e.message)),
     }
 }
 
@@ -91,7 +94,7 @@ fn App() -> impl IntoView {
         kit_leptos::rt::spawn(async move {
             let s = load_session().await;
             if let Session::SignedIn(u) = &s {
-                kit::signed_in(u.role() == api::Role::Admin);
+                kit::signed_in(u);
             }
             set_session.set(s);
         })
@@ -146,7 +149,7 @@ fn App() -> impl IntoView {
                 };
                 view! { <pages::auth::SignIn next=next/> }.into_any()
             }
-            Session::SignedIn(user) => view! { <shell::Shell user=user/> }.into_any(),
+            Session::SignedIn(user) | Session::Offline(user) => view! { <shell::Shell user=user/> }.into_any(),
         }
     }
 }
