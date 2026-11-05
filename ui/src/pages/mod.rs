@@ -11,17 +11,6 @@ pub mod shares;
 use crate::route::{on_link, url, Route};
 use leptos::prelude::*;
 
-/// A page that is not built yet in this UI: its title and a line saying so, with a link to the overview.
-#[component]
-pub fn Placeholder(#[prop(into)] title: String, #[prop(into)] icon: String) -> impl IntoView {
-    view! {
-        <h1>{title}</h1>
-        <div class="card mt">
-            <div class="empty" inner_html=format!(r#"{}<p class="muted">This page is still being built in the new UI.</p>"#, crate::icons::icon(&icon))></div>
-        </div>
-    }
-}
-
 /// The page for an address the app does not know.
 #[component]
 pub fn NotFound() -> impl IntoView {

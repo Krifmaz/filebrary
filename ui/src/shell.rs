@@ -29,6 +29,8 @@ pub enum Kind {
     Settings,
     /// Administration.
     Admin,
+    /// A page the kit draws (What's new, Bug reports, Diagnostics, Server settings).
+    Kit,
     /// No such page.
     NotFound,
 }
@@ -44,6 +46,8 @@ impl Kind {
             Route::Search { .. } => Kind::Search,
             Route::Collections => Kind::Collections,
             Route::Settings { .. } => Kind::Settings,
+            Route::WhatsNew | Route::BugReports => Kind::Kit,
+            Route::Admin { page } if crate::kit::is_admin_page(page) => Kind::Kit,
             Route::Admin { .. } => Kind::Admin,
             Route::NotFound => Kind::NotFound,
         }
@@ -113,6 +117,7 @@ pub fn Shell(user: User) -> impl IntoView {
             if kit_leptos::modal::confirm(sign_out_question()).await {
                 match api::logout().await {
                     Ok(()) => {
+                        crate::kit::forget();
                         route::go(Route::Login { next: "/".into() }, true);
                         session.set.set(crate::Session::SignedOut);
                     }
@@ -188,6 +193,7 @@ pub fn Shell(user: User) -> impl IntoView {
             });
             view! { <pages::admin::AdminPage page=page/> }.into_any()
         }
+        Kind::Kit => view! { <crate::kit::KitPage route=route admin=admin/> }.into_any(),
         Kind::NotFound => view! { <pages::NotFound/> }.into_any(),
     };
 
@@ -221,7 +227,17 @@ pub fn Shell(user: User) -> impl IntoView {
                     <Show when=move || admin>
                         <div class="nav-label">"Admin"</div>
                         <NavLink to=Route::Admin { page: "users".into() } icon_name="users" label="Users".into() active=is(Kind::Admin) on_go=close/>
+                        {crate::kit::ADMIN_PAGES
+                            .iter()
+                            .map(|(page, label, icon_name)| {
+                                let to = Route::Admin { page: page.to_string() };
+                                let here = to.clone();
+                                let active = Signal::derive(move || route.get() == here);
+                                view! { <NavLink to=to icon_name=icon_name label=label.to_string() active=active on_go=close/> }
+                            })
+                            .collect_view()}
                     </Show>
+                    <crate::kit::HelpLinks route=route on_go=close/>
                 </nav>
                 <div class="sidebar-foot">
                     <div class="grow" style="min-width:0">
@@ -243,7 +259,7 @@ pub fn Shell(user: User) -> impl IntoView {
                     </form>
                     <button class="btn ghost icon" id="theme-btn" title=theme_title aria-label=theme_title on:click=cycle_theme inner_html=icon("palette")></button>
                 </header>
-                <div id="server-notice"></div>
+                <crate::kit::NoticeSlot/>
                 <div id="view" tabindex="-1">{page}</div>
             </main>
         </div>
@@ -260,6 +276,9 @@ mod tests {
         assert_eq!(Kind::of(&Route::Files { source: "b".into(), path: "/".into() }), Kind::Files);
         assert_eq!(Kind::of(&Route::Settings { tab: "security".into() }), Kind::Settings);
         assert_eq!(Kind::of(&Route::NotFound), Kind::NotFound);
+        assert_eq!(Kind::of(&Route::Admin { page: "users".into() }), Kind::Admin);
+        assert_eq!(Kind::of(&Route::Admin { page: "diagnostics".into() }), Kind::Kit);
+        assert_eq!(Kind::of(&Route::WhatsNew), Kind::Kit);
     }
 
     #[test]
