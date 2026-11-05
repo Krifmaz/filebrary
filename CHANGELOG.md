@@ -5,13 +5,11 @@
 - The new web UI replaces the old one and is served at `/`: files, uploads, previews, search, share links, settings and administration, all on the kit in the Encore theme (see What's new). `/next/` and `FILEBRARY_NEXT_UI` are gone.
 - Themes are the kit's (Encore, dark, black for OLED, light, follow the device); the old colour palettes for branding and per user are no longer used, and `/api/me/theme` no longer takes `colours`.
 - Builds, the Docker image and releases build the web UI from `ui/` with trunk; Node.js is no longer needed.
-- The web UI opens with no connection through the kit's service worker (kit v0.7.2), which also replaces the old UI's worker, and stars made while the server is unreachable are sent once it's back.
+- The web UI opens with no connection through the kit's service worker, which also replaces the old UI's worker.
 
 ## v0.2.4
 
-- The new web UI has What's new, Bug reports (with crash logs and export for admins), Diagnostics, server settings, notice banners, self-update and offline start, all from the kit.
-- Uploads to drop links are now chunked and resume after a dropped connection or a reload; public links read `inline=1` as well as `inline=true`.
-- CI builds and tests the new Leptos web UI, release binaries include it, and merged branches are deleted automatically.
+- The new web UI keeps stars made while the server is unreachable and sends them once it's back (kit v0.7.2).
 
 ## v0.2.3
 
@@ -21,6 +19,9 @@
 - New web UI: share links. A Shared page with a filter and one-click cleanup of dead links, a share dialog with expiry presets and drop links, and a public share page with password, browsing, previews and drop uploads with progress.
 - New web UI: Settings (account, security, preferences, appearance), administration (users, groups, per-source permissions, jobs and the search index, branding) and Collections.
 - The new web UI can browse files: list and grid views, selection, a context menu, move, copy, rename, delete with Undo, the trash, stars, tags, resumable uploads with folders, previews and a text editor.
+- The new web UI has What's new, Bug reports (with crash logs and export for admins), Diagnostics, server settings, notice banners, self-update and offline start, all from the kit.
+- Uploads to drop links are now chunked and resume after a dropped connection or a reload; public links read `inline=1` as well as `inline=true`.
+- CI builds and tests the new Leptos web UI, release binaries include it, and merged branches are deleted automatically.
 
 ## v0.2.2
 
