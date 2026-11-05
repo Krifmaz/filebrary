@@ -5,7 +5,7 @@
 //! | toasts with Copy, the details dialog, drag and drop | [`start`] (every page) |
 //! | crash logs | [`start`] catches panics and errors; [`signed_in`] sends what an earlier visit left |
 //! | the connection banner | [`start`]: "Not connected" offline, "The Filebrary server isn't answering" while it's down |
-//! | self-updating web app | [`start`]; it waits while an upload or an unsaved edit holds the page ([`hold`]) |
+//! | self-updating web app | [`start`]; it waits while files upload, an edit is unsaved or a dialog is open |
 //! | notice banners with Check again | [`signed_in`] (admins), drawn in [`NoticeSlot`] |
 //! | What's new | the popup once per release after signing in ([`signed_in`]), the changelog at `/whats-new` ([`WhatsNewPage`]) |
 //! | bug reports | New report anywhere ([`new_report`]), the account's reports at `/bug-reports` ([`BugReportsPage`]) |
@@ -88,53 +88,25 @@ pub fn signed_in(user: &User) {
 
 // ---- self-update -------------------------------------------------------------------------------------------
 
-/// What can hold a new build back: the page reloads into it only once none of these is going on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Hold {
-    /// Files are uploading.
-    Upload,
-    /// A text file has changes that are not saved.
-    Edit,
-}
+/// The update toast's second line while uploads hold a new build back.
+pub const UPLOADS_HOLD: &str = "Waiting for uploads to finish";
 
-impl Hold {
-    /// The update toast's second line while this holds the page.
-    pub fn words(self) -> &'static str {
-        match self {
-            Hold::Upload => "It reloads when the uploads are done",
-            Hold::Edit => "It reloads when your changes are saved",
-        }
-    }
-
-    fn index(self) -> usize {
-        match self {
-            Hold::Upload => 0,
-            Hold::Edit => 1,
-        }
-    }
-}
+/// The update toast's second line while the text editor has unsaved changes.
+pub const UNSAVED_HOLD: &str = "Waiting for your changes to be saved";
 
 thread_local! {
-    static HOLDS: [Cell<u32>; 2] = const { [Cell::new(0), Cell::new(0)] };
+    static UNSAVED: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Says that `what` started (`on`) or ended holding the page. Calls nest: each start needs its end.
-#[allow(dead_code)] // the files pages call it (uploads, the text editor)
-pub fn hold(what: Hold, on: bool) {
-    HOLDS.with(|h| {
-        let c = &h[what.index()];
-        c.set(if on { c.get() + 1 } else { c.get().saturating_sub(1) });
-    });
+/// Says whether the text editor has unsaved changes (a new build waits for them).
+pub fn set_unsaved(on: bool) {
+    UNSAVED.with(|u| u.set(on));
 }
 
-/// Whether `what` holds the page now.
-pub fn held(what: Hold) -> bool {
-    HOLDS.with(|h| h[what.index()].get() > 0)
-}
-
-/// The self-update: the configured app, held by uploads and unsaved edits (an open dialog holds it too).
+/// The self-update: the configured app, waiting while files upload or an edit is unsaved (an open dialog holds
+/// it too).
 fn update_config() -> update::UpdateConfig {
-    update::UpdateConfig::from_config().hold(Hold::Upload.words(), || held(Hold::Upload)).hold(Hold::Edit.words(), || held(Hold::Edit))
+    update::UpdateConfig::from_config().hold(UPLOADS_HOLD, crate::pages::files::uploading).hold(UNSAVED_HOLD, || UNSAVED.with(Cell::get))
 }
 
 // ---- banners -----------------------------------------------------------------------------------------------
@@ -479,18 +451,6 @@ pub fn HelpLinks(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn holds_nest() {
-        assert!(!held(Hold::Upload));
-        hold(Hold::Upload, true);
-        hold(Hold::Upload, true);
-        hold(Hold::Upload, false);
-        assert!(held(Hold::Upload) && !held(Hold::Edit));
-        hold(Hold::Upload, false);
-        hold(Hold::Upload, false);
-        assert!(!held(Hold::Upload));
-    }
 
     #[test]
     fn the_kit_admin_pages() {

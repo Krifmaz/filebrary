@@ -126,6 +126,9 @@ fn other(source: &str, e: &Entry, why: &str) -> impl IntoView {
 #[component]
 pub fn Preview(ctx: Ctx) -> impl IntoView {
     let dirty = RwSignal::new(false);
+    // a new build waits while the editor has unsaved changes
+    Effect::new(move |_| crate::kit::set_unsaved(dirty.get()));
+    on_cleanup(|| crate::kit::set_unsaved(false));
     let close = move || {
         if !dirty.get_untracked() {
             ctx.viewing.set(None);
