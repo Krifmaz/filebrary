@@ -45,6 +45,18 @@ mime_guess = "2.0.5"
 percent-encoding = "2.3.2"
 httpdate = "1.0.3"
 
+# Krifmaz/kit server crates (see `src/kit/`)
+kit-server-core = { workspace = true }
+kit-server-health = { workspace = true }
+kit-server-changelog = { workspace = true }
+kit-server-notices = { workspace = true }
+kit-server-bugreports = { workspace = true }
+kit-server-diagnostics = { workspace = true }
+kit-server-settings = { workspace = true }
+kit-server-updates = { workspace = true }
+# The update card asks GitHub for the newest release.
+reqwest = { workspace = true }
+
 # Data
 sqlx = { workspace = true }
 serde = { workspace = true }
@@ -87,6 +99,10 @@ utoipa = { version = "6.0.0", default-features = false, features = ["macros"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[build-dependencies]
+# Embeds docs/releases/<version>.md (the What's new notes) into the binary.
+kit-server-changelog = { git = "https://github.com/Krifmaz/kit", tag = "v0.3.0", default-features = false }
 
 [dev-dependencies]
 suppaftp = { version = "8", default-features = false, features = ["tokio"] }

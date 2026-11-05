@@ -38,8 +38,11 @@ listen = "0.0.0.0:8080"
 
 The directory that holds Filebrary's own state: the SQLite database
 (`filebrary.db`, with its `-wal` and `-shm` files), the staging area for
-resumable uploads, and `secret.key`, the key that signs sessions and share
-tokens. It is created if it does not exist.
+resumable uploads, `secret.key`, the key that signs sessions and share
+tokens, and `kit.db`: the settings changed in the web UI, notice banners,
+bug reports and crash logs, and each account's What's new state (see
+[Settings in the web UI](#settings-in-the-web-ui)). It is created if it does
+not exist.
 
 |             |                         |
 |-------------|-------------------------|
@@ -1858,3 +1861,20 @@ Working directory for the program.
 |-------------|-----------------------------------------|
 | Type        | path                                    |
 | Default     | the job's private temporary folder      |
+
+## Settings in the web UI
+
+A few settings are changed at run time by an administrator under
+**Settings** in the web UI instead of in `filebrary.toml`. They are saved in
+`<data_dir>/kit.db`. Setting the environment variable sets the value and
+locks it in the UI.
+
+| Setting | Environment | Default | What it does |
+|---------|-------------|---------|--------------|
+| Check for new releases | `FILEBRARY_UPDATE_CHECK` | `true` | Asks GitHub for Filebrary's newest release, at most every six hours, for the update card. Nothing about the server is sent. |
+
+The update card only tells you about a new release: a Docker server is
+updated by pulling the new image (`docker compose pull && docker compose up
+-d`). **Restart server** on the same card ends the process with exit code
+`75`, so it only comes back when the container has a restart policy (for
+example `restart: unless-stopped`) or the service manager restarts it.

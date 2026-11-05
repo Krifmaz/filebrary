@@ -24,6 +24,8 @@
 //! * [`branding`]: branding, themes and the PWA manifest.
 //! * [`search`]: the file index, its watcher and `GET /api/search`.
 //! * [`content`]: full-text content search (`content=` on `GET /api/search`).
+//! * [`kit`]: the Krifmaz kit's server crates (health, What's new, notices,
+//!   bug reports, diagnostics, settings, updates) on Filebrary's accounts.
 //! * [`web`]: the embedded React UI.
 
 #![warn(missing_docs)]
@@ -51,6 +53,7 @@ pub mod db;
 pub mod error;
 pub mod identity;
 pub mod jobs;
+pub mod kit;
 pub mod ops;
 pub mod organize;
 pub mod search;
@@ -91,6 +94,7 @@ pub fn spawn_maintenance(state: AppState) -> tokio::task::JoinHandle<()> {
 /// Builds the complete application router.
 pub fn app(state: AppState) -> Router {
     state.jobs.start(&state);
+    kit::start(&state);
     let mut router = Router::new();
     // WebDAV at /dav (see `dav`), kept in its own block.
     if state.config.webdav {
@@ -98,8 +102,7 @@ pub fn app(state: AppState) -> Router {
     }
     let router = router
         .nest("/api", api::router().merge(ops::api_routes()))
-        .route("/healthz", get(api::health))
-        .route("/health", get(api::health))
+        .merge(kit::router())
         .merge(ops::root_routes())
         .route("/manifest.webmanifest", get(branding::manifest))
         .fallback(web::serve)
