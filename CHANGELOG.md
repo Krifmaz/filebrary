@@ -6,10 +6,7 @@
 - Themes are the kit's (Encore, dark, black for OLED, light, follow the device); the old colour palettes for branding and per user are no longer used, and `/api/me/theme` no longer takes `colours`.
 - Builds, the Docker image and releases build the web UI from `ui/` with trunk; Node.js is no longer needed.
 - The web UI opens with no connection through the kit's service worker, which also replaces the old UI's worker.
-
-## v0.2.4
-
-- The new web UI keeps stars made while the server is unreachable and sends them once it's back (kit v0.7.2).
+- Stars made while the server is unreachable wait and are sent once it's back (kit v0.7.2).
 
 ## v0.2.3
 
